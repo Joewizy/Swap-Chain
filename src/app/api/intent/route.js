@@ -3,8 +3,8 @@
 
 import OpenAI from "openai";
 
-const token = process.env.OPEN_API_KEY || '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';
-if (!token) throw new Error ("No token found");
+const token = process.env.OPEN_API_KEY;
+if (!token) throw new Error("No token found");
 
 export async function main() {
 
