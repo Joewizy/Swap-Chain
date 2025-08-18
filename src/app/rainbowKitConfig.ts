@@ -4,7 +4,6 @@ import { getDefaultConfig } from "@rainbow-me/rainbowkit"
 import { baseSepolia, sepolia, arbitrumSepolia, optimismSepolia, polygonAmoy } from "viem/chains"
 import { lightTheme } from '@rainbow-me/rainbowkit'
 
-// Get WalletConnect project ID from environment or use a fallback
 const projectId = process.env.NEXT_PUBLIC_WALLET_CONNECT_ID || "YOUR_WALLET_CONNECT_PROJECT_ID"
 
 export default getDefaultConfig({

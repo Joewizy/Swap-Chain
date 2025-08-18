@@ -2,30 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { ExtractedIntent, TransactionResult, RelayExecutionResponse } from '@/app/utils/interfaces';
+import { validateSolanaAddress } from './utils/solana';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useWalletClient, usePublicClient } from 'wagmi';
 import toast from 'react-hot-toast';
+import { TESTNET_CONFIG } from '@/app/utils/relay/testnet';
+import { MAINNET_CONFIG } from '@/app/utils/relay/mainnet';
+import { useRelayExecutor } from '@/app/utils/relay-executor';
 
-// Updated token data to match our API
-const TOKENS = [
-  { symbol: 'ETH', name: 'Ethereum', icon: '🔷', chains: ['sepolia', 'base-sepolia', 'arbitrum-sepolia', 'op-sepolia'] },
-  { symbol: 'SOL', name: 'Solana', icon: '🟣', chains: ['solana-devnet', 'eclipse-testnet'] },
-  { symbol: 'BTC', name: 'Bitcoin', icon: '🟡', chains: ['bitcoin-testnet4'] },
-  { symbol: 'MATIC', name: 'Polygon', icon: '🟣', chains: ['polygon-amoy'] },
-];
-
-// Updated chains to match our API
-const CHAINS = [
-  { id: 'sepolia', name: 'Sepolia', icon: '🔷' },
-  { id: 'base-sepolia', name: 'Base Sepolia', icon: '🔵' },
-  { id: 'arbitrum-sepolia', name: 'Arbitrum Sepolia', icon: '🔵' },
-  { id: 'op-sepolia', name: 'OP Sepolia', icon: '🟠' },
-  { id: 'abstract-testnet',	name: 'Abstract Testnet', icon: '🔵' },
-  { id: 'polygon-amoy', name: 'Polygon Amoy', icon: '🟣' },
-  { id: 'solana-devnet', name: 'Solana Devnet', icon: '🟣' },
-  { id: 'eclipse-testnet', name: 'Eclipse Testnet', icon: '🟢' },
-  { id: 'bitcoin-testnet4', name: 'Bitcoin Testnet 4', icon: '🟡' },
-];
 
 export default function Home() {
   // Swap state
@@ -33,8 +17,10 @@ export default function Home() {
   const [buyToken, setBuyToken] = useState('ETH');
   const [sellAmount, setSellAmount] = useState('');
   const [buyAmount, setBuyAmount] = useState('');
+  const [environment, setEnvironment] = useState<'testnet' | 'mainnet'>('testnet');
   const [sourceChain, setSourceChain] = useState('base-sepolia');
   const [targetChain, setTargetChain] = useState('arbitrum-sepolia');
+  const [recipient, setRecipient] = useState('');
   
   // Quote and transaction state
   const [quote, setQuote] = useState<RelayExecutionResponse | null>(null);
@@ -45,16 +31,155 @@ export default function Home() {
   const [aiTask, setAiTask] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [extractedIntent, setExtractedIntent] = useState<ExtractedIntent | null>(null);
+  const [aiSessionId, setAiSessionId] = useState<string>('default');
 
   const { address, isConnected } = useAccount();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
+  const { executeQuote: executeRelayQuote } = useRelayExecutor();
+
+  const activeConfig = environment === 'testnet' ? TESTNET_CONFIG : MAINNET_CONFIG;
+  const getChainById = (id: string | null | undefined) => activeConfig.chains.find(c => c.id === (id || ''));
+  const sourceChainCfg = getChainById(sourceChain);
+  const targetChainCfg = getChainById(targetChain);
+  const availableChains = activeConfig.chains;
+  const availableSourceTokens = activeConfig.tokens.filter(t => sourceChainCfg && t.addresses[sourceChainCfg.chainId] !== undefined);
+  const availableTargetTokens = activeConfig.tokens.filter(t => targetChainCfg && t.addresses[targetChainCfg.chainId] !== undefined);
+
+  // Explorer base URLs for tx link rendering (testnets currently used)
   const explorerBaseUrlByChainId: Record<number, string> = {
     11155111: 'https://sepolia.etherscan.io',
     84532: 'https://sepolia.basescan.org',
     421614: 'https://sepolia.arbiscan.io',
     11155420: 'https://sepolia-optimism.etherscan.io',
     80002: 'https://www.oklink.com/amoy',
+  };
+
+  async function executeQuote(
+    quote: RelayExecutionResponse
+  ): Promise<{ success: boolean; txHash?: string; txLink?: string; error?: string }> {
+    try {
+      const { steps } = quote;
+      let lastTxHash: string | undefined;
+      let lastTxLink: string | undefined;
+      for (const step of steps) {
+        console.log(`Processing step: ${step.id}`);
+        console.log(`Action: ${step.action}`);
+        for (const item of step.items) {
+          if (item.status === 'incomplete') {
+            const { data } = item;
+            if (step.kind === 'transaction' && walletClient) {
+              const txHash = await walletClient.sendTransaction({
+                to: data.to as `0x${string}`,
+                data: (data.data || '0x') as `0x${string}`,
+                value: data.value ? BigInt(data.value) : undefined,
+                gas: data.gas ? BigInt(data.gas) : undefined,
+                maxFeePerGas: data.maxFeePerGas ? BigInt(data.maxFeePerGas) : undefined,
+                maxPriorityFeePerGas: data.maxPriorityFeePerGas ? BigInt(data.maxPriorityFeePerGas) : undefined
+              });
+              console.log(`Transaction submitted: ${txHash}`);
+              lastTxHash = txHash;
+              const chainForTx = data.chainId;
+              if (chainForTx) {
+                const base = explorerBaseUrlByChainId[chainForTx];
+                lastTxLink = base ? `${base}/tx/${txHash}` : undefined;
+              }
+              if (publicClient) {
+                try {
+                  await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
+                } catch {}
+              }
+              if (item.check) {
+                await monitorStatus(item.check.endpoint);
+              }
+            }
+          }
+        }
+      }
+      return { success: true, txHash: lastTxHash, txLink: lastTxLink };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  }
+
+  async function monitorStatus(endpoint: string) {
+    let status = 'pending';
+    while (status !== 'success' && status !== 'failure') {
+      const response = await fetch(`https://api.testnets.relay.link${endpoint}`);
+      const result = await response.json();
+      status = result.status;
+      console.log(`Status: ${status}`);
+      if (status === 'success') {
+        console.log('Execution completed successfully!');
+        break;
+      } else if (status === 'failure') {
+        console.log('Execution failed');
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+
+  // Persist an AI session id for follow-ups
+  useEffect(() => {
+    try {
+      const stored = typeof window !== 'undefined' ? localStorage.getItem('aiSessionId') : null;
+      if (stored) {
+        setAiSessionId(stored);
+      } else {
+        const id = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2);
+        if (typeof window !== 'undefined') localStorage.setItem('aiSessionId', id);
+        setAiSessionId(id);
+      }
+    } catch {}
+  }, []);
+
+  // Reset defaults on environment change
+  useEffect(() => {
+    const cfg = activeConfig;
+    const first = cfg.chains[0]?.id;
+    const second = cfg.chains[1]?.id || cfg.chains[0]?.id;
+    if (first) setSourceChain(first);
+    if (second) setTargetChain(second);
+    const eth = cfg.tokens.find(t => t.symbol === 'ETH');
+    setSellToken(eth ? 'ETH' : (cfg.tokens[0]?.symbol || ''));
+    setBuyToken(eth ? 'ETH' : (cfg.tokens[0]?.symbol || ''));
+  }, [environment]);
+
+  // Ensure token selections remain valid when chains change
+  useEffect(() => {
+    if (sourceChainCfg && !availableSourceTokens.find(t => t.symbol === sellToken)) {
+      setSellToken(availableSourceTokens[0]?.symbol || sellToken);
+    }
+  }, [sourceChain, sourceChainCfg, sellToken, availableSourceTokens]);
+
+  useEffect(() => {
+    if (targetChainCfg && !availableTargetTokens.find(t => t.symbol === buyToken)) {
+      setBuyToken(availableTargetTokens[0]?.symbol || buyToken);
+    }
+  }, [targetChain, targetChainCfg, buyToken, availableTargetTokens]);
+
+  // Map model-normalized chain names to supported ids used in the UI
+  const mapChainToSupported = (chain: string | undefined | null): string | null => {
+    if (!chain) return null;
+    const normalized = chain.toLowerCase();
+    const map: Record<string, string> = {
+      ethereum: environment === 'testnet' ? 'sepolia' : 'ethereum',
+      mainnet: environment === 'testnet' ? 'sepolia' : 'ethereum',
+      eth: environment === 'testnet' ? 'sepolia' : 'ethereum',
+      base: environment === 'testnet' ? 'base-sepolia' : 'base',
+      arbitrum: environment === 'testnet' ? 'arbitrum-sepolia' : 'arbitrum',
+      arb: environment === 'testnet' ? 'arbitrum-sepolia' : 'arbitrum',
+      optimism: environment === 'testnet' ? 'op-sepolia' : 'optimism',
+      op: environment === 'testnet' ? 'op-sepolia' : 'optimism',
+      polygon: environment === 'testnet' ? 'polygon-amoy' : 'polygon',
+      matic: environment === 'testnet' ? 'polygon-amoy' : 'polygon',
+      solana: environment === 'testnet' ? 'solana-devnet' : 'solana',
+      eclipse: 'eclipse-testnet',
+    };
+    return map[normalized] || null;
   };
 
   // Switch tokens
@@ -79,6 +204,19 @@ export default function Home() {
       return;
     }
 
+    // Validate recipient for Solana target
+    const isTargetSolana = targetChain === 'solana' || targetChain === 'solana-devnet' || targetChain === 'eclipse-testnet';
+    if (isTargetSolana) {
+      if (!recipient) {
+        setAiResponse('Please enter a Solana recipient address.');
+        return;
+      }
+      if (!validateSolanaAddress(recipient)) {
+        setAiResponse('Invalid Solana address. Please check and try again.');
+        return;
+      }
+    }
+
     setIsLoading(true);
     
     try {
@@ -89,8 +227,10 @@ export default function Home() {
           sourceChain,
           targetChain,
           token: sellToken,
+          destinationToken: buyToken,
           amount: sellAmount,
-          userAddress: address
+          userAddress: address,
+          recipient: isTargetSolana ? recipient : undefined
         })
       });
 
@@ -102,8 +242,8 @@ export default function Home() {
       
       if (quoteData.success) {
         setQuote(quoteData);
-        setBuyAmount(quoteData.amount);
-        setAiResponse(`Got your quote! You'll receive ${quoteData.amount} ${sellToken} on ${targetChain}.`);
+        setBuyAmount(quoteData.quote?.details?.currencyOut?.amountFormatted || quoteData.amount);
+        setAiResponse(`Got your quote! Route: ${quoteData.fromChain} → ${quoteData.toChain}.`);
       } else {
         throw new Error('Invalid quote response');
       }
@@ -115,7 +255,7 @@ export default function Home() {
     }
   };
 
-  // Simple execute handler that calls executeQuote and toasts a tx link
+  // Execute handler using custom executor (restored)
   const handleExecute = async () => {
     if (!quote || !isConnected || !address) {
       setAiResponse('Please connect your wallet and get a quote first.');
@@ -196,88 +336,6 @@ export default function Home() {
     }
   };
 
-  async function executeQuote(
-    quote: RelayExecutionResponse
-  ): Promise<{ success: boolean; txHash?: string; txLink?: string; error?: string }> {
-    try {
-      const { steps } = quote;
-      let lastTxHash: string | undefined;
-      let lastTxLink: string | undefined;
-      // Process each step
-      for (const step of steps) {
-        console.log(`Processing step: ${step.id}`);
-        console.log(`Action: ${step.action}`);
-        
-        // Process each item in the step
-        for (const item of step.items) {
-          if (item.status === 'incomplete') {
-            const { data } = item;
-            
-            if (step.kind === 'transaction' && walletClient) {
-              // Submit the transaction
-              const txHash = await walletClient.sendTransaction({
-                to: data.to as `0x${string}`,
-                data: (data.data || '0x') as `0x${string}`,
-                value: data.value ? BigInt(data.value) : undefined,
-                gas: data.gas ? BigInt(data.gas) : undefined,
-                maxFeePerGas: data.maxFeePerGas ? BigInt(data.maxFeePerGas) : undefined,
-                maxPriorityFeePerGas: data.maxPriorityFeePerGas ? BigInt(data.maxPriorityFeePerGas) : undefined
-              });
-
-              console.log(`Transaction submitted: ${txHash}`);
-              lastTxHash = txHash;
-              const chainForTx = data.chainId;
-              if (chainForTx) {
-                const base = explorerBaseUrlByChainId[chainForTx];
-                lastTxLink = base ? `${base}/tx/${txHash}` : undefined;
-              }
-              
-              // Wait for receipt if possible
-              if (publicClient) {
-                try {
-                  await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
-                } catch {}
-              }
-
-              // Monitor the status using the check endpoint
-              if (item.check) {
-                await monitorStatus(item.check.endpoint);
-              }
-            }
-          }
-        }
-      }
-
-      return { success: true, txHash: lastTxHash, txLink: lastTxLink };
-    } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
-    }
-  }
-
-  // Function to monitor execution status
-    async function monitorStatus(endpoint: string) {
-      let status = 'pending';
-      
-      while (status !== 'success' && status !== 'failure') {
-        const response = await fetch(`https://api.testnets.relay.link${endpoint}`);
-        const result = await response.json();
-        status = result.status;
-        
-        console.log(`Status: ${status}`);
-        
-        if (status === 'success') {
-          console.log('Execution completed successfully!');
-          break;
-        } else if (status === 'failure') {
-          console.log('Execution failed');
-          break;
-        }
-        
-        // Wait before checking again
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-    }
-
   // Handle AI intent extraction
   const handleAiIntent = async () => {
     if (!aiTask.trim()) return;
@@ -288,7 +346,7 @@ export default function Home() {
       const response = await fetch('/api/intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: aiTask })
+        body: JSON.stringify({ message: aiTask, sessionId: aiSessionId })
       });
 
       if (!response.ok) {
@@ -299,29 +357,49 @@ export default function Home() {
       console.log("AI result", result);
       
       if (result.type === 'clarify') {
-        setAiResponse(result.clarifyMessage);
+        const suggestions = Array.isArray(result.suggestions) && result.suggestions.length
+          ? ` Suggestions: ${result.suggestions.join(' | ')}`
+          : '';
+        setAiResponse((result.clarifyMessage || 'Please provide more details.') + suggestions);
         return;
       }
-      
+
+      if (result.type === 'route_suggestion') {
+        const text = result.message
+          || `Suggested route: ${result.suggestedRoute || 'N/A'} | Time: ${result.estimatedTime || '—'} | Fees: ${result.estimatedFees || '—'}`;
+        setAiResponse(text);
+        return;
+      }
+
+      if (result.type === 'partial') {
+        if (result.token) setSellToken(result.token);
+        if (result.amount) setSellAmount(String(result.amount));
+        const src = mapChainToSupported(result.sourceChain);
+        if (src) setSourceChain(src);
+        const suggestions = Array.isArray(result.suggestions) && result.suggestions.length
+          ? ` Suggestions: ${result.suggestions.join(' | ')}`
+          : '';
+        setAiResponse((result.clarifyMessage || 'I need a bit more info to proceed.') + suggestions);
+        return;
+      }
+
       if (result.type === 'intent') {
         setExtractedIntent(result);
-        
-        // Auto-fill the form with extracted data
         if (result.token) {
           setSellToken(result.token);
           setBuyToken(result.token);
         }
-        if (result.amount) {
-          setSellAmount(result.amount.toString());
+        if (result.amount) setSellAmount(String(result.amount));
+        const mappedSource = mapChainToSupported(result.sourceChain);
+        const mappedTarget = mapChainToSupported(result.targetChain);
+        if (mappedSource) setSourceChain(mappedSource);
+        if (mappedTarget) setTargetChain(mappedTarget);
+        if (!mappedSource || !mappedTarget) {
+          setAiResponse('I parsed your intent, but one or both chains are not supported on testnets here. Please choose from the dropdowns.');
+          return;
         }
-        if (result.sourceChain) {
-          setSourceChain(result.sourceChain.toLowerCase());
-        }
-        if (result.targetChain) {
-          setTargetChain(result.targetChain.toLowerCase());
-        }
-
-        setAiResponse(`I extracted your intent: ${result.amount} ${result.token} from ${result.sourceChain} to ${result.targetChain}. I've filled in the form for you to review.`);
+        setAiResponse(result.message || `I extracted your intent: ${result.amount} ${result.token} from ${result.sourceChain} to ${result.targetChain}. I've filled in the form for you to review.`);
+        return;
       }
       
     } catch (error) {
@@ -336,15 +414,18 @@ export default function Home() {
       {/* Animated background */}
       <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-blue-500/10 animate-pulse"></div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(0,228,255,0.15),transparent_50%)]"></div>
+      {/* Fixed wallet connect at top-right */}
+      <div className="fixed top-4 right-4 z-20">
+        <ConnectButton />
+      </div>
       
-      <div className="relative z-10 max-w-5xl mx-auto pt-6 px-4">
+      <div className="relative z-10 max-w-3xl mx-auto pt-6 px-4">
         {/* Global Toaster is provided in layout.tsx */}
-        {/* Header with wallet connection */}
-        <div className="flex justify-between items-center mb-6">
+        {/* Header */}
+        <div className="flex justify-start items-center mb-6">
           <h1 className="text-3xl font-bold text-white">
             Swap Chain
           </h1>
-          <ConnectButton />
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -354,6 +435,7 @@ export default function Home() {
             <h2 className="text-lg font-semibold mb-4 text-white">
               Cross-Chain Swap
             </h2>
+            
             
             {/* Source Chain & Token */}
             <div className="bg-slate-700/30 rounded-xl p-3 mb-3 border border-slate-600/30">
@@ -372,7 +454,7 @@ export default function Home() {
                   className="w-full bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                   disabled={!isConnected}
                 >
-                  {CHAINS.map((chain) => (
+                  {availableChains.map((chain) => (
                     <option key={chain.id} value={chain.id}>
                       {chain.icon} {chain.name}
                     </option>
@@ -388,7 +470,7 @@ export default function Home() {
                   className="flex-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                   disabled={!isConnected}
                 >
-                  {TOKENS.map((token) => (
+                  {availableSourceTokens.map((token) => (
                     <option key={token.symbol} value={token.symbol}>
                       {token.icon} {token.symbol}
                     </option>
@@ -435,7 +517,7 @@ export default function Home() {
                   className="w-full bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                   disabled={!isConnected}
                 >
-                  {CHAINS.map((chain) => (
+                  {availableChains.map((chain) => (
                     <option key={chain.id} value={chain.id}>
                       {chain.icon} {chain.name}
                     </option>
@@ -451,7 +533,7 @@ export default function Home() {
                   className="flex-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                   disabled={!isConnected}
                 >
-                  {TOKENS.map((token) => (
+                  {availableTargetTokens.map((token) => (
                     <option key={token.symbol} value={token.symbol}>
                       {token.icon} {token.symbol}
                     </option>
@@ -465,6 +547,19 @@ export default function Home() {
                   className="flex-1 bg-slate-700/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-slate-300"
                 />
               </div>
+
+              {/* Recipient for Solana */}
+              {(targetChain === 'solana' || targetChain === 'solana-devnet' || targetChain === 'eclipse-testnet') && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={recipient}
+                    onChange={(e) => setRecipient(e.target.value)}
+                    placeholder="Recipient (Solana address)"
+                    className="w-full bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent placeholder-slate-400"
+                  />
+                </div>
+              )}
             </div>
 
             {/* Quote Details */}
@@ -476,13 +571,33 @@ export default function Home() {
                     <span className="text-slate-400">Route:</span>
                     <span className="text-white">{quote.fromChain} → {quote.toChain}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between break-all">
                     <span className="text-slate-400">Request ID:</span>
-                    <span className="text-white font-mono">{quote.requestId}</span>
+                    <span className="text-white font-mono break-all">{quote.requestId}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Steps:</span>
-                    <span className="text-white">{quote.steps?.length || 0} steps</span>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="bg-slate-800/40 rounded-lg p-2">
+                      <div className="text-slate-400">Gas Fees</div>
+                      <div className="text-white font-medium">${Number(quote.quote?.fees?.gas?.amountUsd || 0).toFixed(2)}</div>
+                    </div>
+                    <div className="bg-slate-800/40 rounded-lg p-2">
+                      <div className="text-slate-400">Total Fees</div>
+                      <div className="text-white font-medium">
+                        ${(() => {
+                          const gas = Number(quote.quote?.fees?.gas?.amountUsd || 0);
+                          const relayer = Number(quote.quote?.fees?.relayerService?.amountUsd || 0);
+                          return (gas + relayer).toFixed(2);
+                        })()}
+                      </div>
+                    </div>
+                    <div className="bg-slate-800/40 rounded-lg p-2">
+                      <div className="text-slate-400">Est. Time</div>
+                      <div className="text-white font-medium">{quote.quote?.details?.timeEstimate ? `${quote.quote.details.timeEstimate} min` : '—'}</div>
+                    </div>
+                    <div className="bg-slate-800/40 rounded-lg p-2">
+                      <div className="text-slate-400">Steps</div>
+                      <div className="text-white font-medium">{quote.steps?.length || 0}</div>
+                    </div>
                   </div>
                 </div>
               </div>

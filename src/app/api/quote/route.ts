@@ -1,49 +1,56 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const SUPPORTED_CHAINS = {
-  'sepolia': 11155111,
-  'base-sepolia': 84532,
-  'arbitrum-sepolia': 421614,
-  'op-sepolia': 11155420,
-  'polygon-amoy': 80002,
-  'abstract-testnet': 11124,
-  'solana-devnet': 1936682084,
-  'eclipse-testnet': 1118190,
-  'bitcoin-testnet4': 9092725
-};
-
-const SUPPORTED_TOKENS = ['ETH', 'SOL', 'BTC', 'MATIC'];
+import { TESTNET_CONFIG } from '@/app/utils/relay/testnet';
+import { MAINNET_CONFIG } from '@/app/utils/relay/mainnet';
+import { RelayConfig, TokenConfig } from '@/app/utils/relay/types';
+import { parseUnits } from 'viem';
 
 export async function POST(request: NextRequest) {
   try {
-    const { sourceChain, targetChain, token, amount, userAddress } = await request.json();
+    const { sourceChain, targetChain, token, destinationToken, amount, userAddress, recipient } = await request.json();
 
     if (!sourceChain || !targetChain || !token || !amount || !userAddress) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const sourceChainId = SUPPORTED_CHAINS[sourceChain.toLowerCase() as keyof typeof SUPPORTED_CHAINS];
-    const targetChainId = SUPPORTED_CHAINS[targetChain.toLowerCase() as keyof typeof SUPPORTED_CHAINS];
-    
-    if (!sourceChainId || !targetChainId) {
-      return NextResponse.json({ error: 'Unsupported chain' }, { status: 400 });
+    const sellToken = String(token).toUpperCase();
+    const buyToken = String(destinationToken || token).toUpperCase();
+
+    // Resolve chains and environment config
+    const { config, origin, destination, error } = resolveEnvironmentAndChains(sourceChain, targetChain);
+    if (error) {
+      return NextResponse.json({ error }, { status: 400 });
     }
 
-    if (!SUPPORTED_TOKENS.includes(token.toUpperCase())) {
-      return NextResponse.json({ error: `Unsupported token. Supported tokens: ${SUPPORTED_TOKENS.join(', ')}` }, { status: 400 });
+    const sourceChainId = origin!.chainId;
+    const targetChainId = destination!.chainId;
+
+    // Supported tokens from config (uppercased for case-insensitive checks)
+    const supportedSymbols = new Set<string>(
+      config!.tokens.map((tokenCfg) => tokenCfg.symbol.toUpperCase())
+    );
+    if (!supportedSymbols.has(sellToken) || !supportedSymbols.has(buyToken)) {
+      return NextResponse.json({ error: `Unsupported token. Supported tokens: ${Array.from(supportedSymbols).join(', ')}` }, { status: 400 });
+    }
+
+    // If bridging to Solana, a valid recipient is required
+    const isDestinationSolana = isSolanaChain(targetChainId);
+    if (isDestinationSolana && (!recipient || typeof recipient !== 'string')) {
+      return NextResponse.json({ error: 'Recipient (Solana address) is required when bridging to Solana.' }, { status: 400 });
     }
 
     // Get quote from Relay API
-    const quoteResponse = await fetch('https://api.testnets.relay.link/quote', {
+    const endpoint = config!.apiEndpoint;
+    const quoteResponse = await fetch(`${endpoint}/quote`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         user: userAddress,
+        recipient: isDestinationSolana ? recipient : undefined,
         originChainId: sourceChainId,
         destinationChainId: targetChainId,
-        originCurrency: getNativeTokenAddress(sourceChainId),
-        destinationCurrency: getNativeTokenAddress(targetChainId),
-        amount: convertToSmallestUnit(amount, token),
+        originCurrency: getCurrencyAddressFor(config!, sourceChainId, sellToken),
+        destinationCurrency: getCurrencyAddressFor(config!, targetChainId, buyToken),
+        amount: convertToSmallestUnit(config!, amount, sellToken),
         tradeType: 'EXACT_INPUT'
       })
     });
@@ -56,16 +63,15 @@ export async function POST(request: NextRequest) {
     const quoteData = await quoteResponse.json();
     const steps = quoteData.steps;
 
-    // Return the quote with steps for client-side execution
     return NextResponse.json({
       success: true,
       requestId: quoteData.steps?.[0]?.requestId,
       amount: amount,
-      token: token,
+      token: sellToken,
       fromChain: sourceChain,
       toChain: targetChain,
       status: 'pending',
-      steps: steps, // Client needs to execute these steps
+      steps: steps,
       quote: quoteData
     });
   } catch (error) {
@@ -75,6 +81,14 @@ export async function POST(request: NextRequest) {
       error: error instanceof Error ? error.message : 'Unknown error' 
     }, { status: 500 });
   }
+}
+
+function isSolanaChain(chainId: number): boolean {
+  return [792703809, 1936682084, 1118190].includes(chainId);
+}
+
+function isEvmChain(chainId: number): boolean {
+  return [11155111, 84532, 421614, 11155420, 80002, 1, 10, 8453, 42161, 137].includes(chainId);
 }
 
 function getNativeTokenAddress(chainId: number): string {
@@ -89,8 +103,48 @@ function getNativeTokenAddress(chainId: number): string {
   return '0x0000000000000000000000000000000000000000';
 }
 
-function convertToSmallestUnit(amount: string, token: string): string {
-  const decimals: { [key: string]: number } = { 'ETH': 18, 'SOL': 9, 'BTC': 8, 'MATIC': 18 };
-  const decimal = decimals[token.toUpperCase()] || 18;
-  return BigInt(Math.floor(parseFloat(amount) * Math.pow(10, decimal))).toString();
+function convertToSmallestUnit(config: RelayConfig, amount: string, token: string): string {
+  const tokenConfig = findToken(config, token);
+  const decimals = tokenConfig?.decimals ?? (token.toUpperCase() === 'BTC' ? 8 : 18);
+  return parseUnits(amount, decimals).toString();
+}
+
+function getCurrencyAddressFor(config: RelayConfig, chainId: number, symbol: string): string {
+  const tokenConfig = findToken(config, symbol);
+  const fromConfig = tokenConfig?.addresses?.[chainId];
+  if (fromConfig) return fromConfig;
+
+  // Fallbacks for native
+  if (isEvmChain(chainId) && (symbol === 'ETH' || symbol === 'MATIC')) {
+    return '0x0000000000000000000000000000000000000000';
+  }
+  if (isSolanaChain(chainId) && symbol === 'SOL') {
+    return '11111111111111111111111111111111';
+  }
+  return getNativeTokenAddress(chainId);
+}
+
+function findToken(config: RelayConfig, symbol: string): TokenConfig | undefined {
+  return config.tokens.find(t => t.symbol.toUpperCase() === symbol.toUpperCase());
+}
+
+function resolveEnvironmentAndChains(sourceChain: string, targetChain: string): { config?: RelayConfig; origin?: { id: string; chainId: number }; destination?: { id: string; chainId: number }; error?: string } {
+  const sourceIdLower = sourceChain.toLowerCase();
+  const targetIdLower = targetChain.toLowerCase();
+
+  const testnetSourceChain = TESTNET_CONFIG.chains.find(c => c.id === sourceIdLower);
+  const testnetTargetChain = TESTNET_CONFIG.chains.find(c => c.id === targetIdLower);
+  const mainnetSourceChain = MAINNET_CONFIG.chains.find(c => c.id === sourceIdLower);
+  const mainnetTargetChain = MAINNET_CONFIG.chains.find(c => c.id === targetIdLower);
+
+  if (testnetSourceChain && testnetTargetChain) {
+    return { config: TESTNET_CONFIG, origin: { id: testnetSourceChain.id, chainId: testnetSourceChain.chainId }, destination: { id: testnetTargetChain.id, chainId: testnetTargetChain.chainId } };
+  }
+  if (mainnetSourceChain && mainnetTargetChain) {
+    return { config: MAINNET_CONFIG, origin: { id: mainnetSourceChain.id, chainId: mainnetSourceChain.chainId }, destination: { id: mainnetTargetChain.id, chainId: mainnetTargetChain.chainId } };
+  }
+  if ((testnetSourceChain && !testnetTargetChain) || (mainnetSourceChain && !mainnetTargetChain) || (testnetTargetChain && !testnetSourceChain) || (mainnetTargetChain && !mainnetSourceChain)) {
+    return { error: 'Cannot bridge between testnet and mainnet environments' };
+  }
+  return { error: 'Unsupported chain' };
 }

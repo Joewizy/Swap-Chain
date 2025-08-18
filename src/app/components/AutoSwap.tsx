@@ -2,7 +2,7 @@ import { AutoSwappr, TOKEN_ADDRESSES } from 'autoswap-sdk';
 
 // Initialize the SDK
 const autoswappr = new AutoSwappr({
-  contractAddress: 'AUTOSWAPPR_CONTRACT_ADDRESS',
+  contractAddress: '0x5b08cbdaa6a2338e69fad7c62ce20204f1666fece27288837163c19320b9496',
   rpcUrl: 'https://starknet-mainnet.public.blastapi.io',
   accountAddress: 'YOUR_ACCOUNT_ADDRESS',
   privateKey: 'YOUR_PRIVATE_KEY',
