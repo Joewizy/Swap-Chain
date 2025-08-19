@@ -1,21 +1,25 @@
+// app/layout.tsx
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
+import Nav from "../components/Navigation";
 
-const geist = Geist({
+const geistSans = Geist({
   subsets: ["latin"],
 });
 
-
 export const metadata: Metadata = {
   title: "My App",
-  description: "Landing + Dashboard with Geist font via Google Fonts",
+  description: "Next.js app with Geist font and nav",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={geist.className}>{children}</body>
+      <body className={`${geistSans.className} bg-[#fafafa] flex`}>
+        <Nav />
+        <main className="p-6">{children}</main>
+      </body>
     </html>
   );
 }
