@@ -9,6 +9,8 @@ import toast from 'react-hot-toast';
 import { TESTNET_CONFIG } from '@/app/utils/relay/testnet';
 import { MAINNET_CONFIG } from '@/app/utils/relay/mainnet';
 import { useRelayExecutor } from '@/app/utils/relay-executor';
+import { executeSwap as executeStarknetSwap, TOKEN_ADDRESSES as ST_TOKENS } from './components/AutoSwap';
+import { useAccount as useStarknetAccount, useConnect as useStarknetConnect, useDisconnect as useStarknetDisconnect } from '@starknet-react/core';
 
 
 export default function Home() {
@@ -18,6 +20,12 @@ export default function Home() {
   const [sellAmount, setSellAmount] = useState('');
   const [buyAmount, setBuyAmount] = useState('');
   const [environment, setEnvironment] = useState<'testnet' | 'mainnet'>('testnet');
+  const [swapDomain, setSwapDomain] = useState<'evm' | 'starknet'>('evm');
+  // Starknet swap state
+  const [starkSellToken, setStarkSellToken] = useState<'STRK' | 'ETH' | 'USDC' | 'USDT'>('STRK');
+  const [starkBuyToken, setStarkBuyToken] = useState<'STRK' | 'ETH' | 'USDC' | 'USDT'>('STRK');
+  const [starkSellAmount, setStarkSellAmount] = useState('');
+  const [starkBuyAmount, setStarkBuyAmount] = useState('');
   const [sourceChain, setSourceChain] = useState('base-sepolia');
   const [targetChain, setTargetChain] = useState('arbitrum-sepolia');
   const [recipient, setRecipient] = useState('');
@@ -37,6 +45,7 @@ export default function Home() {
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
   const { executeQuote: executeRelayQuote } = useRelayExecutor();
+  const { address: starkAddress, status: starkStatus } = useStarknetAccount();
 
   const activeConfig = environment === 'testnet' ? TESTNET_CONFIG : MAINNET_CONFIG;
   const getChainById = (id: string | null | undefined) => activeConfig.chains.find(c => c.id === (id || ''));
@@ -429,12 +438,43 @@ export default function Home() {
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          
+
+          {/* Domain Tabs */}
+          <div className="lg:col-span-2 flex items-center gap-2">
+            <button
+              onClick={() => setSwapDomain('evm')}
+              className={`px-3 py-1 text-sm rounded-lg border ${swapDomain === 'evm' ? 'bg-cyan-600 text-white border-cyan-500' : 'bg-slate-800 text-slate-300 border-slate-700'}`}
+            >
+              EVM
+            </button>
+            <button
+              onClick={() => setSwapDomain('starknet')}
+              className={`px-3 py-1 text-sm rounded-lg border ${swapDomain === 'starknet' ? 'bg-cyan-600 text-white border-cyan-500' : 'bg-slate-800 text-slate-300 border-slate-700'}`}
+            >
+              Starknet
+            </button>
+          </div>
+
           {/* Swap Interface */}
+          {swapDomain === 'evm' ? (
           <div className="bg-slate-800/50 backdrop-blur-lg rounded-2xl border border-slate-700/50 p-4">
             <h2 className="text-lg font-semibold mb-4 text-white">
               Cross-Chain Swap
             </h2>
+            {/* Environment Toggle */}
+            <div className="flex items-center gap-3 mb-3">
+              <span className={`text-xs ${environment === 'testnet' ? 'text-cyan-300' : 'text-slate-400'}`}>Testnet</span>
+              <button
+                onClick={() => setEnvironment(prev => prev === 'testnet' ? 'mainnet' : 'testnet')}
+                className="relative inline-flex h-6 w-12 items-center rounded-full bg-slate-700 border border-slate-600"
+                disabled={!isConnected}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${environment === 'mainnet' ? 'translate-x-6' : 'translate-x-1'}`}
+                />
+              </button>
+              <span className={`text-xs ${environment === 'mainnet' ? 'text-cyan-300' : 'text-slate-400'}`}>Mainnet</span>
+            </div>
             
             
             {/* Source Chain & Token */}
@@ -642,6 +682,124 @@ export default function Home() {
               </div>
             )}
           </div>
+          ) : (
+          <div className="bg-slate-800/50 backdrop-blur-lg rounded-2xl border border-slate-700/50 p-4">
+            <h2 className="text-lg font-semibold mb-4 text-white">Starknet Swap</h2>
+            <StarknetConnectPanel />
+            <div className="mt-4 text-sm text-slate-300">
+              <p>Supported tokens: STRK, ETH, USDC, USDT</p>
+            </div>
+            {/* Starknet form */}
+            <div className="mt-4 bg-slate-700/30 rounded-xl p-3 border border-slate-600/30">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-slate-300">You Pay</label>
+                <div className="text-xs text-slate-400">Balance: — {starkSellToken}</div>
+              </div>
+              <div className="flex gap-2 mb-2">
+                <select
+                  value={starkSellToken}
+                  onChange={(e) => setStarkSellToken(e.target.value as any)}
+                  className="flex-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                >
+                  {['STRK','ETH','USDC','USDT'].map((sym) => (
+                    <option key={sym} value={sym}>{sym}</option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  value={starkSellAmount}
+                  onChange={(e) => setStarkSellAmount(e.target.value)}
+                  placeholder="0.0"
+                  className="flex-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent placeholder-slate-400"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-center my-3">
+              <button
+                onClick={() => {
+                  const s = starkSellToken; const b = starkBuyToken;
+                  const sa = starkSellAmount; const ba = starkBuyAmount;
+                  setStarkSellToken(b); setStarkBuyToken(s);
+                  setStarkSellAmount(ba); setStarkBuyAmount(sa);
+                }}
+                className="p-2 rounded-full bg-cyan-500/20 hover:bg-cyan-500/30 transition-colors border border-cyan-500/30"
+                disabled={starkStatus !== 'connected'}
+              >
+                <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="bg-slate-700/30 rounded-xl p-3 border border-slate-600/30">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-slate-300">You Receive</label>
+                <div className="text-xs text-slate-400">Balance: — {starkBuyToken}</div>
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={starkBuyToken}
+                  onChange={(e) => setStarkBuyToken(e.target.value as any)}
+                  className="flex-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                >
+                  {['STRK','ETH','USDC','USDT'].map((sym) => (
+                    <option key={sym} value={sym}>{sym}</option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  value={starkBuyAmount}
+                  readOnly
+                  placeholder="0.0"
+                  className="flex-1 bg-slate-700/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-slate-300"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                disabled={starkStatus !== 'connected' || !starkSellAmount}
+                className="flex-1 bg-slate-700/50 text-slate-300 py-2 px-3 rounded-lg font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border border-slate-600/50 text-sm"
+              >
+                Get Quote
+              </button>
+              <button
+                onClick={async () => {
+                  if (starkStatus !== 'connected' || !starkSellAmount) return;
+                  const tokenMap: Record<string, string> = {
+                    STRK: ST_TOKENS.STRK,
+                    ETH: ST_TOKENS.ETH,
+                    USDC: ST_TOKENS.USDC,
+                    USDT: ST_TOKENS.USDT,
+                  };
+                  const fromAddr = tokenMap[starkSellToken];
+                  const toAddr = tokenMap[starkBuyToken];
+                  setIsLoading(true);
+                  try {
+                    const res = await executeStarknetSwap(fromAddr, toAddr, starkSellAmount);
+                    if (res.success) {
+                      toast.success('Starknet swap submitted' + (res.txHash ? `: ${res.txHash}` : ''));
+                      setStarkSellAmount('');
+                      setStarkBuyAmount('');
+                    } else {
+                      toast.error('Swap failed: ' + (res.error || 'Unknown error'));
+                    }
+                  } catch (e) {
+                    const msg = e instanceof Error ? e.message : 'Unknown error';
+                    toast.error('Swap failed: ' + msg);
+                  } finally {
+                    setIsLoading(false);
+                  }
+                }}
+                disabled={starkStatus !== 'connected'}
+                className="flex-1 bg-gradient-to-r from-cyan-500 to-blue-500 text-white py-2 px-3 rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm"
+              >
+                Execute Swap
+              </button>
+            </div>
+          </div>
+          )}
 
           {/* AI Assistant */}
           <div className="bg-slate-800/50 backdrop-blur-lg rounded-2xl border border-slate-700/50 p-4">
@@ -686,6 +844,55 @@ export default function Home() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+// Minimal Starknet connect/disconnect panel
+function StarknetConnectPanel() {
+  const { address, status } = useStarknetAccount();
+  const { connect, connectors = [], error: connectError, isPending } = useStarknetConnect() as any;
+  const { disconnect } = useStarknetDisconnect();
+
+  if (status === 'connected' && address) {
+    return (
+      <div className="flex items-center justify-between p-3 rounded-lg border border-green-600/40 bg-green-900/20">
+        <span className="text-green-300 text-sm">Connected: {address.slice(0, 6)}...{address.slice(-4)}</span>
+        <button onClick={() => disconnect()} className="px-3 py-1 text-sm rounded-md bg-slate-700 text-slate-200 border border-slate-600">Disconnect</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-slate-300 text-sm">Connect a Starknet wallet:</p>
+      <div className="flex flex-wrap gap-2">
+        {Array.isArray(connectors) && connectors.length > 0 ? (
+          connectors.map((c: any) => (
+            <button
+              key={c.id}
+              onClick={() => connect({ connector: c })}
+              disabled={isPending}
+              className="px-3 py-1 text-sm rounded-md bg-slate-700 text-slate-200 border border-slate-600 hover:bg-slate-600"
+            >
+              {c.name}
+            </button>
+          ))
+        ) : (
+          <button
+            onClick={() => {
+              // fallback: try ready() connector implicitly via first available or noop
+              if (Array.isArray(connectors) && connectors[0]) {
+                connect({ connector: connectors[0] });
+              }
+            }}
+            disabled={isPending}
+            className="px-3 py-1 text-sm rounded-md bg-slate-700 text-slate-200 border border-slate-600 hover:bg-slate-600"
+          >
+            Connect Wallet
+          </button>
+        )}
+      </div>
+      {connectError && <p className="text-red-400 text-xs">{String((connectError as Error).message || connectError)}</p>}
     </div>
   );
 }
