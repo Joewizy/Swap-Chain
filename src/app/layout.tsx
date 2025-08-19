@@ -6,16 +6,21 @@ const geist = Geist({
   subsets: ["latin"],
 });
 
-
 export const metadata: Metadata = {
-  title: "My App",
-  description: "Landing + Dashboard with Geist font via Google Fonts",
+  title: "Swap Chain",
+  description: "Swap your tokens easily",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={geist.className}>{children}</body>
+      <head>
+        {/* Load Iconify webcomponent */}
+        <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+      </head>
+      <body className={geist.className}>
+        {children}
+      </body>
     </html>
   );
 }

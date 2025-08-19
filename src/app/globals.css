@@ -8,6 +8,12 @@ body {
   padding: 0;
 }
 
+iconify-icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+}
+
 @theme {
   --color-primary-10: #e4dee0;
   --color-primary-20: #d2c8cb;

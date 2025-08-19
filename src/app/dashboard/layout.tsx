@@ -1,25 +1,19 @@
-// app/layout.tsx
+import Link from "next/link";
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
-import "./globals.css";
 import Nav from "../components/Navigation";
 
-const geistSans = Geist({
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "My App",
-  description: "Next.js app with Geist font and nav",
+  title: "Dashboard",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className={`${geistSans.className} bg-[#fafafa] flex`}>
-        <Nav />
-        <main className="p-6">{children}</main>
-      </body>
-    </html>
+    <div className="flex min-h-screen bg-[#f9f9f9]">
+      {/* Sidebar */}
+       <Nav />
+      
+      {/* Main content */}
+      <main className="flex-1 ml-64">{children}</main>
+    </div>
   );
 }
