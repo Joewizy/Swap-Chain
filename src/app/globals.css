@@ -14,6 +14,16 @@ iconify-icon {
   height: 1em;
 }
 
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield; /* Firefox */
+}
+
 @theme {
   --color-primary-10: #e4dee0;
   --color-primary-20: #d2c8cb;
