@@ -5,6 +5,7 @@ import type { Metadata } from 'next';
 
 export default function Transfer() {
   const [amount, setAmount] = useState('0.00');
+  const [summary, setSummary] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
@@ -33,10 +34,18 @@ export default function Transfer() {
 
   return (
     <div>
-      <h1 className='text-3xl font-semibold'>Transfer Page</h1>
+      <div className='flex justify-between items-center mx-10 my-4'>
+        <h1 className='text-3xl font-semibold'>Transfer Page</h1>
+        <div className='flex items-center gap-4'>
+          <iconify-icon
+            icon='lucide:circle-user-round'
+            className='text-3xl cursor-pointer'
+          />
+          0x1234....abcd
+        </div>
+      </div>
 
-      {/* Relative wrapper for positioning */}
-      <div className='flex flex-col items-center justify-center relative w-full max-w-md mx-auto'>
+      <div className='flex flex-col items-center justify-center relative w-full max-w-md mx-auto relative'>
         {/* First container */}
         <div className='border-primary-20 border rounded-3xl px-5 pt-5 pb-8 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
@@ -63,15 +72,15 @@ export default function Transfer() {
           <div className='mt-4 text-sm'>
             Available Balance: <span className='text-primary'>1000.00 USD</span>
           </div>
-        </div>
 
-        {/* Swap icon centered between the two containers */}
-        <div className='absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10'>
-          <Image src='/swap.svg' alt='Swapicon' width={55} height={55} />
+          {/* Swap icon centered between the two containers */}
+          <div className='absolute w-full left-0 mt-2 flex justify-center items-center'>
+            <Image src='/swap.svg' alt='Swapicon' width={55} height={55} />
+          </div>
         </div>
 
         {/* Second container */}
-        <div className='border-primary-20 border rounded-3xl p-5 bg-white w-full mt-3'>
+        <div className='border-primary-20 border rounded-3xl p-5 mt-2 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
             <div className='text-primary'>You Receive</div>
             <select className='border border-primary-30 rounded-full py-1 px-2'>
@@ -98,9 +107,39 @@ export default function Transfer() {
           </div>
         </div>
 
+        {/* Summary container */}
+        <div className='border-primary-20 border rounded-3xl p-5 mt-2 bg-white w-full'>
+          <div className='text-primary'>Summary</div>
+
+          <div>
+            <div className='flex justify-between mt-2'>
+              <span className='text-sm font-medium'>Amount Sent:</span>
+              <span className='text-sm'>{amount} USD</span>
+            </div>
+            <div className='flex justify-between mt-2'>
+              <span className='font-medium text-sm'>Amount Received:</span>
+              <span className='text-sm'>{amount} USD</span>
+            </div>
+            <div className='flex justify-between mt-2'>
+              <span className='font-medium text-sm'>Transaction Fee:</span>
+              <span className='text-sm'>0.00 USD</span>
+            </div>
+          </div>
+        </div>
+
         <button className='mt-4 bg-primary-110 text-xl text-white py-4 rounded-full w-full'>
-          Swap Tokens
+          Review Swap
         </button>
+      </div>
+
+      <div className='fixed bottom-4 w-[50%] ml-64'>
+        <div className='border-primary-20 border rounded-2xl p-4 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)]'>
+          <input
+            type='text'
+            placeholder='Speak or type your request eg. Convert 50USDT to ETH'
+            className='w-full outline-none text-sm text-primary-50'
+          />
+        </div>
       </div>
     </div>
   );
