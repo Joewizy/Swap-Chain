@@ -33,7 +33,7 @@ export default function Transfer() {
   };
 
   return (
-    <div>
+    <div className='relative ml-auto'>
       <div className='flex justify-between items-center mx-10 my-4'>
         <h1 className='text-3xl font-semibold'>Transfer Page</h1>
         <div className='flex items-center gap-4'>
@@ -132,13 +132,28 @@ export default function Transfer() {
         </button>
       </div>
 
-      <div className='fixed bottom-4 w-[50%] ml-64'>
-        <div className='border-primary-20 border rounded-2xl p-4 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)]'>
-          <input
-            type='text'
-            placeholder='Speak or type your request eg. Convert 50USDT to ETH'
-            className='w-full outline-none text-sm text-primary-50'
-          />
+      {/* Chat or Input Box */}
+      <div className='fixed bottom-4 w-[60%]'>
+        <div className='border-primary-20 border rounded-2xl p-4 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)] flex items-center justify-between'>
+          <div className='flex flex-1 items-center gap-2'>
+            <iconify-icon
+              icon='mingcute:ai-line'
+              className='text-3xl cursor-pointer text-[#017ECD]'
+            />
+            <input
+              type='text'
+              placeholder='Speak or type your request eg. Convert 50USDT to ETH'
+              className='w-full outline-none text-sm text-primary-50'
+            />
+          </div>
+          <div className='flex items-center gap-2'>
+            <button className='bg-primary-110 text-sm text-white py-2 px-4 rounded-full'>
+              Voice
+            </button>
+            <button className='bg-primary-110 text-sm text-white py-2 px-4 rounded-full'>
+              Send
+            </button>
+          </div>
         </div>
       </div>
     </div>
