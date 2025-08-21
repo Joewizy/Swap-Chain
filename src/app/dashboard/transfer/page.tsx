@@ -34,7 +34,7 @@ export default function Transfer() {
 
   return (
     <div className='relative ml-auto'>
-      <div className='flex justify-between items-center mx-10 my-4'>
+      <div className='flex justify-between items-center mx-10 mt-4'>
         <h1 className='text-3xl font-semibold'>Transfer Page</h1>
         <div className='flex items-center gap-4'>
           <iconify-icon
@@ -45,7 +45,7 @@ export default function Transfer() {
         </div>
       </div>
 
-      <div className='flex flex-col items-center justify-center relative w-full max-w-md mx-auto relative'>
+      <div className='flex flex-col items-center w-full max-w-md mx-auto'>
         {/* First container */}
         <div className='border-primary-20 border rounded-3xl px-5 pt-5 pb-8 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
@@ -133,8 +133,8 @@ export default function Transfer() {
       </div>
 
       {/* Chat or Input Box */}
-      <div className='fixed bottom-4 w-[60%]'>
-        <div className='border-primary-20 border rounded-2xl p-4 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)] flex items-center justify-between'>
+      <div className='fixed bottom-4 left-64 right-0 flex justify-center'>
+        <div className='w-[60%] border-primary-20 border rounded-2xl p-4 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)] flex items-center justify-between'>
           <div className='flex flex-1 items-center gap-2'>
             <iconify-icon
               icon='mingcute:ai-line'
