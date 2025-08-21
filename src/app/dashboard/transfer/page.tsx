@@ -1,18 +1,35 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { useAccount } from 'wagmi';
+import { useAccount, useDisconnect } from 'wagmi';
 import { useRouter } from 'next/navigation';
 
 export default function Transfer() {
   const [amount, setAmount] = useState('0.00');
-  const [disconnectbtn, setDisconnectBtn] = useState(false);
+  const [disconnectBtn, setDisconnectBtn] = useState(false);
 
   const router = useRouter();
   const { address, status, isConnected } = useAccount();
+  const { disconnect } = useDisconnect(); // Wagmi disconnect hook
 
-  // Redirect to "/" if wallet is not connected
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Click outside to close disconnect dropdown
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        wrapperRef.current &&
+        !wrapperRef.current.contains(event.target as Node)
+      ) {
+        setDisconnectBtn(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [wrapperRef]);
+
+  // Redirect if disconnected
   useEffect(() => {
     if (status === 'disconnected') {
       router.push('/');
@@ -21,14 +38,12 @@ export default function Transfer() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
-
     if (v === '') {
       setAmount('');
       return;
     }
     const n = Number(v);
     if (Number.isNaN(n) || n < 0) return;
-
     setAmount(v);
   };
 
@@ -48,25 +63,27 @@ export default function Transfer() {
       {/* Header */}
       <div className='flex justify-between items-center mx-10 mt-4'>
         <h1 className='text-3xl font-semibold'>Transfer Page</h1>
-        <div
-          onClick={() => setDisconnectBtn(!disconnectbtn)}
-          className='flex items-center gap-2 cursor-pointer'>
-          <iconify-icon
-            icon='lucide:circle-user-round'
-            className='text-3xl cursor-pointer'
-          />
-          {isConnected && address ? shorten(address) : 'Not Connected'}
-          <iconify-icon
-            icon='ep:arrow-down'
-            className='text-xl cursor-pointer'
-          />
-          {disconnectbtn && (
+        <div ref={wrapperRef} className='relative'>
+          <div
+            onClick={() => setDisconnectBtn(!disconnectBtn)}
+            className='flex items-center gap-2 cursor-pointer'>
+            <iconify-icon
+              icon='lucide:circle-user-round'
+              className='text-3xl cursor-pointer'
+            />
+            {isConnected && address ? shorten(address) : 'Not Connected'}
+            <iconify-icon
+              icon='ep:arrow-down'
+              className='text-xl cursor-pointer'
+            />
+          </div>
+          {disconnectBtn && (
             <button
               onClick={() => {
-                // Add your disconnect logic here
+                disconnect(); // Disconnect wallet
                 setDisconnectBtn(false);
               }}
-              className='absolute top-10 right-4 px-4 py-2 text-white bg-primary-110 cursor-pointer hover:bg-primary rounded-full'>
+              className='absolute top-10 right-0 px-4 py-2 text-white bg-primary-110 cursor-pointer hover:bg-primary rounded-full'>
               Disconnect Wallet
             </button>
           )}
@@ -102,7 +119,6 @@ export default function Transfer() {
             Available Balance: <span className='text-primary'>1000.00 USD</span>
           </div>
 
-          {/* Swap icon */}
           <div className='absolute w-full left-0 mt-2 flex justify-center items-center'>
             <Image src='/swap.svg' alt='Swapicon' width={55} height={55} />
           </div>
@@ -161,7 +177,7 @@ export default function Transfer() {
         </button>
       </div>
 
-      {/* Chat / Input Box (fixed, centered in right panel) */}
+      {/* Chat / Input Box */}
       <div className='fixed bottom-4 left-64 right-0 flex justify-center'>
         <div className='w-[60%] border-primary-20 border rounded-2xl p-4 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)] flex items-center justify-between'>
           <div className='flex flex-1 items-center gap-2'>
