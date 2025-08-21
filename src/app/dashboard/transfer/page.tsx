@@ -1,22 +1,31 @@
 'use client';
-import { useState } from 'react';
+
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import type { Metadata } from 'next';
+import { useAccount } from 'wagmi';
+import { useRouter } from 'next/navigation';
 
 export default function Transfer() {
   const [amount, setAmount] = useState('0.00');
-  const [summary, setSummary] = useState(false);
+  const [disconnectbtn, setDisconnectBtn] = useState(false);
+
+  const router = useRouter();
+  const { address, status, isConnected } = useAccount();
+
+  // Redirect to "/" if wallet is not connected
+  useEffect(() => {
+    if (status === 'disconnected') {
+      router.push('/');
+    }
+  }, [status, router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
 
-    // Allow empty while typing
     if (v === '') {
       setAmount('');
       return;
     }
-
-    // Ignore negatives and non-numbers
     const n = Number(v);
     if (Number.isNaN(n) || n < 0) return;
 
@@ -24,7 +33,6 @@ export default function Transfer() {
   };
 
   const handleBlur = () => {
-    // On leaving the field, normalize to 0.00 minimum
     if (amount === '' || Number.isNaN(Number(amount))) {
       setAmount('0.00');
     } else {
@@ -32,21 +40,42 @@ export default function Transfer() {
     }
   };
 
+  const shorten = (addr?: string) =>
+    addr ? `${addr.slice(0, 6)}....${addr.slice(-4)}` : '';
+
   return (
     <div className='relative ml-auto'>
+      {/* Header */}
       <div className='flex justify-between items-center mx-10 mt-4'>
         <h1 className='text-3xl font-semibold'>Transfer Page</h1>
-        <div className='flex items-center gap-4'>
+        <div
+          onClick={() => setDisconnectBtn(!disconnectbtn)}
+          className='flex items-center gap-2 cursor-pointer'>
           <iconify-icon
             icon='lucide:circle-user-round'
             className='text-3xl cursor-pointer'
           />
-          0x1234....abcd
+          {isConnected && address ? shorten(address) : 'Not Connected'}
+          <iconify-icon
+            icon='ep:arrow-down'
+            className='text-xl cursor-pointer'
+          />
+          {disconnectbtn && (
+            <button
+              onClick={() => {
+                // Add your disconnect logic here
+                setDisconnectBtn(false);
+              }}
+              className='absolute top-10 right-4 px-4 py-2 text-white bg-primary-110 cursor-pointer hover:bg-primary rounded-full'>
+              Disconnect Wallet
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Main card stack */}
       <div className='flex flex-col items-center w-full max-w-md mx-auto'>
-        {/* First container */}
+        {/* You Send */}
         <div className='border-primary-20 border rounded-3xl px-5 pt-5 pb-8 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
             <div className='text-primary'>You Send</div>
@@ -73,13 +102,13 @@ export default function Transfer() {
             Available Balance: <span className='text-primary'>1000.00 USD</span>
           </div>
 
-          {/* Swap icon centered between the two containers */}
+          {/* Swap icon */}
           <div className='absolute w-full left-0 mt-2 flex justify-center items-center'>
             <Image src='/swap.svg' alt='Swapicon' width={55} height={55} />
           </div>
         </div>
 
-        {/* Second container */}
+        {/* You Receive */}
         <div className='border-primary-20 border rounded-3xl p-5 mt-2 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
             <div className='text-primary'>You Receive</div>
@@ -107,7 +136,7 @@ export default function Transfer() {
           </div>
         </div>
 
-        {/* Summary container */}
+        {/* Summary */}
         <div className='border-primary-20 border rounded-3xl p-5 mt-2 bg-white w-full'>
           <div className='text-primary'>Summary</div>
 
@@ -132,7 +161,7 @@ export default function Transfer() {
         </button>
       </div>
 
-      {/* Chat or Input Box */}
+      {/* Chat / Input Box (fixed, centered in right panel) */}
       <div className='fixed bottom-4 left-64 right-0 flex justify-center'>
         <div className='w-[60%] border-primary-20 border rounded-2xl p-4 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)] flex items-center justify-between'>
           <div className='flex flex-1 items-center gap-2'>
