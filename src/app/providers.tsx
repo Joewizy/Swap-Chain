@@ -1,24 +1,28 @@
-"use client"
+'use client';
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { type ReactNode } from "react";
-import { WagmiProvider } from "wagmi"
-import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
-import config from "./rainbowKitConfig"
-import { rainbowKitTheme } from "./rainbowKitConfig"
-import { useState } from "react";
-import "@rainbow-me/rainbowkit/styles.css"
+import '@rainbow-me/rainbowkit/styles.css';
+import { getDefaultConfig, RainbowKitProvider } from '@rainbow-me/rainbowkit';
+import { WagmiConfig } from 'wagmi';
+import { mainnet, polygon, arbitrum, optimism } from 'wagmi/chains';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ReactNode, useState } from 'react';
 
-export function Providers(props: {children: ReactNode}) {
-    const [queryClient] = useState(() => new QueryClient())
-    
-    return (
-        <WagmiProvider config={config}>
-            <QueryClientProvider client={queryClient}>
-            <RainbowKitProvider showRecentTransactions theme={rainbowKitTheme}>
-                {props.children}
-            </RainbowKitProvider>
-            </QueryClientProvider>
-        </WagmiProvider>
-    )
+const config = getDefaultConfig({
+  appName: 'SwapChain',
+  projectId: 'YOUR_PROJECT_ID', // WalletConnect Cloud projectId
+  chains: [mainnet, polygon, arbitrum, optimism],
+  ssr: true, // ✅ important for Next.js app router
+});
+
+export function Web3Provider({ children }: { children: ReactNode }) {
+  // Create QueryClient only once per app
+  const [queryClient] = useState(() => new QueryClient());
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <WagmiConfig config={config}>
+        <RainbowKitProvider>{children}</RainbowKitProvider>
+      </WagmiConfig>
+    </QueryClientProvider>
+  );
 }

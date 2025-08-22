@@ -1,9 +1,4 @@
-export interface SwapFormData {
-  sourceChain: string;
-  targetChain: string;
-  token: string;
-  amount: string;
-}
+// Relay API Types
 export interface RelayQuoteResponse {
   steps: Array<{
     kind: string;
@@ -130,62 +125,10 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
-// Quote response (matches Relay intent/quote response used in the app UI)
-export interface RelayCheck {
-  endpoint: string;
-  method?: string;
-}
-
-export interface RelayItemData {
-  from?: string;
-  to: string;
-  data?: string;
-  value?: string;
-  chainId?: number;
-  gas?: string;
-  gasPrice?: string;
-  maxFeePerGas?: string;
-  maxPriorityFeePerGas?: string;
-  abi?: any[];
-  functionName?: string;
-  args?: any[];
-}
-
-export interface RelayStepItem {
-  status: string; // e.g. 'incomplete' | 'complete'
-  data: RelayItemData;
-  check?: RelayCheck;
-}
-
-export interface RelayStep {
-  id: string; // e.g. 'deposit'
-  action?: string;
-  description?: string;
-  kind: string; // e.g. 'transaction' | 'signature'
-  items: RelayStepItem[];
-  requestId?: string;
-  depositAddress?: string;
-  chainId?: number;
-}
-
-export interface RelayExecutionResponse {
-  success: boolean;
-  requestId?: string;
-  amount: string;
-  token: string;
-  fromChain: string;
-  toChain: string;
-  status: string; // e.g. 'pending'
-  steps: RelayStep[];
-  // Raw quote payload from Relay; structure is large, so keep as any
-  quote: any;
-  error?: string;
-}
-
-// Simple response structure - just the essentials (older type you use elsewhere)
+// Simple response structure - just the essentials
 export interface QuoteResponse {
   success: boolean;
-  data?: {
+  data: {
     // What user is sending
     from: {
       chain: string;        // "Base Sepolia"
