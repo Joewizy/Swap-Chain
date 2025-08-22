@@ -44,7 +44,6 @@ export default function Home() {
   const { address, isConnected } = useAccount();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
-  const { executeQuote: executeRelayQuote } = useRelayExecutor();
   const { address: starkAddress, status: starkStatus } = useStarknetAccount();
 
   const activeConfig = environment === 'testnet' ? TESTNET_CONFIG : MAINNET_CONFIG;
@@ -847,20 +846,20 @@ export default function Home() {
     </div>
   );
 }
-// Minimal Starknet connect/disconnect panel
-function StarknetConnectPanel() {
-  const { address, status } = useStarknetAccount();
-  const { connect, connectors = [], error: connectError, isPending } = useStarknetConnect() as any;
-  const { disconnect } = useStarknetDisconnect();
 
-  if (status === 'connected' && address) {
-    return (
-      <div className="flex items-center justify-between p-3 rounded-lg border border-green-600/40 bg-green-900/20">
-        <span className="text-green-300 text-sm">Connected: {address.slice(0, 6)}...{address.slice(-4)}</span>
-        <button onClick={() => disconnect()} className="px-3 py-1 text-sm rounded-md bg-slate-700 text-slate-200 border border-slate-600">Disconnect</button>
-      </div>
-    );
-  }
+  function StarknetConnectPanel() {
+    const { address, status } = useStarknetAccount();
+    const { connect, connectors = [], error: connectError, isPending } = useStarknetConnect() as any;
+    const { disconnect } = useStarknetDisconnect();
+
+    if (status === 'connected' && address) {
+      return (
+        <div className="flex items-center justify-between p-3 rounded-lg border border-green-600/40 bg-green-900/20">
+          <span className="text-green-300 text-sm">Connected: {address.slice(0, 6)}...{address.slice(-4)}</span>
+          <button onClick={() => disconnect()} className="px-3 py-1 text-sm rounded-md bg-slate-700 text-slate-200 border border-slate-600">Disconnect</button>
+        </div>
+      );
+    }
 
   return (
     <div className="space-y-2">
