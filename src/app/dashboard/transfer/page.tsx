@@ -6,12 +6,32 @@ import { useAccount, useDisconnect } from 'wagmi';
 import { useRouter } from 'next/navigation';
 
 const TOKENS = [
-  { symbol: 'ETH', name: 'Ethereum', icon: '🔷', chains: ['sepolia', 'base-sepolia', 'arbitrum-sepolia', 'op-sepolia'] },
-  { symbol: 'SOL', name: 'Solana', icon: '🟣', chains: ['solana-devnet', 'eclipse-testnet'] },
+  {
+    symbol: 'ETH',
+    name: 'Ethereum',
+    icon: '🔷',
+    chains: ['sepolia', 'base-sepolia', 'arbitrum-sepolia', 'op-sepolia'],
+  },
+  {
+    symbol: 'SOL',
+    name: 'Solana',
+    icon: '🟣',
+    chains: ['solana-devnet', 'eclipse-testnet'],
+  },
   { symbol: 'BTC', name: 'Bitcoin', icon: '🟡', chains: ['bitcoin-testnet4'] },
   { symbol: 'MATIC', name: 'Polygon', icon: '🟣', chains: ['polygon-amoy'] },
-  { symbol: 'USDT', name: 'Tether', icon: '🟢', chains: ['sepolia', 'base-sepolia', 'arbitrum-sepolia', 'op-sepolia'] },
-  { symbol: 'USDC', name: 'USD Coin', icon: '🔵', chains: ['sepolia', 'base-sepolia', 'arbitrum-sepolia', 'op-sepolia'] },
+  {
+    symbol: 'USDT',
+    name: 'Tether',
+    icon: '🟢',
+    chains: ['sepolia', 'base-sepolia', 'arbitrum-sepolia', 'op-sepolia'],
+  },
+  {
+    symbol: 'USDC',
+    name: 'USD Coin',
+    icon: '🔵',
+    chains: ['sepolia', 'base-sepolia', 'arbitrum-sepolia', 'op-sepolia'],
+  },
 ];
 
 const CHAINS = [
@@ -28,7 +48,7 @@ const CHAINS = [
 export default function Transfer() {
   const [amount, setAmount] = useState('0.00');
   const [disconnectBtn, setDisconnectBtn] = useState(false);
-  
+
   // Quote state
   const [sellToken, setSellToken] = useState('USDT');
   const [buyToken, setBuyToken] = useState('ETH');
@@ -38,7 +58,7 @@ export default function Transfer() {
   const [isLoading, setIsLoading] = useState(false);
   const [quoteError, setQuoteError] = useState('');
 
-  // AI state 
+  // AI state
   const [aiTask, setAiTask] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [extractedIntent, setExtractedIntent] = useState<any>(null);
@@ -92,13 +112,15 @@ export default function Transfer() {
   // Extract quote from API(Relay)
   const getQuote = async () => {
     if (!amount || !sellToken || sourceChain === targetChain) {
-      setQuoteError('Please enter an amount and select different source and target chains for bridging.');
+      setQuoteError(
+        'Please enter an amount and select different source and target chains for bridging.'
+      );
       return;
     }
 
     setIsLoading(true);
     setQuoteError('');
-    
+
     try {
       const response = await fetch('/api/routes', {
         method: 'POST',
@@ -107,8 +129,8 @@ export default function Transfer() {
           sourceChain,
           targetChain,
           token: sellToken,
-          amount: amount
-        })
+          amount: amount,
+        }),
       });
 
       if (!response.ok) {
@@ -117,16 +139,19 @@ export default function Transfer() {
       }
 
       const quoteData = await response.json();
-      
+
       if (quoteData.success && quoteData.data) {
         setQuote(quoteData.data);
         setQuoteError('');
       } else {
         throw new Error('Invalid quote response');
       }
-      
     } catch (error) {
-      setQuoteError(`Error getting quote: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setQuoteError(
+        `Error getting quote: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
       setQuote(null);
     } finally {
       setIsLoading(false);
@@ -136,14 +161,14 @@ export default function Transfer() {
   // Handle AI intent extraction
   const handleAiIntent = async () => {
     if (!aiTask.trim()) return;
-    
+
     setIsLoading(true);
-    
+
     try {
       const response = await fetch('/api/intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: aiTask })
+        body: JSON.stringify({ message: aiTask }),
       });
 
       if (!response.ok) {
@@ -151,15 +176,15 @@ export default function Transfer() {
       }
 
       const result = await response.json();
-      
+
       if (result.type === 'clarify') {
         setAiResponse(result.clarifyMessage);
         return;
       }
-      
+
       if (result.type === 'intent') {
         setExtractedIntent(result);
-        
+
         // Auto-fill the form with extracted data
         if (result.token) {
           setSellToken(result.token);
@@ -175,12 +200,13 @@ export default function Transfer() {
           setTargetChain(result.targetChain.toLowerCase());
         }
 
-        setAiResponse(`I extracted your intent: ${result.amount} ${result.token} from ${result.sourceChain} to ${result.targetChain}. I've filled in the form for you to review.`);
-        
+        setAiResponse(
+          `I extracted your intent: ${result.amount} ${result.token} from ${result.sourceChain} to ${result.targetChain}. I've filled in the form for you to review.`
+        );
+
         // Clear the input after processing
         setAiTask('');
       }
-      
     } catch (error) {
       setAiResponse('Sorry, I encountered an error processing your request.');
     } finally {
@@ -195,7 +221,7 @@ export default function Transfer() {
     <div className='relative ml-auto'>
       {/* Header */}
       <div className='flex justify-between items-center mx-10 mt-4'>
-        <h1 className='text-3xl font-semibold'>Transfer Page</h1>
+        <h1 className='text-2xl font-semibold'>Transfer Page</h1>
         <div ref={wrapperRef} className='relative'>
           <div
             onClick={() => setDisconnectBtn(!disconnectBtn)}
@@ -223,11 +249,10 @@ export default function Transfer() {
         <div className='border-primary-20 border rounded-3xl px-5 pt-5 pb-8 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
             <div className='text-primary'>You Send</div>
-            <select 
+            <select
               className='border border-primary-30 rounded-full py-1 px-2'
               value={sellToken}
-              onChange={(e) => setSellToken(e.target.value)}
-            >
+              onChange={(e) => setSellToken(e.target.value)}>
               {TOKENS.map((token) => (
                 <option key={token.symbol} value={token.symbol}>
                   {token.icon} {token.symbol}
@@ -249,7 +274,8 @@ export default function Transfer() {
           </div>
 
           <div className='mt-4 text-sm'>
-            Available Balance: <span className='text-primary'>1000.00 {sellToken}</span>
+            Available Balance:{' '}
+            <span className='text-primary'>1000.00 {sellToken}</span>
           </div>
 
           <div className='absolute w-full left-0 mt-2 flex justify-center items-center'>
@@ -261,11 +287,10 @@ export default function Transfer() {
         <div className='border-primary-20 border rounded-3xl p-5 mt-2 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
             <div className='text-primary'>You Receive</div>
-            <select 
+            <select
               className='border border-primary-30 rounded-full py-1 px-2'
               value={buyToken}
-              onChange={(e) => setBuyToken(e.target.value)}
-            >
+              onChange={(e) => setBuyToken(e.target.value)}>
               {TOKENS.map((token) => (
                 <option key={token.symbol} value={token.symbol}>
                   {token.icon} {token.symbol}
@@ -284,7 +309,8 @@ export default function Transfer() {
           </div>
 
           <div className='mt-4 text-sm'>
-            New Balance: <span className='text-primary'>1000.00 {buyToken}</span>
+            New Balance:{' '}
+            <span className='text-primary'>1000.00 {buyToken}</span>
           </div>
         </div>
 
@@ -296,7 +322,9 @@ export default function Transfer() {
             <div>
               <div className='flex justify-between mt-2'>
                 <span className='text-sm font-medium'>Amount Sent:</span>
-                <span className='text-sm'>{amount} {sellToken}</span>
+                <span className='text-sm'>
+                  {amount} {sellToken}
+                </span>
               </div>
               <div className='flex justify-between mt-2'>
                 <span className='font-medium text-sm'>Amount Received:</span>
@@ -311,19 +339,27 @@ export default function Transfer() {
             <div>
               <div className='flex justify-between mt-2'>
                 <span className='text-sm font-medium'>Amount Sent:</span>
-                <span className='text-sm'>{amount} {sellToken}</span>
+                <span className='text-sm'>
+                  {amount} {sellToken}
+                </span>
               </div>
               <div className='flex justify-between mt-2'>
                 <span className='font-medium text-sm'>Amount Received:</span>
-                <span className='text-sm'>{quote.to.amount} {buyToken}</span>
+                <span className='text-sm'>
+                  {quote.to.amount} {buyToken}
+                </span>
               </div>
               <div className='flex justify-between mt-2'>
                 <span className='font-medium text-sm'>Exchange Rate:</span>
-                <span className='text-sm'>1 {sellToken} = {quote.rate} {buyToken}</span>
+                <span className='text-sm'>
+                  1 {sellToken} = {quote.rate} {buyToken}
+                </span>
               </div>
               <div className='flex justify-between mt-2'>
                 <span className='font-medium text-sm'>Route:</span>
-                <span className='text-sm'>{quote.from.chain} → {quote.to.chain}</span>
+                <span className='text-sm'>
+                  {quote.from.chain} → {quote.to.chain}
+                </span>
               </div>
               <div className='flex justify-between mt-2'>
                 <span className='font-medium text-sm'>Gas Fee:</span>
@@ -335,7 +371,9 @@ export default function Transfer() {
               </div>
               <div className='flex justify-between mt-2'>
                 <span className='font-medium text-sm'>Total Cost:</span>
-                <span className='text-sm text-red-500'>${quote.fees.total}</span>
+                <span className='text-sm text-red-500'>
+                  ${quote.fees.total}
+                </span>
               </div>
               <div className='flex justify-between mt-2'>
                 <span className='font-medium text-sm'>Estimated Time:</span>
@@ -358,11 +396,10 @@ export default function Transfer() {
           )}
         </div>
 
-        <button 
+        <button
           className='mt-4 bg-primary-110 text-xl text-white py-4 rounded-full w-full disabled:opacity-50 disabled:cursor-not-allowed'
           onClick={getQuote}
-          disabled={isLoading || !amount || sourceChain === targetChain}
-        >
+          disabled={isLoading || !amount || sourceChain === targetChain}>
           {isLoading ? 'Getting Quote...' : 'Review Swap'}
         </button>
       </div>
@@ -387,17 +424,15 @@ export default function Transfer() {
             />
           </div>
           <div className='flex items-center gap-2'>
-            <button 
+            <button
               className='bg-primary-110 text-sm text-white py-2 px-4 rounded-full disabled:opacity-50 disabled:cursor-not-allowed'
-              disabled={isLoading}
-            >
+              disabled={isLoading}>
               Voice
             </button>
-            <button 
+            <button
               className='bg-primary-110 text-sm text-white py-2 px-4 rounded-full disabled:opacity-50 disabled:cursor-not-allowed'
               onClick={handleAiIntent}
-              disabled={isLoading || !aiTask.trim()}
-            >
+              disabled={isLoading || !aiTask.trim()}>
               {isLoading ? 'Processing...' : 'Send'}
             </button>
           </div>
