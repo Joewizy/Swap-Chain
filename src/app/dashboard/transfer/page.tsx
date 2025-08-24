@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { useAccount, useDisconnect } from 'wagmi';
+import { useAccount, useDisconnect, useWalletClient, usePublicClient } from 'wagmi';
 import { useRouter } from 'next/navigation';
 import { TESTNET_CONFIG } from '@/app/utils/relay/testnet';
 import { MAINNET_CONFIG } from '@/app/utils/relay/mainnet';
+import toast from 'react-hot-toast';
 
 
 export default function Transfer() {
@@ -35,10 +36,15 @@ export default function Transfer() {
   const [aiTask, setAiTask] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [extractedIntent, setExtractedIntent] = useState<any>(null);
+  
+  // Transaction result state
+  const [transactionResult, setTransactionResult] = useState<any>(null);
 
   const router = useRouter();
   const { address, status, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
 
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -50,6 +56,15 @@ export default function Transfer() {
   const availableChains = activeConfig.chains;
   const availableSourceTokens = activeConfig.tokens.filter(t => sourceChainCfg && t.addresses[sourceChainCfg.chainId] !== undefined);
   const availableTargetTokens = activeConfig.tokens.filter(t => targetChainCfg && t.addresses[targetChainCfg.chainId] !== undefined);
+
+  // Explorer base URLs for tx link rendering (testnets currently used)
+  const explorerBaseUrlByChainId: Record<number, string> = {
+    11155111: 'https://sepolia.etherscan.io',
+    84532: 'https://sepolia.basescan.org',
+    421614: 'https://sepolia.arbiscan.io',
+    11155420: 'https://sepolia-optimism.etherscan.io',
+    80002: 'https://www.oklink.com/amoy',
+  };
 
   // Click outside to close disconnect dropdown
   useEffect(() => {
@@ -222,6 +237,153 @@ export default function Transfer() {
         }`
       );
       setQuote(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Execute quote function
+  async function executeQuote(
+    quote: any
+  ): Promise<{ success: boolean; txHash?: string; txLink?: string; error?: string }> {
+    try {
+      const { steps } = quote;
+      let lastTxHash: string | undefined;
+      let lastTxLink: string | undefined;
+      for (const step of steps) {
+        console.log(`Processing step: ${step.id}`);
+        console.log(`Action: ${step.action}`);
+        for (const item of step.items) {
+          if (item.status === 'incomplete') {
+            const { data } = item;
+            if (step.kind === 'transaction' && walletClient) {
+              const txHash = await walletClient.sendTransaction({
+                to: data.to as `0x${string}`,
+                data: (data.data || '0x') as `0x${string}`,
+                value: data.value ? BigInt(data.value) : undefined,
+                gas: data.gas ? BigInt(data.gas) : undefined,
+                maxFeePerGas: data.maxFeePerGas ? BigInt(data.maxFeePerGas) : undefined,
+                maxPriorityFeePerGas: data.maxPriorityFeePerGas ? BigInt(data.maxPriorityFeePerGas) : undefined
+              });
+              console.log(`Transaction submitted: ${txHash}`);
+              lastTxHash = txHash;
+              const chainForTx = data.chainId;
+              if (chainForTx) {
+                const base = explorerBaseUrlByChainId[chainForTx];
+                lastTxLink = base ? `${base}/tx/${txHash}` : undefined;
+              }
+              if (publicClient) {
+                try {
+                  await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
+                } catch {}
+              }
+              if (item.check) {
+                await monitorStatus(item.check.endpoint);
+              }
+            }
+          }
+        }
+      }
+      return { success: true, txHash: lastTxHash, txLink: lastTxLink };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  }
+
+  async function monitorStatus(endpoint: string) {
+    let status = 'pending';
+    while (status !== 'success' && status !== 'failure') {
+      const response = await fetch(`https://api.testnets.relay.link${endpoint}`);
+      const result = await response.json();
+      status = result.status;
+      console.log(`Status: ${status}`);
+      if (status === 'success') {
+        console.log('Execution completed successfully!');
+        break;
+      } else if (status === 'failure') {
+        console.log('Execution failed');
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+
+  // Execute handler
+  const handleExecute = async () => {
+    if (!quote || !isConnected || !address) {
+      setAiResponse('Please connect your wallet and get a quote first.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const result = await executeQuote(quote);
+
+      if (result.success) {
+        toast.success(
+          <div className="flex flex-col gap-2">
+            <span>Transaction confirmed!</span>
+            {result.txLink && (
+              <a
+                href={result.txLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:text-blue-300 underline text-sm flex items-center gap-1"
+              >
+                View transaction
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="inline-block"
+                >
+                  <path d="M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
+            )}
+          </div>,
+          { duration: 6000 }
+        );
+
+        setTransactionResult({
+          txHash: result.txHash || 'Transaction executed successfully',
+          status: 'success',
+          transactionLink: result.txLink || '#',
+          quoteId: quote.requestId || '',
+          userAddress: address,
+          sourceChain: sourceChain,
+          targetChain: targetChain,
+          token: sellToken,
+          amount: sellAmount,
+          timestamp: new Date().toISOString(),
+          estimatedCompletion: (() => {
+            const minutes = Number(quote.quote?.details?.timeEstimate) || 5;
+            return new Date(Date.now() + minutes * 60 * 1000).toISOString();
+          })()
+        });
+        setAiResponse('Transaction executed successfully! Check the transaction details below.');
+
+        // Reset form
+        setSellAmount('');
+        setBuyAmount('');
+        setQuote(null);
+      } else {
+        toast.error(`Failed: ${result.error || 'Unknown error'}`);
+        setAiResponse(`Sorry, I encountered an error executing your transaction: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed: ${message}`);
+      setAiResponse(`Sorry, I encountered an error executing your transaction: ${message}`);
     } finally {
       setIsLoading(false);
     }
@@ -639,12 +801,31 @@ export default function Transfer() {
 
         {/* Action Buttons */}
         {swapDomain === 'evm' && (
-          <button
-            className='mt-4 bg-primary-110 text-xl text-white py-4 rounded-full w-full disabled:opacity-50 disabled:cursor-not-allowed'
-            onClick={getQuote}
-            disabled={isLoading || !sellAmount || sourceChain === targetChain || !isConnected}>
-            {isLoading ? 'Getting Quote...' : 'Review Swap'}
-          </button>
+          <>
+            {!quote ? (
+              <button
+                className='mt-4 bg-primary-110 text-xl text-white py-4 rounded-full w-full disabled:opacity-50 disabled:cursor-not-allowed'
+                onClick={getQuote}
+                disabled={isLoading || !sellAmount || sourceChain === targetChain || !isConnected}>
+                {isLoading ? 'Getting Quote...' : 'Review Swap'}
+              </button>
+            ) : (
+              <div className='flex gap-2 mt-4 w-full'>
+                <button
+                  className='flex-1 bg-primary-110 text-xl text-white py-4 disabled:opacity-50 disabled:cursor-not-allowed rounded-full'
+                  onClick={getQuote}
+                  disabled={isLoading || !sellAmount || sourceChain === targetChain || !isConnected}>
+                  Get Quote
+                </button>
+                <button
+                  className='flex-1 bg-primary-110 text-xl text-white py-4 disabled:opacity-50 disabled:cursor-not-allowed rounded-full'
+                  onClick={handleExecute}
+                  disabled={isLoading || !isConnected}>
+                  {isLoading ? 'Processing...' : 'Execute Swap'}
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         {swapDomain === 'starknet' && (
@@ -653,6 +834,25 @@ export default function Transfer() {
             disabled={!starkSellAmount}>
             Review Swap
           </button>
+        )}
+
+        {/* Transaction Result */}
+        {transactionResult && (
+          <div className='mt-4 p-3 bg-green-900/20 border border-green-500/30 rounded-xl'>
+            <h3 className='font-semibold text-green-400 mb-2 text-sm'>Transaction Complete!</h3>
+            <div className='text-xs text-green-300 space-y-1'>
+              <p>Hash: {transactionResult.txHash}</p>
+              <p>Status: {transactionResult.status}</p>
+              <a 
+                href={transactionResult.transactionLink} 
+                target='_blank' 
+                rel='noopener noreferrer'
+                className='text-green-400 hover:underline'
+              >
+                View on Explorer →
+              </a>
+            </div>
+          </div>
         )}
       </div>
 
