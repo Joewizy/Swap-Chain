@@ -46,6 +46,8 @@ const CHAINS = [
 ];
 
 export default function Transfer() {
+  const [testnetOn, setTestnetOn] = useState(true);
+  const [EVMon, setEVMon] = useState(false);
   const [amount, setAmount] = useState('0.00');
   const [disconnectBtn, setDisconnectBtn] = useState(false);
 
@@ -251,6 +253,38 @@ export default function Transfer() {
 
       {/* Main card stack */}
       <div className='flex flex-col items-center w-full max-w-md mx-auto'>
+        <div className='flex mb-4 justify-between w-full px-2'>
+          <div>
+            <label className='inline-flex items-center gap-2 cursor-pointer select-none'>
+              <span className='text-sm'>TestNet</span>
+
+              <input
+                type='checkbox'
+                checked={testnetOn}
+                onChange={(e) => setTestnetOn(e.target.checked)}
+                className='sr-only peer'
+                aria-label='Toggle mainnet or testnet'
+              />
+
+              <span
+                className='relative inline-block h-6 w-12 border border-primary-30 rounded-full bg-white transition
+                peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary
+              peer-checked:bg-primary-110
+                after:absolute after:top-[3px] after:left-[3px] after:h-4 after:w-4 after:rounded-full after:bg-primary-50 after:shadow after:transition-transform
+                peer-checked:after:translate-x-6 peer-checked:after:bg-white'
+              />
+              <span className='text-sm'>MainNet</span>
+            </label>
+          </div>
+          <div className='flex gap-2'>
+            <button className='text-sm rounded-full bg-primary-110 hover:bg-primary-80 text-white py-1 px-4 cursor-pointer'>
+              EVM
+            </button>
+            <button className='text-sm rounded-full bg-primary-110 hover:bg-primary-80 text-white py-1 px-4 cursor-pointer'>
+              StarkNet
+            </button>
+          </div>
+        </div>
         {/* You Send */}
         <div className='border-primary-20 border rounded-3xl px-5 pb-5 pt-3 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
@@ -414,7 +448,10 @@ export default function Transfer() {
       <div className='fixed bottom-4 left-64 right-0 flex justify-center'>
         <div className='w-[60%] border-primary-20 border rounded-2xl p-4 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)] flex items-center justify-between'>
           <div className='flex flex-1 items-center gap-2'>
-            <div className='text-3xl cursor-pointer text-[#017ECD]'>🤖</div>
+            <iconify-icon
+              icon='mingcute:ai-line'
+              className='text-3xl cursor-pointer text-[#017ECD]'
+            />
             <input
               type='text'
               value={aiTask}
@@ -425,7 +462,7 @@ export default function Transfer() {
                 }
               }}
               placeholder='Speak or type your request eg. Convert 50USDT to ETH'
-              className='w-full outline-none text-sm text-primary-50'
+              className='w-full outline-none text-sm text-primary-50 font-medium'
               disabled={isLoading}
             />
           </div>
