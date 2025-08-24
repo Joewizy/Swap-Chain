@@ -7,6 +7,9 @@ import { useRouter } from 'next/navigation';
 import { TESTNET_CONFIG } from '@/app/utils/relay/testnet';
 import { MAINNET_CONFIG } from '@/app/utils/relay/mainnet';
 import toast from 'react-hot-toast';
+import { executeSwap, TOKEN_ADDRESSES } from '@/app/components/AutoSwap';
+import { useAccount as useStarknetAccount, useConnect as useStarknetConnect, useDisconnect as useStarknetDisconnect } from '@starknet-react/core';
+import { getTokenIcon, getChainIcon } from '@/app/utils/utils';
 
 
 export default function Transfer() {
@@ -45,6 +48,11 @@ export default function Transfer() {
   const { disconnect } = useDisconnect();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
+  
+  // Starknet wallet hooks
+  const { address: starkAddress, status: starkStatus } = useStarknetAccount();
+  const { connect: connectStarknet, connectors: starkConnectors = [], error: starkConnectError, isPending: starkIsPending } = useStarknetConnect() as any;
+  const { disconnect: disconnectStarknet } = useStarknetDisconnect();
 
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -390,6 +398,58 @@ export default function Transfer() {
     }
   };
 
+  // Starknet execution handler
+  const handleStarknetExecute = async () => {
+    if (!starkSellAmount || starkStatus !== 'connected' || !starkAddress) {
+      setAiResponse('Please connect your Starknet wallet and enter an amount first.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // Use imported TOKEN_ADDRESSES instead of hardcoded values
+      const tokenMap: Record<string, string> = {
+        STRK: TOKEN_ADDRESSES.STRK,
+        ETH: TOKEN_ADDRESSES.ETH,
+        USDC: TOKEN_ADDRESSES.USDC,
+        USDT: TOKEN_ADDRESSES.USDT,
+      };
+
+      const fromAddr = tokenMap[starkSellToken];
+      const toAddr = tokenMap[starkBuyToken];
+
+      if (!fromAddr || !toAddr) {
+        throw new Error('Invalid token selection');
+      }
+
+      if (!starkAddress) {
+        throw new Error('Starknet wallet not connected');
+      }
+
+      // Call the actual executeSwap function with the connected wallet address
+      const result = await executeSwap(fromAddr, toAddr, starkSellAmount, starkAddress);
+      
+      if (result.success) {
+        toast.success('Starknet swap submitted successfully!' + (result.txHash ? `: ${result.txHash}` : ''));
+        setAiResponse('Starknet transaction executed successfully!');
+        
+        // Reset form
+        setStarkSellAmount('');
+        setStarkBuyAmount('');
+      } else {
+        throw new Error(result.error || 'Swap failed');
+      }
+
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Starknet swap failed: ${message}`);
+      setAiResponse(`Sorry, I encountered an error with your Starknet transaction: ${message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Handle AI intent extraction
   const handleAiIntent = async () => {
     if (!aiTask.trim()) return;
@@ -462,21 +522,160 @@ export default function Transfer() {
               icon='lucide:circle-user-round'
               className='text-2xl cursor-pointer'
             />
-            {isConnected && address ? shorten(address) : 'Not Connected'}
+            {isConnected && address ? shorten(address) : 
+             starkStatus === 'connected' && starkAddress ? shorten(starkAddress) : 'Not Connected'}
             <iconify-icon
               icon='ep:arrow-down'
               className='text-xl cursor-pointer'
             />
           </div>
           {disconnectBtn && (
+            <div className='absolute top-10 right-0 bg-white border border-gray-200 rounded-2xl shadow-xl p-4 min-w-[280px] z-50 backdrop-blur-sm'>
+              {/* Header */}
+              <div className='flex items-center justify-between mb-4 pb-3 border-b border-gray-100'>
+                <h3 className='text-sm font-semibold text-gray-800'>Connected Wallets</h3>
+                <button 
+                  onClick={() => setDisconnectBtn(false)}
+                  className='text-gray-400 hover:text-gray-600 transition-colors'
+                >
+                  <iconify-icon icon="material-symbols:close" className="text-lg"></iconify-icon>
+                </button>
+              </div>
+
+              {/* EVM Wallet Section */}
+              <div className='mb-4'>
+                <div className='flex items-center gap-2 mb-2'>
+                  <div className='w-6 h-6 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center'>
+                    <iconify-icon icon="cryptocurrency:eth" className="text-white text-sm"></iconify-icon>
+                  </div>
+                  <span className='text-sm font-medium text-gray-700'>EVM Wallet</span>
+                </div>
+                
+                {isConnected && address ? (
+                  <div className='bg-gray-50 rounded-xl p-3 border border-gray-100'>
+                    <div className='flex items-center justify-between mb-2'>
+                      <div className='flex items-center gap-2'>
+                        <div className='w-2 h-2 bg-green-500 rounded-full'></div>
+                        <span className='text-xs font-medium text-gray-800'>Connected</span>
+                      </div>
             <button
               onClick={() => {
                 disconnect();
                 setDisconnectBtn(false);
               }}
-              className='absolute top-8 right-0 px-4 py-2 text-white text-sm bg-primary-110 cursor-pointer hover:bg-primary rounded-full'>
-              Disconnect Wallet
+                        className='text-xs bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1 rounded-full transition-colors font-medium'>
+                        Disconnect
+                      </button>
+                    </div>
+                    <div className='text-xs text-gray-600 font-mono bg-white px-2 py-1 rounded border'>
+                      {shorten(address)}
+                    </div>
+                  </div>
+                ) : (
+                  <div className='bg-gray-50 rounded-xl p-3 border border-gray-100'>
+                    <div className='flex items-center gap-2 mb-2'>
+                      <div className='w-2 h-2 bg-gray-400 rounded-full'></div>
+                      <span className='text-xs text-gray-500'>Not connected</span>
+                    </div>
+                    <span className='text-xs text-gray-400'>Connect an EVM wallet to get started</span>
+                  </div>
+                )}
+              </div>
+              
+              {/* Divider */}
+              <div className='border-t border-gray-100 my-4'></div>
+
+              {/* Starknet Wallet Section */}
+              <div>
+                <div className='flex items-center gap-2 mb-2'>
+                  <div className='w-6 h-6 rounded-full bg-gradient-to-r from-orange-500 to-red-600 flex items-center justify-center'>
+                    <iconify-icon icon="simple-icons:starknet" className="text-white text-sm"></iconify-icon>
+                  </div>
+                  <span className='text-sm font-medium text-gray-700'>Starknet Wallet</span>
+                </div>
+                
+                {starkStatus === 'connected' && starkAddress ? (
+                  <div className='bg-gray-50 rounded-xl p-3 border border-gray-100'>
+                    <div className='flex items-center justify-between mb-2'>
+                      <div className='flex items-center gap-2'>
+                        <div className='w-2 h-2 bg-green-500 rounded-full'></div>
+                        <span className='text-xs font-medium text-gray-800'>Connected</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          disconnectStarknet();
+                          setDisconnectBtn(false);
+                        }}
+                        className='text-xs bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1 rounded-full transition-colors font-medium'>
+                        Disconnect
+                      </button>
+                    </div>
+                    <div className='text-xs text-gray-600 font-mono bg-white px-2 py-1 rounded border'>
+                      {shorten(starkAddress)}
+                    </div>
+                  </div>
+                ) : (
+                  <div className='bg-gray-50 rounded-xl p-3 border border-gray-100'>
+                    <div className='flex items-center gap-2 mb-3'>
+                      <div className='w-2 h-2 bg-gray-400 rounded-full'></div>
+                      <span className='text-xs text-gray-500'>Not connected</span>
+                    </div>
+                    
+                    {/* Starknet Connection Options */}
+                    <div className='space-y-2'>
+                      {Array.isArray(starkConnectors) && starkConnectors.length > 0 ? (
+                        starkConnectors.map((connector: any) => (
+                          <button
+                            key={connector.id}
+                            onClick={() => {
+                              connectStarknet({ connector });
+                              setDisconnectBtn(false);
+                            }}
+                            disabled={starkIsPending}
+                            className='w-full flex items-center gap-2 text-left text-xs bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-300 px-3 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed'>
+                            <iconify-icon icon="material-symbols:account-balance-wallet" className="text-sm text-gray-600"></iconify-icon>
+                            <span className='font-medium text-gray-700'>Connect {connector.name}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <button
+                          onClick={() => {
+                            if (Array.isArray(starkConnectors) && starkConnectors[0]) {
+                              connectStarknet({ connector: starkConnectors[0] });
+                            }
+                            setDisconnectBtn(false);
+                          }}
+                          disabled={starkIsPending}
+                          className='w-full flex items-center gap-2 text-left text-xs bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-300 px-3 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed'>
+                          <iconify-icon icon="material-symbols:account-balance-wallet" className="text-sm text-gray-600"></iconify-icon>
+                          <span className='font-medium text-gray-700'>Connect Argent</span>
             </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Error Display */}
+              {starkConnectError && (
+                <div className='mt-3 p-3 bg-red-50 border border-red-200 rounded-lg'>
+                  <div className='flex items-center gap-2'>
+                    <iconify-icon icon="material-symbols:error" className="text-red-500 text-sm"></iconify-icon>
+                    <span className='text-xs text-red-700 font-medium'>Connection Error</span>
+                  </div>
+                  <p className='text-xs text-red-600 mt-1'>
+                    {String((starkConnectError as Error).message || starkConnectError)}
+                  </p>
+                </div>
+              )}
+              
+              {/* Footer */}
+              <div className='mt-4 pt-3 border-t border-gray-100'>
+                <p className='text-xs text-gray-500 text-center'>
+                  Manage your wallet connections securely
+                </p>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -492,7 +691,7 @@ export default function Transfer() {
                 className='relative inline-flex h-6 w-12 items-center rounded-full bg-primary-30 border border-primary-30'
                 disabled={!isConnected}
               >
-                <span
+              <span
                   className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${environment === 'mainnet' ? 'translate-x-6' : 'translate-x-1'}`}
                 />
               </button>
@@ -523,10 +722,10 @@ export default function Transfer() {
         {/* EVM Interface */}
         {swapDomain === 'evm' && (
           <>
-            {/* You Send */}
-            <div className='border-primary-20 border rounded-3xl px-5 pb-5 pt-3 bg-white w-full'>
-              <div className='flex justify-between items-center mb-4'>
-                <div className='text-primary text-sm'>You Send</div>
+        {/* You Send */}
+        <div className='border-primary-20 border rounded-3xl px-5 pb-5 pt-3 bg-white w-full'>
+          <div className='flex justify-between items-center mb-4'>
+            <div className='text-primary text-sm'>You Send</div>
                 <div className='flex gap-2'>
                   <select
                     className='border border-primary-30 rounded-full py-1 px-2 text-xs'
@@ -538,37 +737,44 @@ export default function Transfer() {
                       </option>
                     ))}
                   </select>
-                  <select
-                    className='border border-primary-30 rounded-full py-1 px-2'
-                    value={sellToken}
-                    onChange={(e) => setSellToken(e.target.value)}>
-                    {availableSourceTokens.map((token) => (
-                      <option key={token.symbol} value={token.symbol}>
-                        {token.icon} {token.symbol}
-                      </option>
-                    ))}
-                  </select>
+            {/* Enhanced token select with icon display */}
+            <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
+              <iconify-icon 
+                icon={getTokenIcon(sellToken)} 
+                className="text-base"
+              />
+              <select
+                className='outline-none bg-transparent'
+                value={sellToken}
+                onChange={(e) => setSellToken(e.target.value)}>
+                {availableSourceTokens.map((token) => (
+                  <option key={token.symbol} value={token.symbol}>
+                    {token.symbol}
+                  </option>
+                ))}
+              </select>
+            </div>
                 </div>
-              </div>
+          </div>
 
-              <div>
-                <input
-                  type='number'
+          <div>
+            <input
+              type='number'
                   value={sellAmount}
-                  onChange={handleChange}
-                  onBlur={handleBlur}
-                  min='0'
+              onChange={handleChange}
+              onBlur={handleBlur}
+              min='0'
                   placeholder='0.0'
-                  className='text-3xl w-full outline-none font-medium'
-                />
-              </div>
+              className='text-3xl w-full outline-none font-medium'
+            />
+          </div>
 
-              <div className='mt-2 text-xs'>
-                Available Balance:{' '}
-                <span className='text-primary'>1000.00 {sellToken}</span>
-              </div>
+          <div className='mt-2 text-xs'>
+            Available Balance:{' '}
+            <span className='text-primary'>1000.00 {sellToken}</span>
+          </div>
 
-              <div className='absolute w-full left-0 flex justify-center items-center'>
+          <div className='absolute w-full left-0 flex justify-center items-center'>
                 <button
                   onClick={switchTokens}
                   className='p-2 rounded-full bg-primary-110 hover:bg-primary-80 transition-colors border border-primary-30'>
@@ -588,15 +794,22 @@ export default function Transfer() {
             <div className='border-primary-20 border rounded-3xl px-5 pb-5 pt-3 bg-white w-full'>
               <div className='flex justify-between items-center mb-4'>
                 <div className='text-primary text-sm'>You Send</div>
-                <select
-                  className='border border-primary-30 rounded-full py-1 px-2'
-                  value={starkSellToken}
-                  onChange={(e) => setStarkSellToken(e.target.value as 'STRK' | 'ETH' | 'USDC' | 'USDT')}>
-                  <option value='STRK'>🟣 STRK</option>
-                  <option value='ETH'>🔷 ETH</option>
-                  <option value='USDC'>💵 USDC</option>
-                  <option value='USDT'>💴 USDT</option>
-                </select>
+                {/* Enhanced Starknet token select with icon display */}
+                <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
+                  <iconify-icon 
+                    icon={getTokenIcon(starkSellToken)} 
+                    className="text-base"
+                  />
+                  <select
+                    className='outline-none bg-transparent'
+                    value={starkSellToken}
+                    onChange={(e) => setStarkSellToken(e.target.value as 'STRK' | 'ETH' | 'USDC' | 'USDT')}>
+                    <option value='STRK'>STRK</option>
+                    <option value='ETH'>ETH</option>
+                    <option value='USDC'>USDC</option>
+                    <option value='USDT'>USDT</option>
+                  </select>
+                </div>
               </div>
 
               <div>
@@ -622,8 +835,8 @@ export default function Transfer() {
                   className='p-2 rounded-full bg-primary-110 hover:bg-primary-80 transition-colors border border-primary-30'>
                   <Image src='/swap.svg' alt='Swapicon' width={30} height={30} />
                 </button>
-              </div>
-             </div>
+          </div>
+        </div>
            </>
          )}
 
@@ -631,9 +844,9 @@ export default function Transfer() {
 
         {/* EVM You Receive */}
         {swapDomain === 'evm' && (
-          <div className='border-primary-20 border rounded-3xl py-4 px-5 mt-2 bg-white w-full'>
-            <div className='flex justify-between items-center mb-4'>
-              <div className='text-primary text-sm'>You Receive</div>
+        <div className='border-primary-20 border rounded-3xl py-4 px-5 mt-2 bg-white w-full'>
+          <div className='flex justify-between items-center mb-4'>
+            <div className='text-primary text-sm'>You Receive</div>
               <div className='flex gap-2'>
                 <select
                   className='border border-primary-30 rounded-full py-1 px-2 text-xs'
@@ -645,32 +858,39 @@ export default function Transfer() {
                     </option>
                   ))}
                 </select>
-                <select
-                  className='border border-primary-30 rounded-full py-1 px-2'
-                  value={buyToken}
-                  onChange={(e) => setBuyToken(e.target.value)}>
-                  {availableTargetTokens.map((token) => (
-                    <option key={token.symbol} value={token.symbol}>
-                      {token.icon} {token.symbol}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <input
-                type='number'
-                value={buyAmount || sellAmount}
-                readOnly
-                className='text-3xl w-full outline-none font-medium'
+            {/* Enhanced token select with icon display */}
+            <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
+              <iconify-icon 
+                icon={getTokenIcon(buyToken)} 
+                className="text-base"
               />
+              <select
+                className='outline-none bg-transparent'
+                value={buyToken}
+                onChange={(e) => setBuyToken(e.target.value)}>
+                {availableTargetTokens.map((token) => (
+                  <option key={token.symbol} value={token.symbol}>
+                    {token.symbol}
+                  </option>
+                ))}
+              </select>
             </div>
+              </div>
+          </div>
 
-            <div className='mt-2 text-xs'>
-              New Balance:{' '}
-              <span className='text-primary'>1000.00 {buyToken}</span>
-            </div>
+          <div>
+            <input
+              type='number'
+                value={buyAmount || sellAmount}
+              readOnly
+              className='text-3xl w-full outline-none font-medium'
+            />
+          </div>
+
+          <div className='mt-2 text-xs'>
+            New Balance:{' '}
+            <span className='text-primary'>1000.00 {buyToken}</span>
+          </div>
 
             {/* Recipient for Solana */}
             {(targetChain === 'solana' || targetChain === 'solana-devnet' || targetChain === 'eclipse-testnet') && (
@@ -692,15 +912,22 @@ export default function Transfer() {
           <div className='border-primary-20 border rounded-3xl py-4 px-5 mt-2 bg-white w-full'>
             <div className='flex justify-between items-center mb-4'>
               <div className='text-primary text-sm'>You Receive</div>
-              <select
-                className='border border-primary-30 rounded-full py-1 px-2'
-                value={starkBuyToken}
-                onChange={(e) => setStarkBuyToken(e.target.value as 'STRK' | 'ETH' | 'USDC' | 'USDT')}>
-                <option value='STRK'>🟣 STRK</option>
-                <option value='ETH'>🔷 ETH</option>
-                <option value='USDC'>💵 USDC</option>
-                <option value='USDT'>💴 USDT</option>
-              </select>
+              {/* Enhanced Starknet token select with icon display */}
+              <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
+                <iconify-icon 
+                  icon={getTokenIcon(starkBuyToken)} 
+                  className="text-base"
+                />
+                <select
+                  className='outline-none bg-transparent'
+                  value={starkBuyToken}
+                  onChange={(e) => setStarkBuyToken(e.target.value as 'STRK' | 'ETH' | 'USDC' | 'USDT')}>
+                  <option value='STRK'>STRK</option>
+                  <option value='ETH'>ETH</option>
+                  <option value='USDC'>USDC</option>
+                  <option value='USDT'>USDT</option>
+                </select>
+              </div>
             </div>
 
             <div>
@@ -711,7 +938,7 @@ export default function Transfer() {
                 className='text-3xl w-full outline-none font-medium'
                 placeholder='0.0'
               />
-            </div>
+        </div>
 
             <div className='mt-2 text-xs'>
               New Balance:{' '}
@@ -801,12 +1028,12 @@ export default function Transfer() {
         {swapDomain === 'evm' && (
           <>
             {!quote ? (
-              <button
-                className='mt-4 bg-primary-110 text-xl text-white py-4 rounded-full w-full disabled:opacity-50 disabled:cursor-not-allowed'
-                onClick={getQuote}
+        <button
+          className='mt-4 bg-primary-110 text-xl text-white py-4 rounded-full w-full disabled:opacity-50 disabled:cursor-not-allowed'
+          onClick={getQuote}
                 disabled={isLoading || !sellAmount || sourceChain === targetChain || !isConnected}>
-                {isLoading ? 'Getting Quote...' : 'Review Swap'}
-              </button>
+          {isLoading ? 'Getting Quote...' : 'Review Swap'}
+        </button>
             ) : (
               <div className='flex gap-2 mt-4 w-full'>
                 <button
@@ -829,8 +1056,9 @@ export default function Transfer() {
         {swapDomain === 'starknet' && (
           <button
             className='mt-4 bg-primary-110 text-xl text-white py-4 rounded-full w-full disabled:opacity-50 disabled:cursor-not-allowed'
-            disabled={!starkSellAmount}>
-            Review Swap
+            onClick={handleStarknetExecute}
+            disabled={!starkSellAmount || starkStatus !== 'connected' || isLoading}>
+            {isLoading ? 'Processing...' : 'Execute Starknet Swap'}
           </button>
         )}
 

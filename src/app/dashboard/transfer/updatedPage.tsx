@@ -2,15 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { ExtractedIntent, TransactionResult, RelayExecutionResponse } from '@/app/utils/interfaces';
-import { validateSolanaAddress } from './utils/solana';
+import { validateSolanaAddress } from '@/app/utils/solana';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useWalletClient, usePublicClient } from 'wagmi';
 import toast from 'react-hot-toast';
 import { TESTNET_CONFIG } from '@/app/utils/relay/testnet';
 import { MAINNET_CONFIG } from '@/app/utils/relay/mainnet';
 import { useRelayExecutor } from '@/app/utils/relay-executor';
-import { executeSwap as executeStarknetSwap, TOKEN_ADDRESSES as ST_TOKENS } from './components/AutoSwap';
+import { executeSwap as executeStarknetSwap, TOKEN_ADDRESSES as ST_TOKENS } from '@/app/components/AutoSwap';
 import { useAccount as useStarknetAccount, useConnect as useStarknetConnect, useDisconnect as useStarknetDisconnect } from '@starknet-react/core';
+import { getTokenIcon, getChainIcon } from '@/app/utils/utils';
 
 
 export default function Home() {
@@ -696,15 +697,22 @@ export default function Home() {
                 <div className="text-xs text-slate-400">Balance: — {starkSellToken}</div>
               </div>
               <div className="flex gap-2 mb-2">
-                <select
-                  value={starkSellToken}
-                  onChange={(e) => setStarkSellToken(e.target.value as any)}
-                  className="flex-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                >
-                  {['STRK','ETH','USDC','USDT'].map((sym) => (
-                    <option key={sym} value={sym}>{sym}</option>
-                  ))}
-                </select>
+                {/* Enhanced token select with icon display */}
+                <div className="flex items-center gap-1 flex-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2">
+                  <div 
+                    className={`text-base text-white iconify iconify--${getTokenIcon(starkSellToken).split(':')[0]}`}
+                    data-icon={getTokenIcon(starkSellToken)}
+                  ></div>
+                  <select
+                    value={starkSellToken}
+                    onChange={(e) => setStarkSellToken(e.target.value as any)}
+                    className="flex-1 bg-transparent text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  >
+                    {['STRK','ETH','USDC','USDT'].map((sym) => (
+                      <option key={sym} value={sym}>{sym}</option>
+                    ))}
+                  </select>
+                </div>
                 <input
                   type="number"
                   value={starkSellAmount}
@@ -738,15 +746,22 @@ export default function Home() {
                 <div className="text-xs text-slate-400">Balance: — {starkBuyToken}</div>
               </div>
               <div className="flex gap-2">
-                <select
-                  value={starkBuyToken}
-                  onChange={(e) => setStarkBuyToken(e.target.value as any)}
-                  className="flex-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                >
-                  {['STRK','ETH','USDC','USDT'].map((sym) => (
-                    <option key={sym} value={sym}>{sym}</option>
-                  ))}
-                </select>
+                {/* Enhanced token select with icon display */}
+                <div className="flex items-center gap-1 flex-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2">
+                  <div 
+                    className={`text-base text-white iconify iconify--${getTokenIcon(starkBuyToken).split(':')[0]}`}
+                    data-icon={getTokenIcon(starkBuyToken)}
+                  ></div>
+                  <select
+                    value={starkBuyToken}
+                    onChange={(e) => setStarkBuyToken(e.target.value as any)}
+                    className="flex-1 bg-transparent text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  >
+                    {['STRK','ETH','USDC','USDT'].map((sym) => (
+                      <option key={sym} value={sym}>{sym}</option>
+                    ))}
+                  </select>
+                </div>
                 <input
                   type="number"
                   value={starkBuyAmount}
@@ -775,9 +790,13 @@ export default function Home() {
                   };
                   const fromAddr = tokenMap[starkSellToken];
                   const toAddr = tokenMap[starkBuyToken];
+                  if (!starkAddress) {
+                    toast.error('Starknet wallet not connected');
+                    return;
+                  }
                   setIsLoading(true);
                   try {
-                    const res = await executeStarknetSwap(fromAddr, toAddr, starkSellAmount);
+                    const res = await executeStarknetSwap(fromAddr, toAddr, starkSellAmount, starkAddress);
                     if (res.success) {
                       toast.success('Starknet swap submitted' + (res.txHash ? `: ${res.txHash}` : ''));
                       setStarkSellAmount('');
