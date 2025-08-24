@@ -43,6 +43,27 @@ export default function Home() {
   const [aiResponse, setAiResponse] = useState('');
   const [extractedIntent, setExtractedIntent] = useState<ExtractedIntent | null>(null);
 
+  // Map model-normalized chain names to supported ids used in the UI
+  const mapChainToSupported = (chain: string | undefined | null): string | null => {
+    if (!chain) return null;
+    const normalized = chain.toLowerCase();
+    const map: Record<string, string> = {
+      ethereum: 'sepolia',
+      mainnet: 'sepolia',
+      eth: 'sepolia',
+      base: 'base-sepolia',
+      arbitrum: 'arbitrum-sepolia',
+      arb: 'arbitrum-sepolia',
+      optimism: 'op-sepolia',
+      op: 'op-sepolia',
+      polygon: 'polygon-amoy',
+      matic: 'polygon-amoy',
+      solana: 'solana-devnet',
+      eclipse: 'eclipse-testnet',
+    };
+    return map[normalized] || null;
+  };
+
   // Switch tokens
   const switchTokens = () => {
     setSellToken(buyToken);
@@ -178,10 +199,10 @@ export default function Home() {
           setSellAmount(result.amount.toString());
         }
         if (result.sourceChain) {
-          setSourceChain(result.sourceChain.toLowerCase());
+          setSourceChain(mapChainToSupported(result.sourceChain) || sourceChain);
         }
         if (result.targetChain) {
-          setTargetChain(result.targetChain.toLowerCase());
+          setTargetChain(mapChainToSupported(result.targetChain) || targetChain);
         }
 
         setAiResponse(`I extracted your intent: ${result.amount} ${result.token} from ${result.sourceChain} to ${result.targetChain}. I've filled in the form for you to review.`);

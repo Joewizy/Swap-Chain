@@ -19,9 +19,9 @@ export default function Nav() {
       {/* Logo + collapse */}
       <div className="flex justify-between items-center mb-6">
         <Image src="/logo.png" alt="Logo" width={150} height={150} priority />
-        <iconify-icon
-          icon="cuida:sidebar-collapse-outline"
-          className="text-2xl cursor-pointer"
+        <div
+          className="text-2xl cursor-pointer iconify iconify--cuida"
+          data-icon="cuida:sidebar-collapse-outline"
         />
       </div>
 
@@ -39,7 +39,10 @@ export default function Nav() {
                   : "bg-none hover:bg-primary-110 hover:text-white"
               }`}
             >
-              <iconify-icon icon={icon} className="text-2xl" />
+              <div 
+                className="text-2xl iconify" 
+                data-icon={icon}
+              />
               {label}
             </Link>
           );

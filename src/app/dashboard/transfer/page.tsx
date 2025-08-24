@@ -265,7 +265,6 @@ export default function Transfer() {
     }
   };
 
-  // Execute quote function - Simplified to match working version
   async function executeQuote(
     quote: RelayExecutionResponse
   ): Promise<{ success: boolean; txHash?: string; txLink?: string; error?: string }> {
@@ -313,7 +312,7 @@ export default function Transfer() {
     }
   }
 
-  // Monitor status function - Fixed syntax and simplified
+  // Monitor status function 
   async function monitorStatus(endpoint: string) {
     const baseUrl = environment === 'testnet' ? 'https://api.testnets.relay.link' : 'https://api.relay.link';
     let status = 'pending';
@@ -452,6 +451,15 @@ export default function Transfer() {
       const fromAddr = tokenMap[starkSellToken];
       const toAddr = tokenMap[starkBuyToken];
 
+      console.log('Starknet swap attempt:', {
+        fromToken: starkSellToken,
+        toToken: starkBuyToken,
+        fromAddr,
+        toAddr,
+        amount: starkSellAmount,
+        accountAddress: starkAddress
+      });
+
       if (!fromAddr || !toAddr) {
         throw new Error('Invalid token selection');
       }
@@ -461,10 +469,46 @@ export default function Transfer() {
       }
 
       // Call the actual executeSwap function with the connected wallet address
-      const result = await executeSwap(fromAddr, toAddr, starkSellAmount, starkAddress);
+      const result = await executeSwap(starkSellToken, starkBuyToken, starkSellAmount, starkAddress);
       
       if (result.success) {
-        toast.success('Starknet swap submitted successfully!' + (result.txHash ? `: ${result.txHash}` : ''));
+        // Create Starknet explorer link
+        const txHash = result.txHash;
+        const explorerLink = txHash ? `https://starkscan.co/tx/${txHash}` : null;
+        
+        toast.success(
+          <div className="flex flex-col gap-2">
+            <span>Starknet swap submitted successfully!</span>
+            {explorerLink && (
+              <a
+                href={explorerLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:text-blue-300 underline text-sm flex items-center gap-1"
+              >
+                View transaction
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="inline-block"
+                >
+                  <path d="M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
+            )}
+          </div>,
+          { duration: 6000 }
+        );
+        
         setAiResponse('Starknet transaction executed successfully!');
         
         // Reset form
@@ -476,6 +520,7 @@ export default function Transfer() {
 
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Starknet execution error:', error);
       toast.error(`Starknet swap failed: ${message}`);
       setAiResponse(`Sorry, I encountered an error with your Starknet transaction: ${message}`);
     } finally {
@@ -519,10 +564,22 @@ export default function Transfer() {
           setSellAmount(result.amount.toString());
         }
         if (result.sourceChain) {
-          setSourceChain(result.sourceChain.toLowerCase());
+          const mappedSource = mapChainToSupported(result.sourceChain);
+          if (mappedSource) {
+            setSourceChain(mappedSource);
+          } else {
+            setAiResponse(`I parsed your intent, but the source chain "${result.sourceChain}" is not supported. Please choose from the available chains.`);
+            return;
+          }
         }
         if (result.targetChain) {
-          setTargetChain(result.targetChain.toLowerCase());
+          const mappedTarget = mapChainToSupported(result.targetChain);
+          if (mappedTarget) {
+            setTargetChain(mappedTarget);
+          } else {
+            setAiResponse(`I parsed your intent, but the target chain "${result.targetChain}" is not supported. Please choose from the available chains.`);
+            return;
+          }
         }
 
         setAiResponse(
@@ -551,15 +608,15 @@ export default function Transfer() {
           <div
             onClick={() => setDisconnectBtn(!disconnectBtn)}
             className='flex items-center gap-2 text-sm cursor-pointer'>
-            <iconify-icon
-              icon='lucide:circle-user-round'
-              className='text-2xl cursor-pointer'
+            <div
+              className='text-2xl cursor-pointer iconify iconify--lucide'
+              data-icon='lucide:circle-user-round'
             />
             {isConnected && address ? shorten(address) : 
              starkStatus === 'connected' && starkAddress ? shorten(starkAddress) : 'Not Connected'}
-            <iconify-icon
-              icon='ep:arrow-down'
-              className='text-xl cursor-pointer'
+            <div
+              className='text-xl cursor-pointer iconify iconify--ep'
+              data-icon='ep:arrow-down'
             />
           </div>
           {disconnectBtn && (
@@ -571,7 +628,7 @@ export default function Transfer() {
                   onClick={() => setDisconnectBtn(false)}
                   className='text-gray-400 hover:text-gray-600 transition-colors'
                 >
-                  <iconify-icon icon="material-symbols:close" className="text-lg"></iconify-icon>
+                  <div className="text-lg iconify iconify--material-symbols" data-icon="material-symbols:close"></div>
                 </button>
               </div>
 
@@ -579,7 +636,7 @@ export default function Transfer() {
               <div className='mb-4'>
                 <div className='flex items-center gap-2 mb-2'>
                   <div className='w-6 h-6 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center'>
-                    <iconify-icon icon="cryptocurrency:eth" className="text-white text-sm"></iconify-icon>
+                    <div className="text-white text-sm iconify iconify--cryptocurrency" data-icon="cryptocurrency:eth"></div>
                   </div>
                   <span className='text-sm font-medium text-gray-700'>EVM Wallet</span>
                 </div>
@@ -622,7 +679,7 @@ export default function Transfer() {
               <div>
                 <div className='flex items-center gap-2 mb-2'>
                   <div className='w-6 h-6 rounded-full bg-gradient-to-r from-orange-500 to-red-600 flex items-center justify-center'>
-                    <iconify-icon icon="simple-icons:starknet" className="text-white text-sm"></iconify-icon>
+                    <div className="text-white text-sm iconify iconify--simple-icons" data-icon="simple-icons:starknet"></div>
                   </div>
                   <span className='text-sm font-medium text-gray-700'>Starknet Wallet</span>
                 </div>
@@ -666,7 +723,7 @@ export default function Transfer() {
                             }}
                             disabled={starkIsPending}
                             className='w-full flex items-center gap-2 text-left text-xs bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-300 px-3 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed'>
-                            <iconify-icon icon="material-symbols:account-balance-wallet" className="text-sm text-gray-600"></iconify-icon>
+                            <div className="text-sm text-gray-600 iconify iconify--material-symbols" data-icon="material-symbols:account-balance-wallet"></div>
                             <span className='font-medium text-gray-700'>Connect {connector.name}</span>
                           </button>
                         ))
@@ -680,7 +737,7 @@ export default function Transfer() {
                           }}
                           disabled={starkIsPending}
                           className='w-full flex items-center gap-2 text-left text-xs bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-300 px-3 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed'>
-                          <iconify-icon icon="material-symbols:account-balance-wallet" className="text-sm text-gray-600"></iconify-icon>
+                          <div className="text-sm text-gray-600 iconify iconify--material-symbols" data-icon="material-symbols:account-balance-wallet"></div>
                           <span className='font-medium text-gray-700'>Connect Argent</span>
             </button>
                       )}
@@ -693,7 +750,7 @@ export default function Transfer() {
               {starkConnectError && (
                 <div className='mt-3 p-3 bg-red-50 border border-red-200 rounded-lg'>
                   <div className='flex items-center gap-2'>
-                    <iconify-icon icon="material-symbols:error" className="text-red-500 text-sm"></iconify-icon>
+                    <div className="text-red-500 text-sm iconify iconify--material-symbols" data-icon="material-symbols:error"></div>
                     <span className='text-xs text-red-700 font-medium'>Connection Error</span>
                   </div>
                   <p className='text-xs text-red-600 mt-1'>
@@ -772,10 +829,7 @@ export default function Transfer() {
                   </select>
             {/* Enhanced token select with icon display */}
             <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
-              <iconify-icon 
-                icon={getTokenIcon(sellToken)} 
-                className="text-base"
-              />
+              <div className="text-base iconify iconify--lucide" data-icon={getTokenIcon(sellToken)}></div>
               <select
                 className='outline-none bg-transparent'
                 value={sellToken}
@@ -834,10 +888,7 @@ export default function Transfer() {
                 <div className='text-primary text-sm'>You Send</div>
                 {/* Enhanced Starknet token select with icon display */}
                 <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
-                  <iconify-icon 
-                    icon={getTokenIcon(starkSellToken)} 
-                    className="text-base"
-                  />
+                  <div className="text-base iconify iconify--lucide" data-icon={getTokenIcon(starkSellToken)}></div>
                   <select
                     className='outline-none bg-transparent'
                     value={starkSellToken}
@@ -898,10 +949,7 @@ export default function Transfer() {
                 </select>
             {/* Enhanced token select with icon display */}
             <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
-              <iconify-icon 
-                icon={getTokenIcon(buyToken)} 
-                className="text-base"
-              />
+              <div className="text-base iconify iconify--lucide" data-icon={getTokenIcon(buyToken)}></div>
               <select
                 className='outline-none bg-transparent'
                 value={buyToken}
@@ -952,10 +1000,7 @@ export default function Transfer() {
               <div className='text-primary text-sm'>You Receive</div>
               {/* Enhanced Starknet token select with icon display */}
               <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
-                <iconify-icon 
-                  icon={getTokenIcon(starkBuyToken)} 
-                  className="text-base"
-                />
+                <div className="text-base iconify iconify--lucide" data-icon={getTokenIcon(starkBuyToken)}></div>
                 <select
                   className='outline-none bg-transparent'
                   value={starkBuyToken}
@@ -1100,34 +1145,14 @@ export default function Transfer() {
           </button>
         )}
 
-        {/* Transaction Result */}
-        {transactionResult && (
-          <div className='mt-4 p-3 bg-green-900/20 border border-green-500/30 rounded-xl'>
-            <h3 className='font-semibold text-green-400 mb-2 text-sm'>Transaction Complete!</h3>
-            <div className='text-xs text-green-300 space-y-1'>
-              <p>Hash: {transactionResult.txHash}</p>
-              <p>Status: {transactionResult.status}</p>
-              <a 
-                href={transactionResult.transactionLink} 
-                target='_blank' 
-                rel='noopener noreferrer'
-                className='text-green-400 hover:underline'
-              >
-                View on Explorer →
-              </a>
-            </div>
-          </div>
-        )}
+
       </div>
 
       {/* Chat / Input Box - Updated with AI functionality */}
       <div className='fixed bottom-4 left-64 right-0 flex justify-center'>
         <div className='w-[60%] border-primary-20 border rounded-2xl px-4 py-3 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)] flex items-center justify-between'>
           <div className='flex flex-1 items-center gap-2'>
-            <iconify-icon
-              icon='mingcute:ai-line'
-              className='text-3xl cursor-pointer text-[#017ECD]'
-            />
+            <div className="text-3xl cursor-pointer iconify iconify--mingcute" data-icon="mingcute:ai-line"></div>
             <input
               type='text'
               value={aiTask}
