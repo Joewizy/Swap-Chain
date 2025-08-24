@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation';
+import LandingPage from './LandingPage';
 
 export default function Page() {
-  redirect('/dashboard/transfer');
+  return <LandingPage />;
 }
