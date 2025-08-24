@@ -226,7 +226,10 @@ export default function Transfer() {
           <div
             onClick={() => setDisconnectBtn(!disconnectBtn)}
             className='flex items-center gap-2 cursor-pointer'>
-            <div className='text-3xl cursor-pointer'>👤</div>
+            <iconify-icon
+              icon='lucide:circle-user-round'
+              className='text-3xl cursor-pointer'
+            />
             {isConnected && address ? shorten(address) : 'Not Connected'}
             <div className='text-xl cursor-pointer'>▼</div>
           </div>
@@ -246,9 +249,9 @@ export default function Transfer() {
       {/* Main card stack */}
       <div className='flex flex-col items-center w-full max-w-md mx-auto'>
         {/* You Send */}
-        <div className='border-primary-20 border rounded-3xl px-5 pt-5 pb-8 bg-white w-full'>
+        <div className='border-primary-20 border rounded-3xl px-5 pt-4 pb-4 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
-            <div className='text-primary'>You Send</div>
+            <div className='text-primary text-sm'>You Send</div>
             <select
               className='border border-primary-30 rounded-full py-1 px-2'
               value={sellToken}
@@ -273,20 +276,20 @@ export default function Transfer() {
             />
           </div>
 
-          <div className='mt-4 text-sm'>
+          <div className='mt-2 text-sm'>
             Available Balance:{' '}
             <span className='text-primary'>1000.00 {sellToken}</span>
           </div>
 
-          <div className='absolute w-full left-0 mt-2 flex justify-center items-center'>
-            <Image src='/swap.svg' alt='Swapicon' width={55} height={55} />
+          <div className='absolute w-full left-0 flex justify-center items-center'>
+            <Image src='/swap.svg' alt='Swapicon' width={50} height={50} />
           </div>
         </div>
 
         {/* You Receive */}
-        <div className='border-primary-20 border rounded-3xl p-5 mt-2 bg-white w-full'>
+        <div className='border-primary-20 border rounded-3xl py-3 px-5 mt-2 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
-            <div className='text-primary'>You Receive</div>
+            <div className='text-primary text-sm'>You Receive</div>
             <select
               className='border border-primary-30 rounded-full py-1 px-2'
               value={buyToken}
@@ -308,7 +311,7 @@ export default function Transfer() {
             />
           </div>
 
-          <div className='mt-4 text-sm'>
+          <div className='mt-2 text-sm'>
             New Balance:{' '}
             <span className='text-primary'>1000.00 {buyToken}</span>
           </div>
