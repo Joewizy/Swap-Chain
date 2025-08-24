@@ -225,13 +225,16 @@ export default function Transfer() {
         <div ref={wrapperRef} className='relative'>
           <div
             onClick={() => setDisconnectBtn(!disconnectBtn)}
-            className='flex items-center gap-2 cursor-pointer'>
+            className='flex items-center gap-2 text-sm cursor-pointer'>
             <iconify-icon
               icon='lucide:circle-user-round'
-              className='text-3xl cursor-pointer'
+              className='text-2xl cursor-pointer'
             />
             {isConnected && address ? shorten(address) : 'Not Connected'}
-            <div className='text-xl cursor-pointer'>▼</div>
+            <iconify-icon
+              icon='ep:arrow-down'
+              className='text-xl cursor-pointer'
+            />
           </div>
           {disconnectBtn && (
             <button
@@ -239,7 +242,7 @@ export default function Transfer() {
                 disconnect();
                 setDisconnectBtn(false);
               }}
-              className='absolute top-10 right-0 px-4 py-2 text-white bg-primary-110 cursor-pointer hover:bg-primary rounded-full'>
+              className='absolute top-8 right-0 px-4 py-2 text-white text-sm bg-primary-110 cursor-pointer hover:bg-primary rounded-full'>
               Disconnect Wallet
             </button>
           )}
@@ -249,7 +252,7 @@ export default function Transfer() {
       {/* Main card stack */}
       <div className='flex flex-col items-center w-full max-w-md mx-auto'>
         {/* You Send */}
-        <div className='border-primary-20 border rounded-3xl px-5 pt-4 pb-4 bg-white w-full'>
+        <div className='border-primary-20 border rounded-3xl px-5 pb-5 pt-3 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
             <div className='text-primary text-sm'>You Send</div>
             <select
@@ -276,7 +279,7 @@ export default function Transfer() {
             />
           </div>
 
-          <div className='mt-2 text-sm'>
+          <div className='mt-2 text-xs'>
             Available Balance:{' '}
             <span className='text-primary'>1000.00 {sellToken}</span>
           </div>
@@ -287,7 +290,7 @@ export default function Transfer() {
         </div>
 
         {/* You Receive */}
-        <div className='border-primary-20 border rounded-3xl py-3 px-5 mt-2 bg-white w-full'>
+        <div className='border-primary-20 border rounded-3xl py-4 px-5 mt-2 bg-white w-full'>
           <div className='flex justify-between items-center mb-4'>
             <div className='text-primary text-sm'>You Receive</div>
             <select
@@ -311,7 +314,7 @@ export default function Transfer() {
             />
           </div>
 
-          <div className='mt-2 text-sm'>
+          <div className='mt-2 text-xs'>
             New Balance:{' '}
             <span className='text-primary'>1000.00 {buyToken}</span>
           </div>
@@ -319,68 +322,68 @@ export default function Transfer() {
 
         {/* Summary - Updated to show quote details */}
         <div className='border-primary-20 border rounded-3xl p-5 mt-2 bg-white w-full'>
-          <div className='text-primary'>Summary</div>
+          <div className='text-primary font-medium'>Summary</div>
 
           {!quote ? (
             <div>
               <div className='flex justify-between mt-2'>
-                <span className='text-sm font-medium'>Amount Sent:</span>
-                <span className='text-sm'>
+                <span className='text-xs font-medium'>Amount Sent:</span>
+                <span className='text-xs'>
                   {amount} {sellToken}
                 </span>
               </div>
               <div className='flex justify-between mt-2'>
-                <span className='font-medium text-sm'>Amount Received:</span>
-                <span className='text-sm'>-- {buyToken}</span>
+                <span className='font-medium text-xs'>Amount Received:</span>
+                <span className='text-xs'>-- {buyToken}</span>
               </div>
               <div className='flex justify-between mt-2'>
-                <span className='font-medium text-sm'>Transaction Fee:</span>
-                <span className='text-sm'>--</span>
+                <span className='font-medium text-xs'>Transaction Fee:</span>
+                <span className='text-xs'>--</span>
               </div>
             </div>
           ) : (
             <div>
               <div className='flex justify-between mt-2'>
-                <span className='text-sm font-medium'>Amount Sent:</span>
-                <span className='text-sm'>
+                <span className='text-xs font-medium'>Amount Sent:</span>
+                <span className='text-xs'>
                   {amount} {sellToken}
                 </span>
               </div>
               <div className='flex justify-between mt-2'>
-                <span className='font-medium text-sm'>Amount Received:</span>
-                <span className='text-sm'>
+                <span className='font-medium text-xs'>Amount Received:</span>
+                <span className='text-xs'>
                   {quote.to.amount} {buyToken}
                 </span>
               </div>
               <div className='flex justify-between mt-2'>
-                <span className='font-medium text-sm'>Exchange Rate:</span>
-                <span className='text-sm'>
+                <span className='font-medium text-xs'>Exchange Rate:</span>
+                <span className='text-xs'>
                   1 {sellToken} = {quote.rate} {buyToken}
                 </span>
               </div>
               <div className='flex justify-between mt-2'>
-                <span className='font-medium text-sm'>Route:</span>
-                <span className='text-sm'>
+                <span className='font-medium text-xs'>Route:</span>
+                <span className='text-xs'>
                   {quote.from.chain} → {quote.to.chain}
                 </span>
               </div>
               <div className='flex justify-between mt-2'>
-                <span className='font-medium text-sm'>Gas Fee:</span>
-                <span className='text-sm'>${quote.fees.gas}</span>
+                <span className='font-medium text-xs'>Gas Fee:</span>
+                <span className='text-xs'>${quote.fees.gas}</span>
               </div>
               <div className='flex justify-between mt-2'>
-                <span className='font-medium text-sm'>Bridge Fee:</span>
-                <span className='text-sm'>${quote.fees.bridge}</span>
+                <span className='font-medium text-xs'>Bridge Fee:</span>
+                <span className='text-xs'>${quote.fees.bridge}</span>
               </div>
               <div className='flex justify-between mt-2'>
-                <span className='font-medium text-sm'>Total Cost:</span>
-                <span className='text-sm text-red-500'>
+                <span className='font-medium text-xs'>Total Cost:</span>
+                <span className='text-xs text-red-500'>
                   ${quote.fees.total}
                 </span>
               </div>
               <div className='flex justify-between mt-2'>
-                <span className='font-medium text-sm'>Estimated Time:</span>
-                <span className='text-sm'>{quote.time}</span>
+                <span className='font-medium text-xs'>Estimated Time:</span>
+                <span className='text-xs'>{quote.time}</span>
               </div>
             </div>
           )}
