@@ -9,7 +9,14 @@ import { MAINNET_CONFIG } from '@/app/utils/relay/mainnet';
 import toast from 'react-hot-toast';
 import { executeSwap, TOKEN_ADDRESSES } from '@/app/components/AutoSwap';
 import { useAccount as useStarknetAccount, useConnect as useStarknetConnect, useDisconnect as useStarknetDisconnect } from '@starknet-react/core';
-import { getTokenIcon, getChainIcon } from '@/app/utils/utils';
+import { 
+  getTokenIcon, 
+  getChainIcon, 
+  checkTokenBalance, 
+  validateTransactionBalance, 
+  getGasBufferForChain 
+} from '@/app/utils/utils';
+import { RelayExecutionResponse } from '@/app/utils/interfaces';
 
 
 export default function Transfer() {
@@ -44,7 +51,7 @@ export default function Transfer() {
   const [transactionResult, setTransactionResult] = useState<any>(null);
 
   const router = useRouter();
-  const { address, status, isConnected } = useAccount();
+  const { address, status, isConnected, chain } = useAccount();
   const { disconnect } = useDisconnect();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
@@ -65,13 +72,20 @@ export default function Transfer() {
   const availableSourceTokens = activeConfig.tokens.filter(t => sourceChainCfg && t.addresses[sourceChainCfg.chainId] !== undefined);
   const availableTargetTokens = activeConfig.tokens.filter(t => targetChainCfg && t.addresses[targetChainCfg.chainId] !== undefined);
 
-  // Explorer base URLs for tx link rendering (testnets currently used)
+  // Explorer base URLs for tx link rendering (both testnet and mainnet)
   const explorerBaseUrlByChainId: Record<number, string> = {
+    // Testnet explorers
     11155111: 'https://sepolia.etherscan.io',
     84532: 'https://sepolia.basescan.org',
     421614: 'https://sepolia.arbiscan.io',
     11155420: 'https://sepolia-optimism.etherscan.io',
     80002: 'https://www.oklink.com/amoy',
+    // Mainnet explorers
+    1: 'https://etherscan.io',
+    8453: 'https://basescan.org',
+    42161: 'https://arbiscan.io',
+    10: 'https://optimistic.etherscan.io',
+    137: 'https://polygonscan.com',
   };
 
   // Click outside to close disconnect dropdown
@@ -233,7 +247,7 @@ export default function Transfer() {
 
       if (quoteData.success) {
         setQuote(quoteData);
-        setBuyAmount(quoteData.quote?.details?.currencyOut?.amountFormatted || quoteData.amount || '');
+        setBuyAmount(quoteData.quote?.details?.currencyOut?.amountFormatted || quoteData.amount);
         setQuoteError('');
         setAiResponse(`Got your quote! Route: ${quoteData.fromChain} → ${quoteData.toChain}.`);
       } else {
@@ -251,9 +265,9 @@ export default function Transfer() {
     }
   };
 
-  // Execute quote function
+  // Execute quote function - Simplified to match working version
   async function executeQuote(
-    quote: any
+    quote: RelayExecutionResponse
   ): Promise<{ success: boolean; txHash?: string; txLink?: string; error?: string }> {
     try {
       const { steps } = quote;
@@ -299,10 +313,12 @@ export default function Transfer() {
     }
   }
 
+  // Monitor status function - Fixed syntax and simplified
   async function monitorStatus(endpoint: string) {
+    const baseUrl = environment === 'testnet' ? 'https://api.testnets.relay.link' : 'https://api.relay.link';
     let status = 'pending';
     while (status !== 'success' && status !== 'failure') {
-      const response = await fetch(`https://api.testnets.relay.link${endpoint}`);
+      const response = await fetch(`${baseUrl}${endpoint}`);
       const result = await response.json();
       status = result.status;
       console.log(`Status: ${status}`);
@@ -317,16 +333,30 @@ export default function Transfer() {
     }
   }
 
-  // Execute handler
+  // Check if wallet is on correct network
+  const isOnCorrectNetwork = () => {
+    if (!chain) return false;
+    const targetChainId = sourceChainCfg?.chainId;
+    return chain.id === targetChainId;
+  };
+
+  // Execute handler - Updated with better error handling
   const handleExecute = async () => {
     if (!quote || !isConnected || !address) {
       setAiResponse('Please connect your wallet and get a quote first.');
       return;
     }
 
+    // Check if wallet is on the correct network
+    if (!isOnCorrectNetwork()) {
+      setAiResponse(`Please switch your wallet to ${sourceChainCfg?.name || 'the correct network'} before executing. Current network: ${chain?.name || 'Unknown'}`);
+      return;
+    }
+
     setIsLoading(true);
 
     try {
+      console.log('Starting execution with quote:', quote);
       const result = await executeQuote(quote);
 
       if (result.success) {
@@ -364,7 +394,7 @@ export default function Transfer() {
         );
 
         setTransactionResult({
-          txHash: result.txHash || 'Transaction executed successfully',
+          txHash: 'Transaction executed successfully',
           status: 'success',
           transactionLink: result.txLink || '#',
           quoteId: quote.requestId || '',
@@ -386,12 +416,15 @@ export default function Transfer() {
         setBuyAmount('');
         setQuote(null);
       } else {
-        toast.error(`Failed: ${result.error || 'Unknown error'}`);
-        setAiResponse(`Sorry, I encountered an error executing your transaction: ${result.error || 'Unknown error'}`);
+        const errorMessage = result.error || 'Unknown error';
+        console.error('Execution failed:', errorMessage);
+        toast.error(`Execution failed: ${errorMessage}`);
+        setAiResponse(`Sorry, I encountered an error executing your transaction: ${errorMessage}`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      toast.error(`Failed: ${message}`);
+      console.error('Execution error:', error);
+      toast.error(`Execution failed: ${message}`);
       setAiResponse(`Sorry, I encountered an error executing your transaction: ${message}`);
     } finally {
       setIsLoading(false);
@@ -771,7 +804,12 @@ export default function Transfer() {
 
           <div className='mt-2 text-xs'>
             Available Balance:{' '}
-            <span className='text-primary'>1000.00 {sellToken}</span>
+            <span className='text-primary'>
+              {(() => {
+                // This will be updated when we implement real-time balance checking
+                return '1000.00';
+              })()} {sellToken}
+            </span>
           </div>
 
           <div className='absolute w-full left-0 flex justify-center items-center'>

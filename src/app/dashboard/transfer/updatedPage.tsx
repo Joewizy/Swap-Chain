@@ -11,7 +11,13 @@ import { MAINNET_CONFIG } from '@/app/utils/relay/mainnet';
 import { useRelayExecutor } from '@/app/utils/relay-executor';
 import { executeSwap as executeStarknetSwap, TOKEN_ADDRESSES as ST_TOKENS } from '@/app/components/AutoSwap';
 import { useAccount as useStarknetAccount, useConnect as useStarknetConnect, useDisconnect as useStarknetDisconnect } from '@starknet-react/core';
-import { getTokenIcon, getChainIcon } from '@/app/utils/utils';
+import { 
+  getTokenIcon, 
+  getChainIcon, 
+  checkTokenBalance, 
+  validateTransactionBalance, 
+  getGasBufferForChain 
+} from '@/app/utils/utils';
 
 
 export default function Home() {
@@ -65,69 +71,194 @@ export default function Home() {
     80002: 'https://www.oklink.com/amoy',
   };
 
+  // Execute quote function - Updated based on Relay API documentation
   async function executeQuote(
     quote: RelayExecutionResponse
-  ): Promise<{ success: boolean; txHash?: string; txLink?: string; error?: string }> {
+  ): Promise<{ success: boolean; txHash?: string; txLink?: string; error?: string; userRejected?: boolean }> {
     try {
       const { steps } = quote;
       let lastTxHash: string | undefined;
       let lastTxLink: string | undefined;
+      
+      console.log('Starting quote execution with steps:', steps);
+      
       for (const step of steps) {
         console.log(`Processing step: ${step.id}`);
         console.log(`Action: ${step.action}`);
+        console.log(`Description: ${step.description}`);
+        
+        // Skip steps with no items or empty items array
+        if (!step.items || step.items.length === 0) {
+          console.log(`Skipping step ${step.id} - no items to process`);
+          continue;
+        }
+        
         for (const item of step.items) {
+          console.log(`Processing item with status: ${item.status}`);
+          
           if (item.status === 'incomplete') {
             const { data } = item;
-            if (step.kind === 'transaction' && walletClient) {
-              const txHash = await walletClient.sendTransaction({
-                to: data.to as `0x${string}`,
-                data: (data.data || '0x') as `0x${string}`,
-                value: data.value ? BigInt(data.value) : undefined,
-                gas: data.gas ? BigInt(data.gas) : undefined,
-                maxFeePerGas: data.maxFeePerGas ? BigInt(data.maxFeePerGas) : undefined,
-                maxPriorityFeePerGas: data.maxPriorityFeePerGas ? BigInt(data.maxPriorityFeePerGas) : undefined
-              });
-              console.log(`Transaction submitted: ${txHash}`);
-              lastTxHash = txHash;
-              const chainForTx = data.chainId;
-              if (chainForTx) {
-                const base = explorerBaseUrlByChainId[chainForTx];
-                lastTxLink = base ? `${base}/tx/${txHash}` : undefined;
-              }
-              if (publicClient) {
+            
+                          if (step.kind === 'transaction' && walletClient) {
+                console.log('Executing transaction step');
+                
+                // Validate required transaction data
+                if (!data.to) {
+                  throw new Error('Transaction missing "to" address');
+                }
+                
+                // Log transaction details for debugging
+                console.log('Transaction details:', {
+                  to: data.to,
+                  value: data.value ? `${data.value} wei (${Number(data.value) / 1e18} ETH)` : '0',
+                  gas: data.gas,
+                  maxFeePerGas: data.maxFeePerGas,
+                  maxPriorityFeePerGas: data.maxPriorityFeePerGas,
+                  data: data.data
+                });
+                
                 try {
-                  await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
-                } catch {}
-              }
-              if (item.check) {
-                await monitorStatus(item.check.endpoint);
-              }
+                  const txHash = await walletClient.sendTransaction({
+                    to: data.to as `0x${string}`,
+                    data: (data.data || '0x') as `0x${string}`,
+                    value: data.value ? BigInt(data.value) : undefined,
+                    gas: data.gas ? BigInt(data.gas) : undefined,
+                    maxFeePerGas: data.maxFeePerGas ? BigInt(data.maxFeePerGas) : undefined,
+                    maxPriorityFeePerGas: data.maxPriorityFeePerGas ? BigInt(data.maxPriorityFeePerGas) : undefined
+                  });
+                  
+                  console.log(`Transaction submitted: ${txHash}`);
+                  lastTxHash = txHash;
+                  
+                  // Create explorer link
+                  if (data.chainId && explorerBaseUrlByChainId[data.chainId]) {
+                    lastTxLink = `${explorerBaseUrlByChainId[data.chainId]}/tx/${txHash}`;
+                  }
+                  
+                  // Wait for transaction receipt
+                  if (publicClient) {
+                    try {
+                      console.log('Waiting for transaction receipt...');
+                      await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
+                      console.log('Transaction receipt confirmed');
+                    } catch (error) {
+                      console.warn('Failed to wait for transaction receipt:', error);
+                    }
+                  }
+                  
+                  // Monitor status if check endpoint exists
+                  if (item.check) {
+                    console.log('Monitoring execution status...');
+                    await monitorStatus(item.check.endpoint, item.check.method);
+                  }
+                } catch (txError: any) {
+                  console.error('Transaction error:', txError);
+                  
+                  // Check if user rejected the transaction
+                  if (txError.code === 4001 || 
+                      txError.message?.includes('User denied') ||
+                      txError.message?.includes('User rejected') ||
+                      txError.message?.includes('User cancelled')) {
+                    console.log('User rejected the transaction');
+                    return { 
+                      success: false, 
+                      error: 'Transaction was cancelled by user', 
+                      userRejected: true 
+                    };
+                  }
+                  
+                  // Check for insufficient funds
+                  if (txError.message?.includes('insufficient funds') ||
+                      txError.message?.includes('exceeds balance')) {
+                    throw new Error('Insufficient funds for this transaction. Please check your balance and try again.');
+                  }
+                  
+                  // Re-throw other errors
+                  throw txError;
+                }
+            } else if (step.kind === 'signature') {
+              console.log('Signature step detected - this should be handled by the wallet');
+              // Note: Signature steps are typically handled by the wallet automatically
+              // If manual signature is needed, additional logic would be required here
             }
+          } else {
+            console.log(`Skipping item with status: ${item.status}`);
           }
         }
       }
+      
+      console.log('Quote execution completed successfully');
       return { success: true, txHash: lastTxHash, txLink: lastTxLink };
     } catch (err) {
+      console.error('Quote execution failed:', err);
       return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
     }
   }
 
-  async function monitorStatus(endpoint: string) {
-    let status = 'pending';
-    while (status !== 'success' && status !== 'failure') {
-      const response = await fetch(`https://api.testnets.relay.link${endpoint}`);
-      const result = await response.json();
-      status = result.status;
-      console.log(`Status: ${status}`);
-      if (status === 'success') {
-        console.log('Execution completed successfully!');
-        break;
-      } else if (status === 'failure') {
-        console.log('Execution failed');
-        break;
+  // Monitor status function - Updated based on Relay API documentation
+  async function monitorStatus(endpoint: string, method: string = 'GET') {
+    const baseUrl = environment === 'testnet' ? 'https://api.testnets.relay.link' : 'https://api.relay.link';
+    let attempts = 0;
+    const maxAttempts = 30; // 1 minute max (30 * 2 seconds)
+    
+    console.log(`Starting status monitoring for endpoint: ${endpoint}`);
+    
+    while (attempts < maxAttempts) {
+      try {
+        const response = await fetch(`${baseUrl}${endpoint}`, {
+          method: method,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        console.log(`Status check ${attempts + 1}: ${result.status}`);
+        
+        // Check for expected statuses according to Relay documentation
+        switch (result.status) {
+          case 'waiting':
+            console.log('Deposit transaction not yet indexed');
+            break;
+          case 'pending':
+            console.log('Deposit indexed, fill is pending');
+            break;
+          case 'success':
+            console.log('Relay completed successfully!');
+            return true;
+          case 'failure':
+            throw new Error('Relay failed, attempting to refund');
+          case 'refund':
+            throw new Error('Funds were refunded due to failure');
+          default:
+            console.log(`Unknown status: ${result.status}`);
+        }
+        
+        // If not success, wait before next check
+        if (result.status !== 'success') {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        
+        attempts++;
+      } catch (error) {
+        console.error(`Status check failed (attempt ${attempts + 1}):`, error);
+        
+        // If it's a failure or refund status, throw the error
+        if (error instanceof Error && (error.message.includes('failure') || error.message.includes('refund'))) {
+          throw error;
+        }
+        
+        // For other errors, continue retrying
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
-      await new Promise(resolve => setTimeout(resolve, 2000));
     }
+    
+    throw new Error(`Status monitoring timed out after ${maxAttempts} attempts`);
   }
 
   // Persist an AI session id for follow-ups
