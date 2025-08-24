@@ -221,6 +221,7 @@ export default function Transfer() {
       }
 
       const quoteData = await response.json();
+      console.log('Quote data received:', quoteData);
 
       if (quoteData.success) {
         setQuote(quoteData);
@@ -760,10 +761,7 @@ export default function Transfer() {
                   {quote.fromChain} → {quote.toChain}
                 </span>
               </div>
-              <div className='flex justify-between mt-2'>
-                <span className='font-medium text-xs'>Request ID:</span>
-                <span className='text-xs font-mono'>{quote.requestId}</span>
-              </div>
+
               <div className='flex justify-between mt-2'>
                 <span className='font-medium text-xs'>Gas Fee:</span>
                 <span className='text-xs'>${Number(quote.quote?.fees?.gas?.amountUsd || 0).toFixed(2)}</span>
