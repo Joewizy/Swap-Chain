@@ -252,7 +252,7 @@ export default function Transfer() {
       </div>
 
       {/* Main card stack */}
-      <div className='flex flex-col items-center w-full max-w-md mx-auto'>
+      <div className='flex flex-col items-center w-full max-w-md mx-auto mb-44'>
         <div className='flex mb-4 justify-between w-full px-2'>
           <div>
             <label className='inline-flex items-center gap-2 cursor-pointer select-none'>
@@ -446,7 +446,7 @@ export default function Transfer() {
 
       {/* Chat / Input Box - Updated with AI functionality */}
       <div className='fixed bottom-4 left-64 right-0 flex justify-center'>
-        <div className='w-[60%] border-primary-20 border rounded-2xl p-4 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)] flex items-center justify-between'>
+        <div className='w-[60%] border-primary-20 border rounded-2xl px-4 py-3 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)] flex items-center justify-between'>
           <div className='flex flex-1 items-center gap-2'>
             <iconify-icon
               icon='mingcute:ai-line'
