@@ -18,6 +18,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Swap Chain - Cross-Chain Token Swaps",
   description: "Seamless cross-chain token swaps powered by Relay",
+  icons: {
+    icon: '/logo edit.png',
+    shortcut: '/logo edit.png',
+    apple: '/logo edit.png',
+  },
 };
 
 export default function RootLayout({
@@ -28,6 +33,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        {/* Favicon */}
+        <link rel="icon" href="/logo edit.png" />
         {/* Viewport meta tag for proper scaling */}
         <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=1.0, user-scalable=no" />
         {/* Load Iconify webcomponent */}
