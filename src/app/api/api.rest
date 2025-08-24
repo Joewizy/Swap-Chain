@@ -1,10 +1,10 @@
 # # # Send a message to the intent API
-# POST http://localhost:3000/api/intent
-# Content-Type: application/json
+POST http://localhost:3000/api/intent
+Content-Type: application/json
 
-# {
-#   "message": "from 20 dai token base to arbitrum"
-# }
+{
+  "message": " Swap 1 ETH for USDC on Base"
+}
 
 # POST http://localhost:3000/api/routes
 # Content-Type: application/json
@@ -16,14 +16,14 @@
 #   "amount": "0.01"
 # }
 
-# Get quote for cross-chain swap (returns steps for client-side execution)
-POST http://localhost:3000/api/quote
-Content-Type: application/json
+# # Get quote for cross-chain swap (returns steps for client-side execution)
+# POST http://localhost:3000/api/quote
+# Content-Type: application/json
 
-{
-  "sourceChain": "base-sepolia",
-  "targetChain": "sepolia",
-  "token": "ETH",
-  "amount": "0.001",
-  "userAddress": "0xa2791e44234Dc9C96F260aD15fdD09Fe9B597FE1"
-}
+# {
+#   "sourceChain": "base-sepolia",
+#   "targetChain": "sepolia",
+#   "token": "ETH",
+#   "amount": "0.001",
+#   "userAddress": "0xa2791e44234Dc9C96F260aD15fdD09Fe9B597FE1"
+# }

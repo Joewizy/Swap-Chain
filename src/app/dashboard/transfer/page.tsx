@@ -608,15 +608,15 @@ export default function Transfer() {
           <div
             onClick={() => setDisconnectBtn(!disconnectBtn)}
             className='flex items-center gap-2 text-sm cursor-pointer'>
-            <div
-              className='text-2xl cursor-pointer iconify iconify--lucide'
-              data-icon='lucide:circle-user-round'
+            <iconify-icon
+              icon='lucide:circle-user-round'
+              className='text-2xl cursor-pointer'
             />
             {isConnected && address ? shorten(address) : 
              starkStatus === 'connected' && starkAddress ? shorten(starkAddress) : 'Not Connected'}
-            <div
-              className='text-xl cursor-pointer iconify iconify--ep'
-              data-icon='ep:arrow-down'
+            <iconify-icon
+              icon='ep:arrow-down'
+              className='text-xl cursor-pointer'
             />
           </div>
           {disconnectBtn && (
@@ -628,7 +628,7 @@ export default function Transfer() {
                   onClick={() => setDisconnectBtn(false)}
                   className='text-gray-400 hover:text-gray-600 transition-colors'
                 >
-                  <div className="text-lg iconify iconify--material-symbols" data-icon="material-symbols:close"></div>
+                  <iconify-icon icon="material-symbols:close" className="text-lg"></iconify-icon>
                 </button>
               </div>
 
@@ -636,7 +636,7 @@ export default function Transfer() {
               <div className='mb-4'>
                 <div className='flex items-center gap-2 mb-2'>
                   <div className='w-6 h-6 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center'>
-                    <div className="text-white text-sm iconify iconify--cryptocurrency" data-icon="cryptocurrency:eth"></div>
+                    <iconify-icon icon="cryptocurrency:eth" className="text-white text-sm"></iconify-icon>
                   </div>
                   <span className='text-sm font-medium text-gray-700'>EVM Wallet</span>
                 </div>
@@ -679,7 +679,7 @@ export default function Transfer() {
               <div>
                 <div className='flex items-center gap-2 mb-2'>
                   <div className='w-6 h-6 rounded-full bg-gradient-to-r from-orange-500 to-red-600 flex items-center justify-center'>
-                    <div className="text-white text-sm iconify iconify--simple-icons" data-icon="simple-icons:starknet"></div>
+                    <iconify-icon icon="simple-icons:starknet" className="text-white text-sm"></iconify-icon>
                   </div>
                   <span className='text-sm font-medium text-gray-700'>Starknet Wallet</span>
                 </div>
@@ -717,15 +717,12 @@ export default function Transfer() {
                         starkConnectors.map((connector: any) => (
                           <button
                             key={connector.id}
-                            onClick={() => {
-                              connectStarknet({ connector });
-                              setDisconnectBtn(false);
-                            }}
+                            onClick={() => connectStarknet({ connector })}
                             disabled={starkIsPending}
                             className='w-full flex items-center gap-2 text-left text-xs bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-300 px-3 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed'>
-                            <div className="text-sm text-gray-600 iconify iconify--material-symbols" data-icon="material-symbols:account-balance-wallet"></div>
-                            <span className='font-medium text-gray-700'>Connect {connector.name}</span>
-                          </button>
+                            <iconify-icon icon="material-symbols:account-balance-wallet" className="text-sm text-gray-600"></iconify-icon>
+                              <span className='font-medium text-gray-700'>Connect {connector.name}</span>
+                            </button>
                         ))
                       ) : (
                         <button
@@ -737,7 +734,7 @@ export default function Transfer() {
                           }}
                           disabled={starkIsPending}
                           className='w-full flex items-center gap-2 text-left text-xs bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-300 px-3 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed'>
-                          <div className="text-sm text-gray-600 iconify iconify--material-symbols" data-icon="material-symbols:account-balance-wallet"></div>
+                          <iconify-icon icon="material-symbols:account-balance-wallet" className="text-sm text-gray-600"></iconify-icon>
                           <span className='font-medium text-gray-700'>Connect Argent</span>
             </button>
                       )}
@@ -750,7 +747,7 @@ export default function Transfer() {
               {starkConnectError && (
                 <div className='mt-3 p-3 bg-red-50 border border-red-200 rounded-lg'>
                   <div className='flex items-center gap-2'>
-                    <div className="text-red-500 text-sm iconify iconify--material-symbols" data-icon="material-symbols:error"></div>
+                    <iconify-icon icon="material-symbols:error" className="text-red-500 text-sm"></iconify-icon>
                     <span className='text-xs text-red-700 font-medium'>Connection Error</span>
                   </div>
                   <p className='text-xs text-red-600 mt-1'>
@@ -829,7 +826,10 @@ export default function Transfer() {
                   </select>
             {/* Enhanced token select with icon display */}
             <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
-              <div className="text-base iconify iconify--lucide" data-icon={getTokenIcon(sellToken)}></div>
+              <iconify-icon 
+                icon={getTokenIcon(sellToken)} 
+                className="text-base"
+              />
               <select
                 className='outline-none bg-transparent'
                 value={sellToken}
@@ -888,7 +888,10 @@ export default function Transfer() {
                 <div className='text-primary text-sm'>You Send</div>
                 {/* Enhanced Starknet token select with icon display */}
                 <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
-                  <div className="text-base iconify iconify--lucide" data-icon={getTokenIcon(starkSellToken)}></div>
+                  <iconify-icon 
+                    icon={getTokenIcon(starkSellToken)} 
+                    className="text-base"
+                  />
                   <select
                     className='outline-none bg-transparent'
                     value={starkSellToken}
@@ -949,7 +952,10 @@ export default function Transfer() {
                 </select>
             {/* Enhanced token select with icon display */}
             <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
-              <div className="text-base iconify iconify--lucide" data-icon={getTokenIcon(buyToken)}></div>
+              <iconify-icon 
+                icon={getTokenIcon(buyToken)} 
+                className="text-base"
+              />
               <select
                 className='outline-none bg-transparent'
                 value={buyToken}
@@ -1000,7 +1006,10 @@ export default function Transfer() {
               <div className='text-primary text-sm'>You Receive</div>
               {/* Enhanced Starknet token select with icon display */}
               <div className="flex items-center gap-1 border border-primary-30 rounded-full py-1 px-2">
-                <div className="text-base iconify iconify--lucide" data-icon={getTokenIcon(starkBuyToken)}></div>
+                <iconify-icon 
+                  icon={getTokenIcon(starkBuyToken)} 
+                  className="text-base"
+                />
                 <select
                   className='outline-none bg-transparent'
                   value={starkBuyToken}
@@ -1152,7 +1161,10 @@ export default function Transfer() {
       <div className='fixed bottom-4 left-64 right-0 flex justify-center'>
         <div className='w-[60%] border-primary-20 border rounded-2xl px-4 py-3 bg-white shadow-[2px_2px_20px_rgba(0,0,0,0.05)] flex items-center justify-between'>
           <div className='flex flex-1 items-center gap-2'>
-            <div className="text-3xl cursor-pointer iconify iconify--mingcute" data-icon="mingcute:ai-line"></div>
+            <iconify-icon
+              icon='mingcute:ai-line'
+              className='text-3xl cursor-pointer text-[#017ECD]'
+            />
             <input
               type='text'
               value={aiTask}

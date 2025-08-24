@@ -6,6 +6,15 @@ body {
   height: 100%;
   margin: 0;
   padding: 0;
+  font-size: 16px; /* Ensure base font size */
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%; /* Prevent iOS zoom */
+  -ms-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 iconify-icon {

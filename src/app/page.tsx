@@ -1,11 +1,5 @@
-import LandingPage from "./LandingPage";
-import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "Landing Page",
-  description: "Welcome to SwapChain",
-};
+import { redirect } from 'next/navigation';
 
 export default function Page() {
-  return <LandingPage />;
+  redirect('/dashboard/transfer');
 }
