@@ -88,35 +88,34 @@ POST /api/starknet-swap
 }
 ```
 
-## 🧪 Testing
+## Testing
 
-### **Test API Endpoints**
+#### **1. Start the Application**
 ```bash
-# Test intent extraction
-node test-intent.js
+# Install dependencies (if not already done)
+npm install
 
-# Test routes API
-node test-routes.js
-
-# Test frontend integration
-node test-frontend.js
-
-# Test Starknet swap
-curl -X POST http://localhost:3000/api/starknet-swap \
-  -H "Content-Type: application/json" \
-  -d '{"fromToken": "ETH", "toToken": "USDC", "amount": "0.001", "accountAddress": "0x..."}'
-```
-
-### **Manual Testing**
-```bash
 # Start development server
 npm run dev
 
-# Test with curl
-curl -X POST http://localhost:3000/api/intent \
-  -H "Content-Type: application/json" \
-  -d '{"message": "I want to swap 0.1 ETH from sepolia to base-sepolia"}'
+# Open browser to http://localhost:3000
 ```
+
+#### **2. Test AI Intent Extraction**
+1. **Connect Wallet to Navigate to the main page**
+2. **Try natural language inputs:**
+   - "I want to swap 0.1 ETH from sepolia to base-sepolia"
+   - "Bridge 50 USDC from arbitrum-sepolia to polygon-amoy"
+   - "Swap 0.5 SOL on solana-devnet"
+   - "I need to transfer 0.01 BTC from bitcoin-testnet4"
+
+3. **Click on Get Quote to find the optimal route**
+4. **Execute Swap**
+
+#### **3. Test Different Features**
+- **Cross-chain bridges**: Try different chain combinations
+- **Starknet swaps**: Test ETH ↔ USDC swaps on Starknet
+
 
 ## 🏗️ Architecture
 
