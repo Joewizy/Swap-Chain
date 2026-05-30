@@ -245,7 +245,8 @@
 .arc-amount::placeholder {
   color: var(--arc-muted-2);
 }
-.arc-amount.out {
+/* Two classes on one node — avoid a lone `.out` token (Tailwind v4 PostCSS). */
+.arc-amount.arc-amount--display {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

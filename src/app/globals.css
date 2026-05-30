@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./components/arc/arc-swap.css";
 
 /* ========================================================================
    Swap Chain — design tokens (v2)
