@@ -1,47 +1,27 @@
-"use client"
+"use client";
 
-import { getDefaultConfig } from "@rainbow-me/rainbowkit"
-import { 
-  baseSepolia, 
-  sepolia, 
-  arbitrumSepolia, 
-  optimismSepolia, 
-  polygonAmoy,
-  mainnet,
-  base,
-  arbitrum,
-  optimism,
-  polygon
-} from "viem/chains"
-import { lightTheme } from '@rainbow-me/rainbowkit'
+import { getDefaultConfig, lightTheme } from "@rainbow-me/rainbowkit";
+import type { Chain } from "viem";
+import { ACTIVE_CHAINS } from "@/config/network";
 
-const projectId = process.env.NEXT_PUBLIC_WALLET_CONNECT_ID || "YOUR_WALLET_CONNECT_PROJECT_ID"
+const projectId =
+  process.env.NEXT_PUBLIC_WALLET_CONNECT_ID || "YOUR_WALLET_CONNECT_PROJECT_ID";
+
+const evmChains = ACTIVE_CHAINS.filter(
+  (c) => c.kind === "evm" && c.viemChain
+).map((c) => c.viemChain as Chain);
 
 export default getDefaultConfig({
-    appName: "Swap-Chain",
-    projectId: projectId,
-    chains: [
-        // Testnet chains
-        sepolia, 
-        baseSepolia, 
-        arbitrumSepolia, 
-        optimismSepolia, 
-        polygonAmoy,
-        // Mainnet chains
-        mainnet,
-        base,
-        arbitrum,
-        optimism,
-        polygon
-    ],
-    ssr: false
-})
+  appName: "Swap-Chain",
+  projectId,
+  chains: evmChains as unknown as readonly [Chain, ...Chain[]],
+  ssr: false,
+});
 
-// Custom theme for RainbowKit
 export const rainbowKitTheme = lightTheme({
-    accentColor: '#5C4B99',
-    accentColorForeground: 'white',
-    borderRadius: 'large',
-    fontStack: 'system',
-    overlayBlur: 'small',
-})
+  accentColor: "#5C4B99",
+  accentColorForeground: "white",
+  borderRadius: "large",
+  fontStack: "system",
+  overlayBlur: "small",
+});

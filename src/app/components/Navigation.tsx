@@ -8,10 +8,26 @@ export default function Nav() {
   const pathname = usePathname();
 
   const links = [
-    { href: "/dashboard/transfer", label: "Transfer", icon: "ri:token-swap-fill" },
-    { href: "/dashboard/history", label: "Transaction History", icon: "material-symbols:history" },
-    { href: "/dashboard/wallet", label: "Wallet", icon: "solar:wallet-outline" },
-    { href: "/dashboard/support", label: "Support", icon: "material-symbols:contact-support-outline" },
+    {
+      href: "/dashboard/transfer",
+      label: "Transfer",
+      icon: "ri:token-swap-fill",
+    },
+    {
+      href: "/dashboard/history",
+      label: "Transaction History",
+      icon: "material-symbols:history",
+    },
+    {
+      href: "/dashboard/wallet",
+      label: "Wallet",
+      icon: "solar:wallet-outline",
+    },
+    {
+      href: "/dashboard/support",
+      label: "Support",
+      icon: "material-symbols:contact-support-outline",
+    },
   ];
 
   return (
@@ -39,10 +55,7 @@ export default function Nav() {
                   : "bg-none hover:bg-primary-110 hover:text-white"
               }`}
             >
-              <div 
-                className="text-2xl iconify" 
-                data-icon={icon}
-              />
+              <div className="text-2xl iconify" data-icon={icon} />
               {label}
             </Link>
           );

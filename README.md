@@ -1,208 +1,101 @@
 # Swap Chain
 
-A comprehensive cross-chain bridging application with AI intent extraction, real-time quotes from Relay API, and Starknet integration for seamless token swaps.
+Swap Chain is a global stablecoin routing app: stablecoin, token, or fiat in; local currency or another chain out.
 
-## 🚀 Features
+The current codebase is a Next.js app with a multi-rail router (CCTP, Chainrails, Relay, Paycrest), a structured AI intent parser, a LiFi-backed token + chain registry, and an in-app swap UI that drives real on-chain execution for USDC ↔ USDC routes via Circle CCTP v2.
 
-### **AI Assistant**
-- Natural language intent extraction
-- Automatic form filling
-- Clarification requests for unclear inputs
-- Smart chain mapping and validation
+## Current features
 
-### **Cross-Chain Bridge**
-- Real quotes from Relay API
-- 9 supported chains (including Starknet)
-- Multiple supported tokens
-- Live fee calculations
-- Transaction monitoring
+- **Swap UI at `/app`** — pick chain + token + amount, or describe the transfer in plain English; both paths produce the same quote and execution flow
+- **Multi-rail router** — `/api/router` picks CCTP for USDC↔USDC across supported chains, Chainrails for broader crypto routes, Relay as the catch-all, and Paycrest for fiat off-ramp
+- **CCTP v2 end-to-end** — approve → burn → poll Circle Iris for attestation → switch chain → mint, all signed by the connected wallet
+- **AI intent parser** — `/api/intent` extracts a structured intent (action, chains, tokens, amount, recipient, fiat currency) from natural language using OpenAI-compatible providers (defaults to GitHub Models)
+- **Token + chain registry** — LiFi catalog filtered to the chains the router actually supports; logos and metadata from LiFi, falls back to the local registry on testnet
+- **Wallet connection** — RainbowKit + wagmi, with connect/disconnect, account switcher, and an honest "connect to continue" guard on the confirm step
+- **Network mode** — `NEXT_PUBLIC_NETWORK=testnet|mainnet` flips chains, tokens, and rail addresses across the whole app from one switch
 
-### **Starknet Integration**
-- Direct token swaps on Starknet
-- AutoSwappr SDK integration
-- Ekubo DEX support
-- Account balance validation
-- Transaction status tracking
+## Product Direction
 
-### **Same-Chain Swap**
-- Mock exchange rates
-- Token switching
-- Real-time calculations
+The brand should stay global. The first payout corridors can be regional, but the name and top-level promise should not be tied to one geography.
 
-## 📋 Supported Chains & Tokens
+Target rail split:
 
-### **Chains (9 total)**
-- **EVM Testnets (5):** Sepolia, Base Sepolia, Arbitrum Sepolia, OP Sepolia, Polygon Amoy
-- **Solana (2):** Solana Devnet, Eclipse Testnet
-- **Bitcoin (1):** Bitcoin Testnet 4
-- **Starknet (1):** Starknet Mainnet
+- Chainrails: inbound crypto funding and fiat on-ramp
+- CCTP v2: USDC-to-USDC cross-chain routes
+- Relay: non-USDC outbound, long-tail routes, quote execution
+- Paycrest: local fiat payout to supported bank and mobile-money recipients
 
-### **Tokens (4 total)**
-- **ETH** - Ethereum (EVM chains + Starknet)
-- **SOL** - Solana (Solana chains)
-- **BTC** - Bitcoin (Bitcoin chain)
-- **USDC** - USD Coin (Starknet)
+See `ARCHITECTURE.md` for the phased roadmap.
 
-## 🛠️ API Endpoints
+## Setup
 
-### **Intent API** (`/api/intent`)
 ```bash
-POST /api/intent
-{
-  "message": "I want to swap 0.1 ETH from sepolia to base-sepolia"
-}
-```
-
-### **Routes API** (`/api/routes`)
-```bash
-POST /api/routes
-{
-  "sourceChain": "sepolia",
-  "targetChain": "base-sepolia", 
-  "token": "ETH",
-  "amount": "0.1"
-}
-```
-
-### **Execute API** (`/api/execute`)
-```bash
-POST /api/execute
-{
-  "quoteId": "0x...",
-  "userAddress": "0x...",
-  "sourceChain": "sepolia",
-  "targetChain": "base-sepolia",
-  "token": "ETH",
-  "amount": "0.1"
-}
-```
-
-### **Starknet Swap API** (`/api/starknet-swap`)
-```bash
-POST /api/starknet-swap
-{
-  "fromToken": "ETH",
-  "toToken": "USDC",
-  "amount": "0.001",
-  "accountAddress": "0x..."
-}
-```
-
-## Testing
-
-#### **1. Start the Application**
-```bash
-# Install dependencies (if not already done)
 npm install
-
-# Start development server
+cp env.example .env.local
 npm run dev
-
-# Open browser to http://localhost:3000
 ```
 
-#### **2. Test AI Intent Extraction**
-1. **Connect Wallet to Navigate to the main page**
-2. **Try natural language inputs:**
-   - "I want to swap 0.1 ETH from sepolia to base-sepolia"
-   - "Bridge 50 USDC from arbitrum-sepolia to polygon-amoy"
-   - "Swap 0.5 SOL on solana-devnet"
-   - "I need to transfer 0.01 BTC from bitcoin-testnet4"
+Open:
 
-3. **Click on Get Quote to find the optimal route**
-4. **Execute Swap**
-
-#### **3. Test Different Features**
-- **Cross-chain bridges**: Try different chain combinations
-- **Starknet swaps**: Test ETH ↔ USDC swaps on Starknet
-
-
-## 🏗️ Architecture
-
-### **Frontend**
-- React with TypeScript
-- Tailwind CSS for styling
-- Real-time form updates
-- Error handling and loading states
-- RainbowKit for wallet connection
-- Starknet provider integration
-
-### **Backend**
-- Next.js API routes
-- OpenAI integration for intent extraction
-- Relay API integration for quotes
-- AutoSwappr SDK for Starknet swaps
-- Balance validation and error handling
-
-### **Key Design Decisions**
-- **Minimal & Manageable:** Focused on core functionality
-- **Real API Integration:** Gets actual quotes from Relay and Starknet
-- **Security First:** Private keys handled server-side
-- **Clear Error Messages:** Comprehensive error handling
-- **Multi-Chain Support:** Seamless cross-chain and same-chain swaps
-
-## 📈 Success Rate
-
-- ✅ **Cross-chain transfers** working perfectly across EVM testnets
-- ✅ **Starknet swaps** with AutoSwappr SDK
-- ✅ **Real bridge fees** and timing from Relay API
-- ✅ **AI intent extraction** with clarification support
-- ✅ **Balance validation** and error handling
-- ✅ **Clean, maintainable code** structure
-
-## 🎯 Getting Started
-
-1. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-2. **Set up environment variables**
-   ```bash
-   # Create .env.local
-   OPEN_API_KEY=your_openai_api_key_here
-   ```
-
-3. **Start development server**
-   ```bash
-   npm run dev
-   ```
-
-4. **Open browser**
-   ```
-   http://localhost:3000
-   ```
-
-## 🔧 Development
-
-### **Adding New Chains**
-1. Update `SUPPORTED_CHAINS` in `/api/routes/route.ts`
-2. Add chain to `CHAINS` array in `/app/page.tsx`
-3. Update token address mapping in `getNativeTokenAddress()`
-
-### **Adding New Tokens**
-1. Update `SUPPORTED_TOKENS` in `/api/routes/route.ts`
-2. Add token to `TOKENS` array in `/app/page.tsx`
-3. Update decimals mapping in `getTokenDecimals()`
-
-### **Starknet Configuration**
-1. Update `TOKEN_ADDRESSES` in `AutoSwap.tsx`
-2. Configure RPC endpoints in API routes
-3. Set up private keys in environment variables
-
-## 🔐 Security
-
-- **Private Keys:** Handled server-side only
-- **Environment Variables:** Sensitive data stored securely
-- **Error Handling:** No sensitive information exposed in errors
-- **Validation:** Input validation on all API endpoints
-
-### **Environment Setup**
 ```bash
-# Required environment variables
-OPEN_API_KEY=your_openai_api_key
+http://localhost:3000
 ```
 
-## 📝 License
+Required for wallet UX:
 
-MIT License - feel free to use this as a foundation for your own projects!
+```bash
+NEXT_PUBLIC_WALLET_CONNECT_ID=your_walletconnect_project_id
+```
+
+Required for AI intent extraction:
+
+```bash
+OPENAI_API_KEY=your_openai_or_compatible_api_key
+```
+
+`OPENAI_BASE_URL` is optional. If omitted, the app defaults to the configured GitHub Models-compatible endpoint in `src/app/api/intent/route.ts`.
+
+## Scripts
+
+```bash
+npm run dev        # local Next.js dev server
+npm run build      # production build
+npm run lint       # ESLint
+npm run typecheck  # TypeScript check
+npm test           # currently aliases typecheck
+npm run check      # lint + typecheck
+```
+
+## API routes
+
+| Route | Purpose |
+| ----- | ------- |
+| `POST /api/intent` | Natural-language → structured intent (action, chains, tokens, amount, recipient, fiat). Uses OpenAI-compatible LLM. |
+| `POST /api/router` | Multi-rail router. Picks `cctp` / `chainrails` / `relay` / `paycrest` and returns an inline quote (for CCTP) or a `quoteEndpoint` for the others. |
+| `POST /api/quote` | Relay quote + execution steps. Used by the router when it picks Relay. |
+| `GET /api/cctp/attestation` | Polls Circle Iris for a CCTP v2 attestation by burn tx hash. |
+| `GET /api/cctp/fees` | Live CCTP burn-fee quote per src → dst pair. |
+| `POST /api/chainrails/quote` | Chainrails best-across-bridges quote. Requires `CHAINRAILS_API_KEY`. |
+| `POST /api/paycrest/order` | Paycrest fiat off-ramp order. Mainnet-only, requires `PAYCREST_API_KEY`. |
+
+See `src/app/api/api.rest` for example request bodies you can fire from the VS Code REST Client extension.
+
+## Network Mode
+
+`NEXT_PUBLIC_NETWORK` controls the active registry:
+
+```bash
+NEXT_PUBLIC_NETWORK=testnet
+# or
+NEXT_PUBLIC_NETWORK=mainnet
+```
+
+Default is `testnet`.
+
+## Development Notes
+
+- Add chains and tokens in `src/config/network.ts`.
+- Do not add server-held wallet private keys.
+- Keep provider-specific integrations behind API modules or rail modules.
+- Keep README and `ARCHITECTURE.md` aligned when a route or rail changes.
+

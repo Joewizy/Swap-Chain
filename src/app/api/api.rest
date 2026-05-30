@@ -1,29 +1,223 @@
-# # # Send a message to the intent API
-POST http://localhost:3000/api/intent
+# Swap Chain — local API tests (REST Client / httpYac)
+#
+# Prereqs:
+#   1. npm run dev  →  http://localhost:3000
+#   2. .env.local: NEXT_PUBLIC_NETWORK=testnet|mainnet (drives chain/token universe)
+#   3. Extension: "REST Client" (Huachao Mao) — click "Send Request" above each ###
+#
+# Env keys by route:
+#   /api/intent          → OPENAI_API_KEY (+ OPENAI_BASE_URL / OPENAI_MODEL optional)
+#   /api/chainrails/quote → CHAINRAILS_API_KEY
+#   /api/paycrest/order  → PAYCREST_API_KEY (mainnet; 501 if unset)
+#   /api/quote           → none (Relay public API)
+#   /api/router, /api/cctp/* → none
+
+@baseUrl = http://localhost:3000
+# Replace with the EVM address you're testing from.
+@wallet = 0x0000000000000000000000000000000000000001
+
+# Testnet USDC (mirror src/config/network.ts + scripts/test-chainrails.mjs)
+@usdcBaseSepolia = 0x036CbD53842c5426634e7929541eC2318f3dCF7e
+@usdcArbitrumSepolia = 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d
+
+# Replace after a real CCTP burn on source chain
+@cctpBurnTxHash = 0x0000000000000000000000000000000000000000000000000000000000000000
+
+###############################################################################
+# AI — structured intent (natural language → JSON)
+# Requires OPENAI_API_KEY. Chain/token lists come from src/config/network.ts.
+###############################################################################
+
+### Intent — USDC bridge (CCTP-shaped)
+POST {{baseUrl}}/api/intent
 Content-Type: application/json
 
 {
-  "message": " Swap 1 ETH for USDC on Base"
+  "message": "Bridge 10 USDC from Base Sepolia to Arbitrum Sepolia"
 }
 
-# POST http://localhost:3000/api/routes
-# Content-Type: application/json
+### Intent — swap same chain
+POST {{baseUrl}}/api/intent
+Content-Type: application/json
 
-# {
-#   "sourceChain": "base-sepolia",
-#   "targetChain": "arbitrum-sepolia",
-#   "token": "MATIC",
-#   "amount": "0.01"
-# }
+{
+  "message": "Swap 0.01 ETH for USDC on Base Sepolia"
+}
 
-# # Get quote for cross-chain swap (returns steps for client-side execution)
-# POST http://localhost:3000/api/quote
-# Content-Type: application/json
+### Intent — fiat off-ramp (Paycrest corridors)
+POST {{baseUrl}}/api/intent
+Content-Type: application/json
 
-# {
-#   "sourceChain": "base-sepolia",
-#   "targetChain": "sepolia",
-#   "token": "ETH",
-#   "amount": "0.001",
-#   "userAddress": "0xa2791e44234Dc9C96F260aD15fdD09Fe9B597FE1"
-# }
+{
+  "message": "Send 50 USDC to my mum's Opay +2348012345678 as NGN"
+}
+
+### Intent — fiat on-ramp
+POST {{baseUrl}}/api/intent
+Content-Type: application/json
+
+{
+  "message": "Buy 100 USDC with naira on Base"
+}
+
+###############################################################################
+# Router — pick rail + inline CCTP fees or quoteEndpoint
+# Body uses app ChainIds (e.g. base-sepolia), not Chainrails enum names.
+###############################################################################
+
+### Router — USDC bridge → expect rail cctp + inline fees
+POST {{baseUrl}}/api/router
+Content-Type: application/json
+
+{
+  "action": "bridge",
+  "fromChain": "base-sepolia",
+  "fromToken": "USDC",
+  "amount": "10",
+  "toChain": "arbitrum-sepolia",
+  "toToken": "USDC"
+}
+
+### Router — USDC→USDC when CCTP unavailable → chainrails or relay + quoteEndpoint
+POST {{baseUrl}}/api/router
+Content-Type: application/json
+
+{
+  "action": "bridge",
+  "fromChain": "base-sepolia",
+  "fromToken": "USDC",
+  "amount": "1",
+  "toChain": "sepolia",
+  "toToken": "USDC"
+}
+
+### Router — token swap → usually relay
+POST {{baseUrl}}/api/router
+Content-Type: application/json
+
+{
+  "action": "swap",
+  "fromChain": "base-sepolia",
+  "fromToken": "ETH",
+  "amount": "0.001",
+  "toChain": "base-sepolia",
+  "toToken": "USDC"
+}
+
+### Router — off-ramp → paycrest + quoteEndpoint /api/paycrest/order
+POST {{baseUrl}}/api/router
+Content-Type: application/json
+
+{
+  "action": "offramp",
+  "fromChain": "base",
+  "fromToken": "USDC",
+  "amount": "5",
+  "fiatCurrency": "NGN"
+}
+
+### Router — on-ramp → chainrails
+POST {{baseUrl}}/api/router
+Content-Type: application/json
+
+{
+  "action": "onramp",
+  "fromChain": "base-sepolia",
+  "fromToken": "USDC",
+  "amount": "100"
+}
+
+###############################################################################
+# CCTP — Circle Iris (proxied; no API key)
+###############################################################################
+
+### CCTP fees — burn-side fee quote
+GET {{baseUrl}}/api/cctp/fees?srcChain=base-sepolia&dstChain=arbitrum-sepolia
+
+### CCTP attestation — poll after burn (set @cctpBurnTxHash to real 0x…64 hex)
+GET {{baseUrl}}/api/cctp/attestation?srcChain=base-sepolia&txHash={{cctpBurnTxHash}}
+
+###############################################################################
+# Chainrails — cross-bridge quote (CHAINRAILS_API_KEY required)
+# Chains: Chainrails enum names (BASE_TESTNET), not app ids (base-sepolia).
+###############################################################################
+
+### Chainrails — best quote Base Sepolia → Arbitrum Sepolia USDC
+POST {{baseUrl}}/api/chainrails/quote
+Content-Type: application/json
+
+{
+  "sourceChain": "BASE_TESTNET",
+  "destinationChain": "ARBITRUM_TESTNET",
+  "tokenIn": "{{usdcBaseSepolia}}",
+  "tokenOut": "{{usdcArbitrumSepolia}}",
+  "amount": "1000000",
+  "recipient": "{{wallet}}",
+  "amountSymbol": "USDC"
+}
+
+###############################################################################
+# Relay — wallet execution quote (public Relay API via server)
+# Uses app chain ids: base-sepolia, arbitrum-sepolia, sepolia, etc.
+###############################################################################
+
+### Relay quote — EVM cross-chain (ETH)
+POST {{baseUrl}}/api/quote
+Content-Type: application/json
+
+{
+  "sourceChain": "base-sepolia",
+  "targetChain": "arbitrum-sepolia",
+  "token": "ETH",
+  "amount": "0.001",
+  "userAddress": "{{wallet}}"
+}
+
+### Relay quote — USDC bridge-style (same token both sides)
+POST {{baseUrl}}/api/quote
+Content-Type: application/json
+
+{
+  "sourceChain": "base-sepolia",
+  "targetChain": "arbitrum-sepolia",
+  "token": "USDC",
+  "destinationToken": "USDC",
+  "amount": "1",
+  "userAddress": "{{wallet}}"
+}
+
+### Relay quote — swap on one chain
+POST {{baseUrl}}/api/quote
+Content-Type: application/json
+
+{
+  "sourceChain": "base-sepolia",
+  "targetChain": "base-sepolia",
+  "token": "ETH",
+  "destinationToken": "USDC",
+  "amount": "0.001",
+  "userAddress": "{{wallet}}"
+}
+
+###############################################################################
+# Paycrest — fiat off-ramp (PAYCREST_API_KEY; mainnet network slugs)
+# Expect HTTP 501 until PAYCREST_API_KEY is set. Min ~$0.50 per Paycrest docs.
+###############################################################################
+
+### Paycrest order — NGN mobile money (validation / live if configured)
+POST {{baseUrl}}/api/paycrest/order
+Content-Type: application/json
+
+{
+  "amount": "5",
+  "token": "USDC",
+  "network": "base",
+  "refundAddress": "{{wallet}}",
+  "currency": "NGN",
+  "recipient": {
+    "institution": "OPAY",
+    "accountIdentifier": "+2348012345678",
+    "accountName": "Test User"
+  },
+  "reference": "swap-chain-rest-test"
+}
