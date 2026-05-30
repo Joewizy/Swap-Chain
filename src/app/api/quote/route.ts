@@ -1,150 +1,155 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { TESTNET_CONFIG } from '@/app/utils/relay/testnet';
-import { MAINNET_CONFIG } from '@/app/utils/relay/mainnet';
-import { RelayConfig, TokenConfig } from '@/app/utils/relay/types';
-import { parseUnits } from 'viem';
+import { NextRequest, NextResponse } from "next/server";
+import { parseUnits } from "viem";
+import {
+  ACTIVE_CHAINS,
+  IS_MAINNET,
+  getChain,
+  getToken,
+  getTokenAddress,
+  resolveChain,
+  resolveToken,
+  type ChainEntry,
+} from "@/config/network";
+
+const RELAY_API = IS_MAINNET
+  ? "https://api.relay.link"
+  : "https://api.testnets.relay.link";
 
 export async function POST(request: NextRequest) {
   try {
-    const { sourceChain, targetChain, token, destinationToken, amount, userAddress, recipient } = await request.json();
+    const {
+      sourceChain,
+      targetChain,
+      token,
+      destinationToken,
+      amount,
+      userAddress,
+      recipient,
+    } = await request.json();
 
     if (!sourceChain || !targetChain || !token || !amount || !userAddress) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
     }
 
-    const sellToken = String(token).toUpperCase();
-    const buyToken = String(destinationToken || token).toUpperCase();
-
-    // Resolve chains and environment config
-    const { config, origin, destination, error } = resolveEnvironmentAndChains(sourceChain, targetChain);
-    if (error) {
-      return NextResponse.json({ error }, { status: 400 });
+    const origin = resolveChainEntry(sourceChain);
+    const destination = resolveChainEntry(targetChain);
+    if (!origin || !destination) {
+      return NextResponse.json(
+        {
+          error: `Unsupported chain in current ${IS_MAINNET ? "mainnet" : "testnet"} network. Supported: ${ACTIVE_CHAINS.map((c) => c.id).join(", ")}`,
+        },
+        { status: 400 }
+      );
     }
 
-    const sourceChainId = origin!.chainId;
-    const targetChainId = destination!.chainId;
-
-    // Supported tokens from config (uppercased for case-insensitive checks)
-    const supportedSymbols = new Set<string>(
-      config!.tokens.map((tokenCfg) => tokenCfg.symbol.toUpperCase())
-    );
-    if (!supportedSymbols.has(sellToken) || !supportedSymbols.has(buyToken)) {
-      return NextResponse.json({ error: `Unsupported token. Supported tokens: ${Array.from(supportedSymbols).join(', ')}` }, { status: 400 });
+    if (origin.kind !== "evm") {
+      return NextResponse.json(
+        {
+          error:
+            "Connected-wallet Relay execution currently requires an EVM source chain.",
+        },
+        { status: 400 }
+      );
     }
 
-    // If bridging to Solana, a valid recipient is required
-    const isDestinationSolana = isSolanaChain(targetChainId);
-    if (isDestinationSolana && (!recipient || typeof recipient !== 'string')) {
-      return NextResponse.json({ error: 'Recipient (Solana address) is required when bridging to Solana.' }, { status: 400 });
+    if (destination.kind === "starknet") {
+      return NextResponse.json(
+        {
+          error:
+            "Starknet routes are paused until client-side signing is rebuilt.",
+        },
+        { status: 400 }
+      );
     }
 
-    // Get quote from Relay API
-    const endpoint = config!.apiEndpoint;
-    const quoteResponse = await fetch(`${endpoint}/quote`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const sellSymbol = resolveToken(token);
+    const buySymbol = resolveToken(destinationToken || token);
+    if (!sellSymbol || !buySymbol) {
+      return NextResponse.json(
+        { error: `Unsupported token: ${token}` },
+        { status: 400 }
+      );
+    }
+
+    const sellAddress = getTokenAddress(sellSymbol, origin.id);
+    const buyAddress = getTokenAddress(buySymbol, destination.id);
+    if (!sellAddress || !buyAddress) {
+      return NextResponse.json(
+        {
+          error: `Token ${sellSymbol}/${buySymbol} not configured on requested chains`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (destination.kind === "solana" && !recipient) {
+      return NextResponse.json(
+        {
+          error:
+            "Recipient (Solana address) is required when bridging to Solana.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const sellDecimals = getToken(sellSymbol)?.decimals ?? 18;
+
+    const quoteResponse = await fetch(`${RELAY_API}/quote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         user: userAddress,
-        recipient: isDestinationSolana ? recipient : undefined,
-        originChainId: sourceChainId,
-        destinationChainId: targetChainId,
-        originCurrency: getCurrencyAddressFor(config!, sourceChainId, sellToken),
-        destinationCurrency: getCurrencyAddressFor(config!, targetChainId, buyToken),
-        amount: convertToSmallestUnit(config!, amount, sellToken),
-        tradeType: 'EXACT_INPUT'
-      })
+        recipient: destination.kind === "solana" ? recipient : undefined,
+        originChainId: origin.numericId,
+        destinationChainId: destination.numericId,
+        originCurrency: sellAddress,
+        destinationCurrency: buyAddress,
+        amount: parseUnits(String(amount), sellDecimals).toString(),
+        tradeType: "EXACT_INPUT",
+      }),
     });
 
     if (!quoteResponse.ok) {
       const errorText = await quoteResponse.text();
-      throw new Error(`Failed to getQuote: ${quoteResponse.status} - ${errorText}`);
+      throw new Error(
+        `Failed to getQuote: ${quoteResponse.status} - ${errorText}`
+      );
     }
 
     const quoteData = await quoteResponse.json();
-    const steps = quoteData.steps;
 
     return NextResponse.json({
       success: true,
       requestId: quoteData.steps?.[0]?.requestId,
-      amount: amount,
-      token: sellToken,
-      fromChain: sourceChain,
-      toChain: targetChain,
-      status: 'pending',
-      steps: steps,
-      quote: quoteData
+      amount,
+      token: sellSymbol,
+      fromChain: origin.id,
+      toChain: destination.id,
+      status: "pending",
+      steps: quoteData.steps,
+      quote: quoteData,
     });
   } catch (error) {
-    console.error('Quote error:', error);
-    return NextResponse.json({ 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
-    }, { status: 500 });
+    console.error("Quote error:", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 }
+    );
   }
 }
 
-function isSolanaChain(chainId: number): boolean {
-  return [792703809, 1936682084, 1118190].includes(chainId);
-}
-
-function isEvmChain(chainId: number): boolean {
-  return [11155111, 84532, 421614, 11155420, 80002, 1, 10, 8453, 42161, 137].includes(chainId);
-}
-
-function getNativeTokenAddress(chainId: number): string {
-  const evmChains = [11155111, 84532, 421614, 11155420, 80002];
-  const solanaChains = [1936682084, 1118190];
-  const bitcoinChains = [9092725];
-  
-  if (evmChains.includes(chainId)) return '0x0000000000000000000000000000000000000000';
-  if (solanaChains.includes(chainId)) return '11111111111111111111111111111111';
-  if (bitcoinChains.includes(chainId)) return 'tb1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqtlc5af';
-  
-  return '0x0000000000000000000000000000000000000000';
-}
-
-function convertToSmallestUnit(config: RelayConfig, amount: string, token: string): string {
-  const tokenConfig = findToken(config, token);
-  const decimals = tokenConfig?.decimals ?? (token.toUpperCase() === 'BTC' ? 8 : 18);
-  return parseUnits(amount, decimals).toString();
-}
-
-function getCurrencyAddressFor(config: RelayConfig, chainId: number, symbol: string): string {
-  const tokenConfig = findToken(config, symbol);
-  const fromConfig = tokenConfig?.addresses?.[chainId];
-  if (fromConfig) return fromConfig;
-
-  // Fallbacks for native
-  if (isEvmChain(chainId) && (symbol === 'ETH' || symbol === 'MATIC')) {
-    return '0x0000000000000000000000000000000000000000';
-  }
-  if (isSolanaChain(chainId) && symbol === 'SOL') {
-    return '11111111111111111111111111111111';
-  }
-  return getNativeTokenAddress(chainId);
-}
-
-function findToken(config: RelayConfig, symbol: string): TokenConfig | undefined {
-  return config.tokens.find(t => t.symbol.toUpperCase() === symbol.toUpperCase());
-}
-
-function resolveEnvironmentAndChains(sourceChain: string, targetChain: string): { config?: RelayConfig; origin?: { id: string; chainId: number }; destination?: { id: string; chainId: number }; error?: string } {
-  const sourceIdLower = sourceChain.toLowerCase();
-  const targetIdLower = targetChain.toLowerCase();
-
-  const testnetSourceChain = TESTNET_CONFIG.chains.find(c => c.id === sourceIdLower);
-  const testnetTargetChain = TESTNET_CONFIG.chains.find(c => c.id === targetIdLower);
-  const mainnetSourceChain = MAINNET_CONFIG.chains.find(c => c.id === sourceIdLower);
-  const mainnetTargetChain = MAINNET_CONFIG.chains.find(c => c.id === targetIdLower);
-
-  if (testnetSourceChain && testnetTargetChain) {
-    return { config: TESTNET_CONFIG, origin: { id: testnetSourceChain.id, chainId: testnetSourceChain.chainId }, destination: { id: testnetTargetChain.id, chainId: testnetTargetChain.chainId } };
-  }
-  if (mainnetSourceChain && mainnetTargetChain) {
-    return { config: MAINNET_CONFIG, origin: { id: mainnetSourceChain.id, chainId: mainnetSourceChain.chainId }, destination: { id: mainnetTargetChain.id, chainId: mainnetTargetChain.chainId } };
-  }
-  if ((testnetSourceChain && !testnetTargetChain) || (mainnetSourceChain && !mainnetTargetChain) || (testnetTargetChain && !testnetSourceChain) || (mainnetTargetChain && !mainnetSourceChain)) {
-    return { error: 'Cannot bridge between testnet and mainnet environments' };
-  }
-  return { error: 'Unsupported chain' };
+function resolveChainEntry(input: string): ChainEntry | undefined {
+  const id = resolveChain(input);
+  if (!id) return undefined;
+  const entry = getChain(id);
+  if (!entry) return undefined;
+  // Reject chains outside the active network universe
+  if (entry.isTestnet === IS_MAINNET) return undefined;
+  return entry;
 }

@@ -1,8 +1,20 @@
-import { useAccount, useWalletClient, usePublicClient, useWriteContract, useSignMessage, useSwitchChain } from 'wagmi';
+import {
+  useAccount,
+  useWalletClient,
+  usePublicClient,
+  useWriteContract,
+  useSignMessage,
+  useSwitchChain,
+} from "wagmi";
+import { IS_MAINNET } from "@/config/network";
+
+const RELAY_API = IS_MAINNET
+  ? "https://api.relay.link"
+  : "https://api.testnets.relay.link";
 
 export interface RelayStep {
   id: string;
-  kind: 'transaction' | 'signature';
+  kind: "transaction" | "signature";
   chainId: number;
   items: RelayStepItem[];
   requestId?: string;
@@ -48,7 +60,7 @@ export interface ExecutionProgress {
   currentStep: number;
   totalSteps: number;
   stepName: string;
-  status: 'pending' | 'executing' | 'completed' | 'failed';
+  status: "pending" | "executing" | "completed" | "failed";
   txHash?: string;
   txLink?: string;
   error?: string;
@@ -70,61 +82,67 @@ export function useRelayExecutor() {
     onProgress?: (progress: ExecutionProgress) => void
   ) => {
     if (!isConnected || !address || !walletClient) {
-      return { success: false, error: 'Wallet not connected' };
+      return { success: false, error: "Wallet not connected" };
     }
 
     try {
       const { steps } = quoteResponse;
-      
+
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
-        
+
         onProgress?.({
           currentStep: i + 1,
           totalSteps: steps.length,
           stepName: getStepName(step, i),
-          status: 'executing'
+          status: "executing",
         });
 
         const result = await executeStep(step);
-        
+
         onProgress?.({
           currentStep: i + 1,
           totalSteps: steps.length,
           stepName: getStepName(step, i),
-          status: 'completed',
+          status: "completed",
           txHash: result.txHash,
-          txLink: result.txLink
+          txLink: result.txLink,
         });
       }
 
       return { success: true };
     } catch (error) {
-      console.error('Error executing steps:', error);
+      console.error("Error executing steps:", error);
       onProgress?.({
         currentStep: 0,
         totalSteps: 0,
-        stepName: 'Failed',
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        stepName: "Failed",
+        status: "failed",
+        error: error instanceof Error ? error.message : "Unknown error",
       });
-      
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
       };
     }
   };
 
-  const executeStep = async (step: RelayStep): Promise<{ txHash?: string; txLink?: string }> => {
+  const executeStep = async (
+    step: RelayStep
+  ): Promise<{ txHash?: string; txLink?: string }> => {
     // Switch to the correct chain if needed (only for transaction steps)
-    if (step.kind === 'transaction' && step.chainId && chainId !== step.chainId) {
+    if (
+      step.kind === "transaction" &&
+      step.chainId &&
+      chainId !== step.chainId
+    ) {
       await switchChainAsync({ chainId: step.chainId });
     }
 
-    if (step.kind === 'transaction') {
+    if (step.kind === "transaction") {
       return await executeTransactionStep(step);
-    } else if (step.kind === 'signature') {
+    } else if (step.kind === "signature") {
       await executeSignatureStep(step);
       return {};
     }
@@ -132,7 +150,9 @@ export function useRelayExecutor() {
     return {};
   };
 
-  const executeTransactionStep = async (step: RelayStep): Promise<{ txHash?: string; txLink?: string }> => {
+  const executeTransactionStep = async (
+    step: RelayStep
+  ): Promise<{ txHash?: string; txLink?: string }> => {
     let lastTxHash: string | undefined;
     let lastTxLink: string | undefined;
 
@@ -141,13 +161,17 @@ export function useRelayExecutor() {
         // Submit transaction
         const txHash = await submitTransaction(item.data);
         lastTxHash = txHash;
-        lastTxLink = txHash ? getExplorerTxUrl(step.chainId, txHash) : undefined;
-        
+        lastTxLink = txHash
+          ? getExplorerTxUrl(step.chainId, txHash)
+          : undefined;
+
         // Wait for transaction confirmation
         if (publicClient && txHash) {
-          await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
+          await publicClient.waitForTransactionReceipt({
+            hash: txHash as `0x${string}`,
+          });
         }
-        
+
         // Poll for completion if check endpoint provided
         if (item.check?.endpoint) {
           await pollForCompletion(item.check.endpoint);
@@ -162,10 +186,10 @@ export function useRelayExecutor() {
     for (const item of step.items) {
       if (item.signature) {
         // Sign the message using Wagmi
-        const signature = await signMessageAsync({ 
-          message: item.signature.message 
+        const signature = await signMessageAsync({
+          message: item.signature.message,
         });
-        
+
         // Submit signature to Relay API
         await submitSignature(item.signature.endpoint, signature);
       }
@@ -181,41 +205,52 @@ export function useRelayExecutor() {
           abi: transactionData.abi,
           functionName: transactionData.functionName,
           args: transactionData.args || [],
-          value: transactionData.value ? BigInt(transactionData.value) : BigInt(0),
+          value: transactionData.value
+            ? BigInt(transactionData.value)
+            : BigInt(0),
         });
         return hash;
-      } 
+      }
       // Handle raw transactions
       else {
         const hash = await walletClient!.sendTransaction({
           to: transactionData.to as `0x${string}`,
-          data: (transactionData.data || '0x') as `0x${string}`,
-          value: transactionData.value ? BigInt(transactionData.value) : BigInt(0),
+          data: (transactionData.data || "0x") as `0x${string}`,
+          value: transactionData.value
+            ? BigInt(transactionData.value)
+            : BigInt(0),
           gas: transactionData.gas ? BigInt(transactionData.gas) : undefined,
-          gasPrice: transactionData.gasPrice ? BigInt(transactionData.gasPrice) : undefined,
+          gasPrice: transactionData.gasPrice
+            ? BigInt(transactionData.gasPrice)
+            : undefined,
         });
         return hash;
       }
     } catch (error) {
-      console.error('Error submitting transaction:', error);
+      console.error("Error submitting transaction:", error);
       throw error;
     }
   };
 
-  const submitSignature = async (endpoint: string, signature: string): Promise<void> => {
+  const submitSignature = async (
+    endpoint: string,
+    signature: string
+  ): Promise<void> => {
     try {
-      const response = await fetch(`https://api.testnets.relay.link${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch(`${RELAY_API}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ signature }),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Failed to submit signature: ${response.status} - ${errorText}`);
+        throw new Error(
+          `Failed to submit signature: ${response.status} - ${errorText}`
+        );
       }
     } catch (error) {
-      console.error('Error submitting signature:', error);
+      console.error("Error submitting signature:", error);
       throw error;
     }
   };
@@ -226,58 +261,61 @@ export function useRelayExecutor() {
 
     while (attempts < maxAttempts) {
       try {
-        const response = await fetch(`https://api.testnets.relay.link${endpoint}`, {
-          headers: { 'Content-Type': 'application/json' }
+        const response = await fetch(`${RELAY_API}${endpoint}`, {
+          headers: { "Content-Type": "application/json" },
         });
-        
+
         if (!response.ok) {
           throw new Error(`Status check failed: ${response.status}`);
         }
-        
+
         const status = await response.json();
 
-        if (status.status === 'success' || status.status === 'completed') {
+        if (status.status === "success" || status.status === "completed") {
           return;
-        } else if (status.status === 'failed' || status.status === 'error') {
-          throw new Error(`Transaction failed: ${status.error || status.message || 'Unknown error'}`);
+        } else if (status.status === "failed" || status.status === "error") {
+          throw new Error(
+            `Transaction failed: ${status.error || status.message || "Unknown error"}`
+          );
         }
 
         // Wait 10 seconds before next poll
-        await new Promise(resolve => setTimeout(resolve, 10000));
+        await new Promise((resolve) => setTimeout(resolve, 10000));
         attempts++;
       } catch (error) {
-        console.error('Error polling for completion:', error);
+        console.error("Error polling for completion:", error);
         if (attempts >= maxAttempts - 1) {
           throw error;
         }
-        await new Promise(resolve => setTimeout(resolve, 10000));
+        await new Promise((resolve) => setTimeout(resolve, 10000));
         attempts++;
       }
     }
 
-    throw new Error('Transaction timeout - polling exceeded maximum attempts');
+    throw new Error("Transaction timeout - polling exceeded maximum attempts");
   };
 
   const getStepName = (step: RelayStep, index: number): string => {
     // Try to infer step name from the step data
-    if (step.kind === 'signature') {
-      return 'Sign Message';
+    if (step.kind === "signature") {
+      return "Sign Message";
     }
-    
+
     // Check if it's likely an approval step
-    const hasApproval = step.items.some(item => 
-      item.data?.functionName === 'approve' || 
-      item.data?.data?.includes('095ea7b3') // approve function selector
+    const hasApproval = step.items.some(
+      (item) =>
+        item.data?.functionName === "approve" ||
+        item.data?.data?.includes("095ea7b3") // approve function selector
     );
-    
+
     if (hasApproval) {
-      return 'Token Approval';
+      return "Token Approval";
     }
-    
+
     // Default names based on position
-    if (index === 0) return 'Initiate Bridge';
-    if (index === step.items.length - 1) return 'Complete Bridge';
-    
+    if (index === 0) return "Initiate Bridge";
+    if (index === step.items.length - 1) return "Complete Bridge";
+
     return `Step ${index + 1}`;
   };
 
@@ -292,19 +330,23 @@ export function useRelayExecutor() {
           abi: transactionData.abi,
           functionName: transactionData.functionName,
           args: transactionData.args || [],
-          value: transactionData.value ? BigInt(transactionData.value) : BigInt(0),
-          account: address as `0x${string}`
+          value: transactionData.value
+            ? BigInt(transactionData.value)
+            : BigInt(0),
+          account: address as `0x${string}`,
         });
       } else {
         return await publicClient.estimateGas({
           to: transactionData.to as `0x${string}`,
           data: transactionData.data as `0x${string}`,
-          value: transactionData.value ? BigInt(transactionData.value) : BigInt(0),
-          account: address as `0x${string}`
+          value: transactionData.value
+            ? BigInt(transactionData.value)
+            : BigInt(0),
+          account: address as `0x${string}`,
         });
       }
     } catch (error) {
-      console.warn('Gas estimation failed:', error);
+      console.warn("Gas estimation failed:", error);
       return undefined;
     }
   };
@@ -316,19 +358,19 @@ export function useRelayExecutor() {
   };
 
   const explorerBaseUrlByChainId: Record<number, string> = {
-    11155111: 'https://sepolia.etherscan.io',
-    84532: 'https://sepolia.basescan.org',
-    421614: 'https://sepolia.arbiscan.io',
-    11155420: 'https://sepolia-optimism.etherscan.io',
-    80002: 'https://www.oklink.com/amoy', 
+    11155111: "https://sepolia.etherscan.io",
+    84532: "https://sepolia.basescan.org",
+    421614: "https://sepolia.arbiscan.io",
+    11155420: "https://sepolia-optimism.etherscan.io",
+    80002: "https://www.oklink.com/amoy",
   };
 
-  return { 
+  return {
     executeQuote,
-    isConnected, 
+    isConnected,
     address,
     chainId,
     walletClient,
-    estimateGas
+    estimateGas,
   };
 }
