@@ -35,7 +35,6 @@ import {
   type TokenChainSelection,
 } from "./TokenChainPicker";
 import type { Intent, Quote, QuoteExec, RailKey } from "./SendScreen";
-import "./arc-swap.css";
 
 // ---------------------------------------------------------------------------
 // Router response (mirrors the slice SendScreen already consumes)
@@ -342,7 +341,7 @@ export function SwapForm({ onSubmit }: { onSubmit: (intent: Intent) => void }) {
           <div className="arc-pane-body">
             {outAmount ? (
               <span
-                className="arc-amount out"
+                className="arc-amount arc-amount--display"
                 style={{ flex: 1, minWidth: 0 }}
               >
                 {outAmount}
