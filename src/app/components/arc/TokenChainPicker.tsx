@@ -118,7 +118,9 @@ export function TokenGlyph({
             height: chainSize,
             // Tints the pip with a chain-derived colour so testnet chains
             // (where LiFi has no logo) still read as distinct, not generic.
-            background: chain.logoURI ? "#14182c" : chainTint(chain.id),
+            // On the light card the logo-backed pip carves against the white
+            // surface rather than the old dark-navy fill.
+            background: chain.logoURI ? "var(--bg-elev)" : chainTint(chain.id),
             fontSize: Math.round(size * 0.26),
             lineHeight: 1,
           }}

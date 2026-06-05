@@ -1,39 +1,44 @@
 /*
- * ARC Swap — scoped styles.
+ * ARC Swap — scoped styles (LIGHT REBUILD · "Inset" variation).
  *
- * Ported from the Claude Design ARC Swap.html prototype (only the
- * pieces we actually use: card, panes, flip, route preview, CTA, and
- * the token-picker modal). Everything is scoped under `.arc-root` so
- * the dark glassmorphic palette doesn't leak into the rest of the
- * light-themed app shell.
+ * Rebuilt to live inside Swap Chain's warm, light, single-accent design
+ * system instead of the old dark glassmorphic palette. Everything maps onto
+ * the site tokens declared in globals.css (--bg, --fg, --accent, …), uses
+ * Geist / Geist Mono, and is scoped under `.arc-root` exactly as before — so
+ * SwapForm.tsx / TokenChainPicker.tsx keep all their class names and need
+ * only two cosmetic inline-style tweaks (see notes at the bottom of this PR).
+ *
+ * Design = Variation B ("Inset"): recessed From/To wells, a round
+ * coral-outline flip, a quiet tinted route block, and a calm dark CTA.
  */
 
 .arc-root {
-  --arc-bg: #060814;
-  --arc-surface: rgba(20, 24, 44, 0.55);
-  --arc-border: rgba(255, 255, 255, 0.06);
-  --arc-border-strong: rgba(255, 255, 255, 0.12);
+  /* Map the old --arc-* names onto the site tokens so the rules below stay
+     readable. These all resolve against the values in globals.css. */
+  --arc-surface: var(--bg-elev);
+  --arc-border: var(--line);
+  --arc-border-strong: var(--line-2);
 
-  --arc-text: #f0f2ff;
-  --arc-muted: #8a91b4;
-  --arc-muted-2: #5c637f;
+  --arc-text: var(--fg);
+  --arc-muted: var(--fg-mute);
+  --arc-muted-2: var(--fg-faint);
 
-  --arc-accent: #6e8bff;
-  --arc-accent-2: #a47cff;
-  --arc-accent-glow: rgba(110, 139, 255, 0.45);
+  --arc-accent: var(--accent);
+  --arc-accent-soft: var(--accent-soft);
+  --arc-accent-line: var(--accent-line);
 
-  --arc-danger: #ff6b7a;
-  --arc-warn: #ffb661;
-  --arc-ok: #5fe3a8;
+  --arc-danger: var(--err);
+  --arc-warn: var(--pend);
+  --arc-ok: var(--ok);
 
-  --arc-r-md: 14px;
-  --arc-r-lg: 18px;
-  --arc-r-xl: 24px;
+  --arc-r-md: var(--r-input);   /* 8px  */
+  --arc-r-lg: var(--r-card);    /* 14px */
+  --arc-r-xl: var(--r-card-lg); /* 18px */
 
-  --arc-font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  --arc-font-ui: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI",
     system-ui, sans-serif;
-  --arc-font-display: "Space Grotesk", "Inter", sans-serif;
-  --arc-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --arc-font-display: "Geist", -apple-system, sans-serif;
+  --arc-font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
 
   color: var(--arc-text);
   font-family: var(--arc-font-ui);
@@ -59,109 +64,84 @@
   font-family: var(--arc-font-mono);
   font-size: 10px;
   padding: 2px 6px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--arc-border);
+  background: var(--bg-soft);
+  border: 1px solid var(--line-2);
   border-radius: 4px;
   color: var(--arc-muted);
 }
 
-/* ─── Stage: a contained dark region behind the card ───
-   The card uses glassmorphism (rgba surface + blur). On a light page
-   the white bleeds through and washes it out, so we wrap it in a stage
-   that paints a deep navy substrate + two soft accent halos. This stays
-   scoped to the card region — no page-wide dark theme. */
+/* ─── Stage ───
+   The old stage painted a dark navy substrate so the glass card wouldn't
+   wash out on a light page. We no longer need that — the card now belongs
+   on the warm page bg. Kept as a transparent, centered container (with a
+   single faint warm wash) so any caller wrapping the card in `.arc-stage`
+   still works and blends. */
 .arc-stage {
   position: relative;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 56px 24px;
-  border-radius: 28px;
-  background: radial-gradient(
-      ellipse 60% 50% at 25% 15%,
-      rgba(110, 139, 255, 0.18),
-      transparent 65%
-    ),
-    radial-gradient(
-      ellipse 50% 45% at 80% 85%,
-      rgba(164, 124, 255, 0.18),
-      transparent 65%
-    ),
-    linear-gradient(180deg, #0a0d1f 0%, #060814 100%);
+  padding: 48px 24px;
+  border-radius: 24px;
+  background: transparent;
   overflow: hidden;
   isolation: isolate;
 }
 .arc-stage::before {
   content: "";
   position: absolute;
-  inset: 0;
-  background-image: linear-gradient(
-      rgba(255, 255, 255, 0.025) 1px,
-      transparent 1px
-    ),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+  inset: -80px 0 auto 0;
+  height: 320px;
+  left: 50%;
+  width: 560px;
+  transform: translateX(-50%);
+  filter: blur(72px);
+  background: radial-gradient(closest-side, var(--blob-a), transparent 72%);
   pointer-events: none;
 }
 
 /* ─── Swap card ─── */
 .arc-card {
   background: var(--arc-surface);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--arc-border-strong);
+  border: 1px solid var(--arc-border);
   border-radius: var(--arc-r-xl);
-  padding: 24px;
-  box-shadow: 0 20px 60px -24px rgba(0, 0, 0, 0.7),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  padding: 20px;
+  box-shadow: var(--shadow-2);
   position: relative;
   width: 100%;
-  max-width: 480px;
-}
-.arc-card::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 24px;
-  right: 24px;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.08),
-    transparent
-  );
+  max-width: 440px;
 }
 
 .arc-card-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 .arc-ch-title {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   font-family: var(--arc-font-display);
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.2px;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
 }
 .arc-ch-tag {
+  font-family: var(--arc-font-mono);
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.8px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 3px 8px;
-  border-radius: 5px;
-  background: rgba(110, 139, 255, 0.1);
-  color: var(--arc-accent);
-  border: 1px solid rgba(110, 139, 255, 0.2);
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-line);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  white-space: nowrap;
 }
 .arc-ch-actions {
   display: flex;
@@ -178,27 +158,29 @@
   transition: color 0.15s, background 0.15s;
 }
 .arc-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-soft);
   color: var(--arc-text);
 }
 
-/* ─── Panes ─── */
+/* ─── Panes (recessed wells) ─── */
 .arc-pane {
-  background: rgba(10, 12, 26, 0.45);
-  border: 1px solid var(--arc-border);
+  background: var(--bg-sunk);
+  border: 1px solid transparent;
   border-radius: var(--arc-r-lg);
-  padding: 20px;
-  transition: border-color 0.2s;
+  padding: 16px 18px;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
   position: relative;
 }
 .arc-pane:focus-within {
-  border-color: rgba(110, 139, 255, 0.3);
+  background: var(--bg-elev);
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 4px var(--accent-soft);
 }
 .arc-pane-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   gap: 12px;
 }
 .arc-pane-label {
@@ -216,29 +198,29 @@
 }
 .arc-bal-link {
   font-family: var(--arc-font-mono);
-  color: var(--arc-accent);
+  color: var(--accent);
   font-size: 12px;
   padding: 2px 4px;
   border-radius: 4px;
   transition: background 0.15s;
 }
 .arc-bal-link:hover {
-  background: rgba(110, 139, 255, 0.08);
+  background: var(--accent-soft);
 }
 
 .arc-pane-body {
   display: flex;
   align-items: center;
-  gap: 16px;
-  min-height: 44px;
+  gap: 14px;
+  min-height: 42px;
 }
 .arc-amount {
   flex: 1;
   min-width: 0;
   font-family: var(--arc-font-display);
-  font-size: 32px;
+  font-size: 26px;
   font-weight: 500;
-  letter-spacing: -0.8px;
+  letter-spacing: -0.02em;
   color: var(--arc-text);
   line-height: 1.1;
 }
@@ -254,7 +236,7 @@
 .arc-out-placeholder {
   color: var(--arc-muted-2);
   font-family: var(--arc-font-display);
-  font-size: 32px;
+  font-size: 26px;
   font-weight: 500;
 }
 
@@ -262,17 +244,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 12px 5px 5px;
+  padding: 5px 11px 5px 5px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--arc-border);
+  background: var(--bg-elev);
+  border: 1px solid var(--line-2);
   transition: background 0.15s, border-color 0.15s;
   flex-shrink: 0;
   height: 38px;
 }
 .arc-token-btn:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: var(--arc-border-strong);
+  background: var(--bg-soft);
+  border-color: var(--line-3);
 }
 .arc-token-btn .arc-tb-sym {
   font-weight: 600;
@@ -286,12 +268,12 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 14px;
+  margin-top: 12px;
   gap: 12px;
 }
 .arc-usd-val {
   font-family: var(--arc-font-mono);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--arc-muted);
 }
 .arc-pct-row {
@@ -299,47 +281,50 @@
   gap: 4px;
 }
 .arc-pct {
-  padding: 5px 10px;
+  padding: 5px 9px;
   border-radius: 6px;
   font-family: var(--arc-font-mono);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--arc-muted);
-  letter-spacing: 0.4px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid transparent;
-  transition: color 0.15s, background 0.15s;
+  letter-spacing: 0.03em;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
 .arc-pct:hover {
-  background: rgba(110, 139, 255, 0.08);
-  color: var(--arc-accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-line);
 }
 
-/* ─── Flip ─── */
+/* ─── Flip (round, coral outline) ─── */
 .arc-flip-wrap {
   display: flex;
   justify-content: center;
-  padding: 4px 0;
+  padding: 5px 0;
   position: relative;
   z-index: 2;
+  margin: -6px 0;
 }
 .arc-flip-btn {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--arc-border-strong);
+  border-radius: 50%;
+  background: var(--bg-elev);
+  border: 1px solid var(--accent-line);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--arc-text);
-  transition: background 0.2s, color 0.2s,
+  color: var(--accent);
+  box-shadow: var(--shadow-1);
+  transition: background 0.2s, color 0.2s, border-color 0.2s,
     transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .arc-flip-btn:hover {
-  background: linear-gradient(135deg, var(--arc-accent), var(--arc-accent-2));
-  color: white;
-  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
   transform: rotate(180deg);
 }
 .arc-flip-btn.spin {
@@ -354,25 +339,29 @@
   }
 }
 
-/* ─── Route preview accordion ─── */
+/* ─── Route preview accordion (quiet tinted block) ─── */
 .arc-route-card {
-  margin-top: 20px;
-  background: transparent;
-  border: 1px solid var(--arc-border);
+  margin-top: 16px;
+  background: var(--bg-soft);
+  border: 1px solid transparent;
   border-radius: 12px;
   overflow: hidden;
   transition: border-color 0.2s;
 }
 .arc-route-card.open {
-  border-color: var(--arc-border-strong);
+  border-color: transparent;
 }
 .arc-route-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 14px 16px;
+  padding: 13px 15px;
   text-align: left;
+  transition: background 0.15s;
+}
+.arc-route-toggle:hover {
+  background: var(--bg-sunk);
 }
 .arc-rt-l {
   display: flex;
@@ -381,12 +370,12 @@
 }
 .arc-rt-rate {
   font-family: var(--arc-font-mono);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 500;
 }
 .arc-rt-meta {
   display: flex;
-  gap: 14px;
+  gap: 13px;
   font-size: 11.5px;
   color: var(--arc-muted);
 }
@@ -394,9 +383,10 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 .arc-rt-shield {
-  color: var(--arc-accent) !important;
+  color: var(--accent) !important;
 }
 .arc-rt-r {
   display: flex;
@@ -414,88 +404,81 @@
   max-height: 0;
   opacity: 0;
   transition: max-height 0.35s, opacity 0.3s, padding 0.3s;
-  padding: 0 16px;
+  padding: 0 15px;
   overflow: hidden;
 }
 .arc-route-card.open .arc-route-body {
   max-height: 500px;
   opacity: 1;
-  padding: 14px 16px 16px;
-  border-top: 1px solid var(--arc-border);
+  padding: 13px 15px 15px;
+  border-top: 1px solid var(--line);
 }
 .arc-rb-row {
   display: flex;
   justify-content: space-between;
+  gap: 12px;
   font-size: 12.5px;
   margin-bottom: 8px;
 }
+.arc-rb-row:last-child {
+  margin-bottom: 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line-2);
+}
 .arc-rb-k {
   color: var(--arc-muted);
+  white-space: nowrap;
 }
 .arc-rb-v {
   font-family: var(--arc-font-mono);
+  white-space: nowrap;
+}
+.arc-rb-row:last-child .arc-rb-v {
+  color: var(--fg);
+  font-weight: 500;
 }
 
-/* ─── CTA ─── */
+/* ─── CTA (calm dark primary, matches site .btn-primary / .btn-fat) ─── */
 .arc-cta {
   width: 100%;
-  padding: 18px;
-  margin-top: 20px;
-  border-radius: 14px;
-  font-weight: 600;
-  font-size: 16px;
-  letter-spacing: -0.1px;
+  height: 52px;
+  padding: 0 18px;
+  margin-top: 18px;
+  border-radius: 12px;
+  font-weight: 500;
+  font-size: 15px;
+  letter-spacing: -0.01em;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  transition: filter 0.15s;
+  gap: 9px;
+  transition: transform 0.14s var(--ease, ease), filter 0.15s, background 0.15s;
   position: relative;
   overflow: hidden;
 }
 .arc-cta.primary {
-  background: linear-gradient(135deg, var(--arc-accent), var(--arc-accent-2));
-  color: white;
-  box-shadow: 0 6px 20px -6px var(--arc-accent-glow);
-}
-.arc-cta.primary::before {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -100%;
-  width: 60%;
-  height: 200%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.15),
-    transparent
-  );
-  transform: skewX(-20deg);
-  transition: left 0.6s;
-}
-.arc-cta.primary:hover::before {
-  left: 130%;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
 }
 .arc-cta.primary:hover {
-  filter: brightness(1.05);
+  transform: translateY(-1px);
 }
 .arc-cta.disabled {
-  background: rgba(42, 48, 75, 0.4);
-  color: var(--arc-muted-2);
+  background: var(--bg-sunk);
+  color: var(--fg-faint);
   cursor: not-allowed;
 }
 .arc-cta.loading {
-  background: rgba(42, 48, 75, 0.55);
-  color: var(--arc-text);
+  background: var(--bg-sunk);
+  color: var(--fg-soft);
   cursor: progress;
 }
 .arc-cta-spin {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.18);
-  border-top-color: var(--arc-accent);
+  border: 2px solid var(--line-2);
+  border-top-color: var(--accent);
   animation: arcSpin 0.8s linear infinite;
 }
 @keyframes arcSpin {
@@ -510,23 +493,24 @@
   gap: 8px;
   margin-top: 10px;
   padding: 10px 12px;
-  background: rgba(255, 182, 97, 0.08);
-  border: 1px solid rgba(255, 182, 97, 0.18);
+  background: var(--pend-soft);
+  border: 1px solid rgba(178, 106, 26, 0.2);
   border-radius: 10px;
   font-size: 12.5px;
-  color: var(--arc-warn);
+  color: var(--pend);
 }
 
 .arc-card-foot {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--arc-border);
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
   font-size: 11px;
   color: var(--arc-muted);
   justify-content: center;
+  flex-wrap: wrap;
 }
 .arc-card-foot .dot {
   opacity: 0.5;
@@ -539,7 +523,7 @@
 }
 .arc-glyph-img {
   border-radius: 50%;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(20, 18, 14, 0.08);
 }
 .arc-glyph-fallback {
   display: flex;
@@ -547,27 +531,31 @@
   justify-content: center;
   border-radius: 50%;
   font-family: var(--arc-font-mono);
-  font-weight: 700;
-  letter-spacing: -0.5px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   color: white;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 .arc-glyph-chain {
   position: absolute;
   right: -3px;
   bottom: -3px;
   border-radius: 50%;
-  /* Carve against the card's glass surface, not the page bg, so the pip
-     reads cleanly whether the glyph sits inside a pane or on the picker. */
-  border: 2px solid #14182c;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  /* Carve the pip against whatever surface it sits on. Default = the sunk
+     pane well; overridden to the white surface inside buttons / the modal. */
+  border: 2px solid var(--bg-sunk);
+  box-shadow: 0 0 0 1px rgba(20, 18, 14, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
   font-family: var(--arc-font-mono);
-  font-weight: 700;
+  font-weight: 600;
   overflow: hidden;
+}
+.arc-token-btn .arc-glyph-chain,
+.arc-modal .arc-glyph-chain {
+  border-color: var(--bg-elev);
 }
 .arc-glyph-chain img {
   width: 100%;
@@ -579,8 +567,9 @@
 .arc-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(5, 6, 18, 0.65);
-  backdrop-filter: blur(10px);
+  background: rgba(20, 18, 14, 0.32);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   z-index: 1000;
   display: flex;
   align-items: flex-start;
@@ -597,36 +586,19 @@
   }
 }
 .arc-modal {
-  background: rgba(20, 24, 44, 0.92);
-  backdrop-filter: blur(24px) saturate(150%);
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
-  border: 1px solid var(--arc-border-strong);
+  background: var(--bg-elev);
+  border: 1px solid var(--line-2);
   border-radius: var(--arc-r-xl);
-  padding: 22px;
-  box-shadow: 0 40px 100px -10px rgba(0, 0, 0, 0.7),
-    0 0 0 1px rgba(110, 139, 255, 0.06);
+  padding: 20px;
+  box-shadow: var(--shadow-2);
   max-height: 82vh;
   display: flex;
   flex-direction: column;
   animation: arcModalIn 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
   position: relative;
   overflow: hidden;
-  width: 480px;
+  width: 440px;
   max-width: calc(100vw - 32px);
-}
-.arc-modal::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 10%;
-  right: 10%;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(110, 139, 255, 0.45),
-    transparent
-  );
 }
 @keyframes arcModalIn {
   from {
@@ -647,11 +619,12 @@
 }
 .arc-tp-title {
   font-family: var(--arc-font-display);
-  font-weight: 600;
+  font-weight: 500;
   font-size: 17px;
   display: flex;
   align-items: baseline;
   gap: 8px;
+  letter-spacing: -0.02em;
 }
 .arc-tp-sub {
   font-size: 12px;
@@ -664,16 +637,17 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
-  background: rgba(10, 12, 26, 0.6);
-  border: 1px solid var(--arc-border);
+  padding: 11px 13px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line-2);
   border-radius: var(--arc-r-md);
   margin-bottom: 14px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 .arc-tp-search:focus-within {
-  border-color: rgba(110, 139, 255, 0.4);
-  box-shadow: 0 0 0 3px rgba(110, 139, 255, 0.1);
+  background: var(--bg-elev);
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 4px var(--accent-soft);
 }
 .arc-tp-search input {
   flex: 1;
@@ -698,7 +672,7 @@
   height: 4px;
 }
 .arc-tp-chains::-webkit-scrollbar-thumb {
-  background: var(--arc-border-strong);
+  background: var(--line-2);
   border-radius: 2px;
 }
 .arc-chain-chip {
@@ -707,25 +681,22 @@
   gap: 6px;
   padding: 7px 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--arc-border);
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
   font-size: 12px;
   color: var(--arc-muted);
   white-space: nowrap;
   transition: all 0.15s;
 }
 .arc-chain-chip:hover {
-  border-color: var(--arc-border-strong);
+  border-color: var(--line-2);
   color: var(--arc-text);
 }
 .arc-chain-chip.active {
-  background: linear-gradient(
-    135deg,
-    rgba(110, 139, 255, 0.15),
-    rgba(164, 124, 255, 0.15)
-  );
-  color: var(--arc-text);
-  border-color: rgba(110, 139, 255, 0.3);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-line);
+  font-weight: 500;
 }
 .arc-chain-chip-dot {
   width: 8px;
@@ -734,18 +705,18 @@
   flex-shrink: 0;
 }
 .arc-chain-chip-dot.all {
-  background: linear-gradient(135deg, var(--arc-accent), var(--arc-accent-2));
+  background: var(--accent);
 }
 
 .arc-tp-list-head {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.1em;
   color: var(--arc-muted-2);
   padding: 0 8px 10px;
-  border-bottom: 1px solid var(--arc-border);
+  border-bottom: 1px solid var(--line);
   font-weight: 600;
 }
 .arc-tp-list {
@@ -760,7 +731,7 @@
   width: 6px;
 }
 .arc-tp-list::-webkit-scrollbar-thumb {
-  background: var(--arc-border-strong);
+  background: var(--line-2);
   border-radius: 3px;
 }
 .arc-tp-row {
@@ -768,13 +739,13 @@
   grid-template-columns: auto 1fr auto;
   gap: 12px;
   align-items: center;
-  padding: 12px;
+  padding: 11px 12px;
   border-radius: 10px;
   text-align: left;
   transition: background 0.12s, transform 0.12s;
 }
 .arc-tp-row:hover {
-  background: rgba(110, 139, 255, 0.06);
+  background: var(--accent-soft);
   transform: translateX(2px);
 }
 .arc-tp-row-name {

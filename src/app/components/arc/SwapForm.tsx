@@ -276,7 +276,7 @@ export function SwapForm({ onSubmit }: { onSubmit: (intent: Intent) => void }) {
             <span className="arc-pane-meta">
               {/* Balance reads land in the next slice; placeholder em-dash
                   matches the design's rhythm without inventing a number. */}
-              Balance: <span style={{ fontFamily: "JetBrains Mono, monospace" }}>—</span>
+              Balance: <span style={{ fontFamily: "Geist Mono, monospace" }}>—</span>
             </span>
           </div>
           <div className="arc-pane-body">
@@ -335,7 +335,7 @@ export function SwapForm({ onSubmit }: { onSubmit: (intent: Intent) => void }) {
           <div className="arc-pane-head">
             <span className="arc-pane-label">To</span>
             <span className="arc-pane-meta">
-              Balance: <span style={{ fontFamily: "JetBrains Mono, monospace" }}>—</span>
+              Balance: <span style={{ fontFamily: "Geist Mono, monospace" }}>—</span>
             </span>
           </div>
           <div className="arc-pane-body">
