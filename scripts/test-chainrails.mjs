@@ -108,6 +108,14 @@ async function showQuotes() {
 async function createAndFetchIntent() {
   await showQuotes();
 
+  // NOTE (2026-06-09): on TESTNET, POST /api/v1/intents returns a server-side 500
+  // ("Failed to create intent") at api.chainrails.io even for a valid, schema-
+  // passing payload. The SAME call on MAINNET succeeds (verified — returned a real
+  // intent id). So this is a testnet-specific Chainrails backend bug, not a problem
+  // with this script or the SDK: quotes/reads work on both networks, and garbage
+  // input correctly 400s, so our payload passes validation and their testnet
+  // handler then throws. Track with Chainrails; remove this note once testnet
+  // intent creation works again.
   heading("Create intent");
   const intent = await crapi.intents.create({
     sender: fixture.sender,
