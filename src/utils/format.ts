@@ -42,3 +42,17 @@ export function formatFiat(code: string, amount: number | string): string {
   const n = formatNumber(amount, 2);
   return sym ? `${sym}${n}` : `${code} ${n}`;
 }
+
+/**
+ * Formats a raw numeric input string for display, grouping the integer part
+ * with commas while keeping the fractional part exactly as typed so a
+ * controlled input stays editable: "5000" → "5,000", "5000.5" → "5,000.5",
+ * "5000." → "5,000.". Expects the stored value to hold digits + at most one
+ * dot (no commas).
+ */
+export function formatAmountInput(raw: string): string {
+  if (!raw) return "";
+  const [intPart, ...rest] = raw.split(".");
+  const intFmt = intPart ? Number(intPart).toLocaleString("en-US") : "";
+  return raw.includes(".") ? `${intFmt || "0"}.${rest.join("")}` : intFmt;
+}

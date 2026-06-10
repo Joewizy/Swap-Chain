@@ -12,7 +12,7 @@
 import React, { useState } from "react";
 import { DEFAULT_SETTLEMENT_CHAIN_ID, getChain } from "@/config/network";
 import { PAYCREST_FIAT } from "@/rails/paycrest";
-import { formatToken } from "@/utils";
+import { formatAmountInput, formatToken } from "@/utils";
 import {
   ReviewScreen,
   quoteFromIntent,
@@ -133,7 +133,7 @@ export function BuyFlow({
           </span>
           <div className="row center gap-2">
             <input
-              value={amount}
+              value={formatAmountInput(amount)}
               onChange={(e) => {
                 const v = e.target.value.replace(/[^0-9.]/g, "");
                 if ((v.match(/\./g) || []).length > 1) return;

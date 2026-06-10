@@ -13,7 +13,7 @@
 import React, { useState } from "react";
 import { DEFAULT_SETTLEMENT_CHAIN_ID, getChain } from "@/config/network";
 import { PAYCREST_FIAT } from "@/rails/paycrest";
-import { formatFiat } from "@/utils";
+import { formatAmountInput, formatFiat } from "@/utils";
 import {
   ReviewScreen,
   quoteFromIntent,
@@ -128,7 +128,7 @@ export function CashoutFlow({
         <Field label="Amount">
           <div className="row center gap-2">
             <input
-              value={amount}
+              value={formatAmountInput(amount)}
               onChange={(e) => {
                 const v = e.target.value.replace(/[^0-9.]/g, "");
                 if ((v.match(/\./g) || []).length > 1) return;
