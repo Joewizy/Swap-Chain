@@ -53,7 +53,7 @@ High-level roles:
 | **Chainrails**     | Crypto **inbound** + fiat **on-ramp**; settles toward configured settlement chain (for example USDC on Base).            |
 | **Circle CCTP v2** | **USDC ↔ USDC** across domains when destination token stays USDC.                                                        |
 | **Relay**          | Non-USDC outbound, Bitcoin, fast quotes, same-chain swaps, executor when wallet is already connected; optional fallback. |
-| **Paycrest**       | **Fiat off-ramp** (USDC → bank / mobile money). Chainrails is on-ramp-oriented here; Paycrest covers **recipient fiat**. |
+| **Paycrest**       | **Fiat off-ramp** (USDC → bank / mobile money) and **on-ramp** (fiat → USDC) via the same Sender API for supported corridors. Chainrails remains fallback on-ramp. |
 
 **Chainrails inbound scope (reference):** intent flows may fund from multiple assets (for example USDC, USDT, DAI, ETH, WETH, and chain-specific lists) across listed networks; internal bridge/swap lands as USDC on the settlement chain. Fiat on-ramp coverage is provider-defined (many countries). Exact lists live in provider docs—not duplicated here so this table stays readable.
 

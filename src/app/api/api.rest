@@ -71,11 +71,17 @@ Content-Type: application/json
 
 { "action": "offramp", "fromChain": "base", "fromToken": "USDC", "amount": "5", "fiatCurrency": "NGN" }
 
-### Router — on-ramp (→ chainrails)
+### Router — on-ramp NGN (→ paycrest)
 POST {{baseUrl}}/api/router
 Content-Type: application/json
 
-{ "action": "onramp", "fromChain": "base-sepolia", "fromToken": "USDC", "amount": "100" }
+{ "action": "onramp", "fromChain": "base", "fromToken": "USDC", "amount": "5000", "toChain": "base", "toToken": "USDC", "fiatCurrency": "NGN" }
+
+### Router — on-ramp fallback (→ chainrails)
+POST {{baseUrl}}/api/router
+Content-Type: application/json
+
+{ "action": "onramp", "fromChain": "base-sepolia", "fromToken": "USDC", "amount": "100", "fiatCurrency": "EUR" }
 
 ###############################################################################
 # Chainrails — quote via local route; intent create hits api.chainrails.io
@@ -186,6 +192,42 @@ Content-Type: application/json
   "network": "base",
   "refundAddress": "{{wallet}}",
   "currency": "NGN",
-  "recipient": { "institution": "OPAYNGPC", "accountIdentifier": "8012345678", "accountName": "Test User" },
+  "recipient": { "institution": "OPAYNGPC", "accountIdentifier": "8170106043", "accountName": "Test User" },
   "reference": "swap-chain-rest-test"
 }
+
+### Paycrest order — off-ramp (explicit direction)
+POST {{baseUrl}}/api/paycrest/order
+Content-Type: application/json
+
+{
+  "direction": "offramp",
+  "amount": "0.5",
+  "token": "USDC",
+  "network": "base",
+  "refundAddress": "{{wallet}}",
+  "currency": "NGN",
+  "recipient": { "institution": "OPAYNGPC", "accountIdentifier": "8012345678", "accountName": "Test User" },
+  "reference": "swap-chain-offramp-rest"
+}
+
+### Paycrest order — on-ramp NGN → USDC on Base
+# Creating an order moves NO funds — deposit NGN to providerAccount before validUntil.
+POST {{baseUrl}}/api/paycrest/order
+Content-Type: application/json
+
+{
+  "direction": "onramp",
+  "amount": "5000",
+  "amountIn": "fiat",
+  "fiatCurrency": "NGN",
+  "token": "USDC",
+  "network": "base",
+  "recipientAddress": "{{wallet}}",
+  "refundAccount": { "institution": "OPAYNGPC", "accountIdentifier": "8012345678", "accountName": "Test User" },
+  "reference": "swap-chain-onramp-rest"
+}
+
+### Paycrest order — poll status (replace ORDER_ID)
+GET {{baseUrl}}/api/paycrest/order/28ecaba0-baa1-4a8d-ab96-be08fb4be270
+

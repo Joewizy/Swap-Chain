@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * usePaycrest — fiat off-ramp orders (USDC → bank / mobile money).
+ * usePaycrest — Paycrest Sender orders (off-ramp create helper).
  *
  * Posts the off-ramp order to /api/paycrest/order, which proxies
  * Paycrest's v2 Sender API (the API key is server-only). The route
@@ -52,9 +52,14 @@ export function usePaycrest(): UsePaycrestReturn {
       setError(null);
 
       try {
-        if (!isPaycrestFiat(request.currency)) {
+        if ("currency" in request && !isPaycrestFiat(request.currency)) {
           throw new Error(
             `Unsupported payout currency "${request.currency}".`
+          );
+        }
+        if ("fiatCurrency" in request && !isPaycrestFiat(request.fiatCurrency)) {
+          throw new Error(
+            `Unsupported fiat currency "${request.fiatCurrency}".`
           );
         }
 

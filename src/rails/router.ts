@@ -77,8 +77,16 @@ export function selectRail(req: RouteRequest): RailDecision {
     };
   }
 
-  // --- 2. fiat on-ramp -> Chainrails -------------------------------------
+  // --- 2. fiat on-ramp -> Paycrest (supported fiats) or Chainrails --------
   if (req.action === "onramp") {
+    const fiat = req.fiatCurrency;
+    if (fiat && isPaycrestFiat(fiat)) {
+      return {
+        rail: "paycrest",
+        reason: `Fiat on-ramp from ${fiat.toUpperCase()} via Paycrest Sender API.`,
+        alternatives: ["chainrails"],
+      };
+    }
     return {
       rail: "chainrails",
       reason: "Fiat on-ramp is served by Chainrails.",

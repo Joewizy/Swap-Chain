@@ -2,16 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   PAYCREST_BASE_URL,
   isPaycrestConfigured,
+  normalizePaycrestOrder,
   type PaycrestOrder,
-  type PaycrestOrderStatus,
 } from "@/rails/paycrest";
 
 /**
  * GET /api/paycrest/order/:id
  *
- * Reads back an off-ramp order so the UI can poll it to settlement.
- * Proxies Paycrest's v2 Sender API GET /v2/sender/orders/:id (the API key
- * is server-only). Returns HTTP 501 until PAYCREST_API_KEY is set.
+ * Reads back an off-ramp or on-ramp order so the UI can poll to settlement.
+ * Proxies Paycrest's v2 Sender API GET /v2/sender/orders/:id.
  */
 export async function GET(
   _req: NextRequest,
@@ -68,29 +67,6 @@ export async function GET(
     );
   }
 
-  const providerAccount = payload.providerAccount as
-    | { receiveAddress?: unknown; validUntil?: unknown }
-    | undefined;
-
-  const order: PaycrestOrder = {
-    id: payload.id,
-    status: (payload.status as PaycrestOrderStatus) ?? "initiated",
-    amount: typeof payload.amount === "string" ? payload.amount : "",
-    currency: typeof payload.currency === "string" ? payload.currency : "",
-    receiveAddress:
-      typeof providerAccount?.receiveAddress === "string"
-        ? providerAccount.receiveAddress
-        : undefined,
-    validUntil:
-      typeof providerAccount?.validUntil === "string"
-        ? providerAccount.validUntil
-        : undefined,
-    createdAt:
-      typeof payload.createdAt === "string"
-        ? payload.createdAt
-        : new Date().toISOString(),
-    raw,
-  };
-
+  const order: PaycrestOrder = normalizePaycrestOrder(payload, raw);
   return NextResponse.json(order);
 }

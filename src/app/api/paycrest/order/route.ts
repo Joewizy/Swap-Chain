@@ -3,21 +3,22 @@ import {
   PAYCREST_BASE_URL,
   isPaycrestConfigured,
   isPaycrestFiat,
+  normalizePaycrestOrder,
   type PaycrestOrder,
-  type PaycrestOrderStatus,
 } from "@/rails/paycrest";
 
 /**
  * POST /api/paycrest/order
  *
- * Creates a fiat off-ramp order via Paycrest's v2 Sender API. The API
- * key is server-only, so the call is proxied here: the usePaycrest hook
- * posts the flat PaycrestOrderRequest and this route nests it into
- * Paycrest's { source, destination } shape.
+ * Creates a fiat off-ramp or on-ramp order via Paycrest's v2 Sender API.
+ * The API key is server-only; hooks post a flat body and this route nests
+ * it into Paycrest's { source, destination } shape.
  *
- * Body: { amount, token, network, refundAddress, currency,
- *         recipient: { institution, accountIdentifier, accountName, memo? },
- *         reference? }
+ * Off-ramp body: { direction?: "offramp", amount, token, network,
+ *   refundAddress, currency, recipient, reference? }
+ *
+ * On-ramp body: { direction: "onramp", amount, amountIn?: "fiat"|"crypto",
+ *   fiatCurrency, refundAccount, token, network, recipientAddress, reference? }
  *
  * Returns HTTP 501 until PAYCREST_API_KEY is set in the server env.
  *
@@ -25,6 +26,24 @@ import {
  */
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+
+function paycrestErrorResponse(raw: unknown, res: Response) {
+  let message = `Paycrest order failed (${res.status}).`;
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    message = String(r.message ?? r.error ?? message);
+    const detail = r.data as
+      | { field?: unknown; message?: unknown }
+      | undefined;
+    if (detail && typeof detail.message === "string") {
+      message += ` ${detail.field ? `[${String(detail.field)}] ` : ""}${detail.message}`;
+    }
+  }
+  return NextResponse.json(
+    { error: message },
+    { status: res.status === 401 ? 401 : 502 }
+  );
+}
 
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
@@ -34,64 +53,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { amount, token, network, refundAddress, currency, reference } =
-    body as Record<string, unknown>;
-  const recipient = body.recipient as
-    | {
-        institution?: unknown;
-        accountIdentifier?: unknown;
-        accountName?: unknown;
-        memo?: unknown;
-      }
-    | undefined;
+  const direction =
+    body.direction === "onramp"
+      ? "onramp"
+      : body.direction === "offramp"
+        ? "offramp"
+        : body.refundAccount
+          ? "onramp"
+          : "offramp";
 
-  // --- validate ----------------------------------------------------------
-  if (typeof amount !== "string" || !(Number(amount) > 0)) {
-    return NextResponse.json(
-      { error: "amount must be a positive decimal string" },
-      { status: 400 }
-    );
-  }
-  if (token !== "USDC" && token !== "USDT") {
-    return NextResponse.json(
-      { error: 'token must be "USDC" or "USDT"' },
-      { status: 400 }
-    );
-  }
-  if (typeof network !== "string" || !network) {
-    return NextResponse.json(
-      { error: "network is required (Paycrest network slug, e.g. \"base\")" },
-      { status: 400 }
-    );
-  }
-  if (typeof refundAddress !== "string" || !EVM_ADDRESS.test(refundAddress)) {
-    return NextResponse.json(
-      { error: "refundAddress must be a 0x-prefixed EVM address" },
-      { status: 400 }
-    );
-  }
-  if (typeof currency !== "string" || !isPaycrestFiat(currency)) {
-    return NextResponse.json(
-      { error: `Unsupported payout currency "${String(currency)}"` },
-      { status: 400 }
-    );
-  }
-  if (
-    !recipient ||
-    typeof recipient.institution !== "string" ||
-    typeof recipient.accountIdentifier !== "string" ||
-    typeof recipient.accountName !== "string"
-  ) {
-    return NextResponse.json(
-      {
-        error:
-          "recipient.institution, accountIdentifier and accountName are required",
-      },
-      { status: 400 }
-    );
-  }
-
-  // --- config gate -------------------------------------------------------
   const apiKey = process.env.PAYCREST_API_KEY;
   if (!isPaycrestConfigured() || !apiKey) {
     return NextResponse.json(
@@ -103,31 +73,25 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // --- build Paycrest v2 Sender-API body ---------------------------------
-  const paycrestBody = {
-    amount,
-    source: {
-      type: "crypto",
-      currency: token,
-      network,
-      refundAddress,
-    },
-    destination: {
-      type: "fiat",
-      currency: currency.toUpperCase(),
-      recipient: {
-        institution: recipient.institution,
-        accountIdentifier: recipient.accountIdentifier,
-        accountName: recipient.accountName,
-        ...(typeof recipient.memo === "string" && recipient.memo
-          ? { memo: recipient.memo }
-          : {}),
-      },
-    },
-    ...(typeof reference === "string" && reference ? { reference } : {}),
-  };
+  let paycrestBody: Record<string, unknown>;
+  let fallbackCurrency: string;
 
-  // --- call Paycrest -----------------------------------------------------
+  if (direction === "onramp") {
+    const built = buildOnrampBody(body);
+    if ("error" in built) {
+      return NextResponse.json({ error: built.error }, { status: 400 });
+    }
+    paycrestBody = built.body;
+    fallbackCurrency = built.fiatCurrency;
+  } else {
+    const built = buildOfframpBody(body);
+    if ("error" in built) {
+      return NextResponse.json({ error: built.error }, { status: 400 });
+    }
+    paycrestBody = built.body;
+    fallbackCurrency = built.currency;
+  }
+
   let res: Response;
   try {
     res = await fetch(`${PAYCREST_BASE_URL}/v2/sender/orders`, {
@@ -149,27 +113,10 @@ export async function POST(req: NextRequest) {
   }
 
   const raw: unknown = await res.json().catch(() => null);
-
   if (!res.ok) {
-    let message = `Paycrest order failed (${res.status}).`;
-    if (raw && typeof raw === "object") {
-      const r = raw as Record<string, unknown>;
-      message = String(r.message ?? r.error ?? message);
-      // Validation errors carry the specifics in data.{field,message}.
-      const detail = r.data as
-        | { field?: unknown; message?: unknown }
-        | undefined;
-      if (detail && typeof detail.message === "string") {
-        message += ` ${detail.field ? `[${String(detail.field)}] ` : ""}${detail.message}`;
-      }
-    }
-    return NextResponse.json(
-      { error: message },
-      { status: res.status === 401 ? 401 : 502 }
-    );
+    return paycrestErrorResponse(raw, res);
   }
 
-  // Paycrest may wrap the payload as { status, message, data }.
   const payload =
     raw && typeof raw === "object" && "data" in raw
       ? ((raw as Record<string, unknown>).data as Record<string, unknown>)
@@ -182,29 +129,175 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const providerAccount = payload.providerAccount as
-    | { receiveAddress?: unknown; validUntil?: unknown }
+  if (!payload.currency && fallbackCurrency) {
+    payload.currency = fallbackCurrency;
+  }
+
+  const order: PaycrestOrder = normalizePaycrestOrder(payload, raw);
+  return NextResponse.json(order);
+}
+
+function buildOfframpBody(
+  body: Record<string, unknown>
+):
+  | { body: Record<string, unknown>; currency: string }
+  | { error: string } {
+  const { amount, token, network, refundAddress, currency, reference } = body;
+  const recipient = body.recipient as
+    | {
+        institution?: unknown;
+        accountIdentifier?: unknown;
+        accountName?: unknown;
+        memo?: unknown;
+      }
     | undefined;
 
-  const order: PaycrestOrder = {
-    id: payload.id,
-    status: (payload.status as PaycrestOrderStatus) ?? "initiated",
-    amount,
-    currency: currency.toUpperCase(),
-    receiveAddress:
-      typeof providerAccount?.receiveAddress === "string"
-        ? providerAccount.receiveAddress
-        : undefined,
-    validUntil:
-      typeof providerAccount?.validUntil === "string"
-        ? providerAccount.validUntil
-        : undefined,
-    createdAt:
-      typeof payload.createdAt === "string"
-        ? payload.createdAt
-        : new Date().toISOString(),
-    raw,
-  };
+  if (typeof amount !== "string" || !(Number(amount) > 0)) {
+    return { error: "amount must be a positive decimal string" };
+  }
+  if (token !== "USDC" && token !== "USDT") {
+    return { error: 'token must be "USDC" or "USDT"' };
+  }
+  if (typeof network !== "string" || !network) {
+    return {
+      error: 'network is required (Paycrest network slug, e.g. "base")',
+    };
+  }
+  if (typeof refundAddress !== "string" || !EVM_ADDRESS.test(refundAddress)) {
+    return { error: "refundAddress must be a 0x-prefixed EVM address" };
+  }
+  if (typeof currency !== "string" || !isPaycrestFiat(currency)) {
+    return {
+      error: `Unsupported payout currency "${String(currency)}"`,
+    };
+  }
+  if (
+    !recipient ||
+    typeof recipient.institution !== "string" ||
+    typeof recipient.accountIdentifier !== "string" ||
+    typeof recipient.accountName !== "string"
+  ) {
+    return {
+      error:
+        "recipient.institution, accountIdentifier and accountName are required",
+    };
+  }
 
-  return NextResponse.json(order);
+  return {
+    currency: currency.toUpperCase(),
+    body: {
+      amount,
+      source: {
+        type: "crypto",
+        currency: token,
+        network,
+        refundAddress,
+      },
+      destination: {
+        type: "fiat",
+        currency: currency.toUpperCase(),
+        recipient: {
+          institution: recipient.institution,
+          accountIdentifier: recipient.accountIdentifier,
+          accountName: recipient.accountName,
+          ...(typeof recipient.memo === "string" && recipient.memo
+            ? { memo: recipient.memo }
+            : {}),
+        },
+      },
+      ...(typeof reference === "string" && reference ? { reference } : {}),
+    },
+  };
+}
+
+function buildOnrampBody(
+  body: Record<string, unknown>
+):
+  | { body: Record<string, unknown>; fiatCurrency: string }
+  | { error: string } {
+  const {
+    amount,
+    token,
+    network,
+    recipientAddress,
+    reference,
+    fiatCurrency,
+    amountIn,
+  } = body;
+  const refundAccount = body.refundAccount as
+    | {
+        institution?: unknown;
+        accountIdentifier?: unknown;
+        accountName?: unknown;
+      }
+    | undefined;
+
+  if (typeof amount !== "string" || !(Number(amount) > 0)) {
+    return { error: "amount must be a positive decimal string" };
+  }
+  if (token !== "USDC" && token !== "USDT") {
+    return { error: 'token must be "USDC" or "USDT"' };
+  }
+  if (typeof network !== "string" || !network) {
+    return {
+      error: 'network is required (Paycrest network slug, e.g. "base")',
+    };
+  }
+  if (
+    typeof recipientAddress !== "string" ||
+    !EVM_ADDRESS.test(recipientAddress)
+  ) {
+    return { error: "recipientAddress must be a 0x-prefixed EVM address" };
+  }
+  const fiat =
+    typeof fiatCurrency === "string"
+      ? fiatCurrency
+      : typeof body.currency === "string"
+        ? body.currency
+        : null;
+  if (!fiat || !isPaycrestFiat(fiat)) {
+    return {
+      error: `Unsupported fiat currency "${String(fiat ?? "(none)")}"`,
+    };
+  }
+  if (
+    !refundAccount ||
+    typeof refundAccount.institution !== "string" ||
+    typeof refundAccount.accountIdentifier !== "string" ||
+    typeof refundAccount.accountName !== "string"
+  ) {
+    return {
+      error:
+        "refundAccount.institution, accountIdentifier and accountName are required",
+    };
+  }
+
+  const resolvedAmountIn =
+    amountIn === "crypto" || amountIn === "fiat" ? amountIn : "fiat";
+
+  return {
+    fiatCurrency: fiat.toUpperCase(),
+    body: {
+      amount,
+      amountIn: resolvedAmountIn,
+      source: {
+        type: "fiat",
+        currency: fiat.toUpperCase(),
+        refundAccount: {
+          institution: refundAccount.institution,
+          accountIdentifier: refundAccount.accountIdentifier,
+          accountName: refundAccount.accountName,
+        },
+      },
+      destination: {
+        type: "crypto",
+        currency: token,
+        recipient: {
+          address: recipientAddress,
+          network,
+        },
+      },
+      ...(typeof reference === "string" && reference ? { reference } : {}),
+    },
+  };
 }

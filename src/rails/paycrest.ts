@@ -1,17 +1,16 @@
 /**
- * Paycrest rail — fiat off-ramp (stablecoin → bank / mobile money).
+ * Paycrest rail — fiat off-ramp and on-ramp via the v2 Sender API.
  *
  * Pure module: no I/O, safe to import from client or server. Holds the
  * single source of truth the intent parser, the API route and the UI
- * all share — supported payout currencies, the API host, the env gate
+ * all share — supported fiat currencies, network slugs, the env gate
  * and the order request/response types.
  *
- * The live integration is Paycrest's v2 Sender API. The API key is
- * server-only, so the actual fetch lives in /api/paycrest/order.
+ * Both directions use the same endpoint (POST /v2/sender/orders) and the
+ * same server-only API key; the actual fetch lives in /api/paycrest/order.
  *
  * Docs: https://docs.paycrest.io/implementation-guides/sender-api-integration
- * Note: Paycrest runs on mainnet only — no sandbox; test with the
- * documented $0.50 minimum order size.
+ * Note: Paycrest runs on mainnet only — no sandbox; test with small amounts.
  *
  * See ARCHITECTURE.md §"Phase 1 — Local payout MVP".
  */
@@ -21,7 +20,7 @@ import type { ChainId } from "@/config/network";
 /** Paycrest Sender API host. Auth is the `API-Key` request header. */
 export const PAYCREST_BASE_URL = "https://api.paycrest.io";
 
-/** Fiat currencies Paycrest can pay out to (priority launch corridors). */
+/** Fiat currencies Paycrest supports for payout and on-ramp. */
 export const PAYCREST_FIAT = [
   "NGN",
   "KES",
@@ -35,19 +34,18 @@ export const PAYCREST_FIAT = [
 
 export type PaycrestFiat = (typeof PAYCREST_FIAT)[number];
 
-/** Case-insensitive check + type guard for a supported payout currency. */
+/** Case-insensitive check + type guard for a supported fiat currency. */
 export function isPaycrestFiat(code: string): code is PaycrestFiat {
   return (PAYCREST_FIAT as readonly string[]).includes(code.toUpperCase());
 }
 
-/** Stablecoins Paycrest accepts as off-ramp source funds. */
+/** Stablecoins Paycrest accepts. */
 export type PaycrestToken = "USDC" | "USDT";
 
+export type PaycrestDirection = "offramp" | "onramp";
+
 // ---------------------------------------------------------------------------
-// Networks — map our app ChainId to Paycrest's network slug. Off-ramp funds
-// are sent on this chain to the provider's receive address. Slugs mirror
-// Paycrest's "Supported Stablecoins & Networks" list; "base" is verified
-// against a live order. Chains absent here can't be off-ramp sources.
+// Networks — map our app ChainId to Paycrest's network slug.
 // ---------------------------------------------------------------------------
 
 export const PAYCREST_NETWORK_SLUGS: Partial<Record<ChainId, string>> = {
@@ -57,7 +55,7 @@ export const PAYCREST_NETWORK_SLUGS: Partial<Record<ChainId, string>> = {
   bnb: "bnb-smart-chain",
 };
 
-/** Paycrest network slug for a chain, or null when it can't off-ramp there. */
+/** Paycrest network slug for a chain, or null when unsupported. */
 export function paycrestNetworkSlug(chainId: ChainId): string | null {
   return PAYCREST_NETWORK_SLUGS[chainId] ?? null;
 }
@@ -80,39 +78,51 @@ export function isPaycrestConfigured(): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Order types — the request/response shape the hook and route agree on.
+// Order types — request/response shapes the hooks and routes agree on.
 // ---------------------------------------------------------------------------
 
-/** Bank or mobile-money payout destination. */
+/** Bank or mobile-money account (payout destination or fiat refund account). */
 export interface PaycrestRecipient {
-  /** Payout institution code (bank or mobile-money provider), e.g. "GTBINGLA". */
   institution: string;
-  /** Bank account number or mobile-money phone number. */
   accountIdentifier: string;
   accountName: string;
-  /** Optional narration / memo on the payout. */
   memo?: string;
 }
 
-/**
- * An off-ramp order as the app submits it — a flat shape the route nests
- * into Paycrest's `{ source, destination }` v2 request body.
- */
-export interface PaycrestOrderRequest {
-  /** Stablecoin amount to off-ramp, decimal string. */
+/** Fiat account Paycrest refunds to if an on-ramp order fails. */
+export type PaycrestRefundAccount = PaycrestRecipient;
+
+/** Off-ramp: stablecoin → fiat. */
+export interface PaycrestOfframpRequest {
+  direction?: "offramp";
   amount: string;
-  /** Stablecoin being sent. */
   token: PaycrestToken;
-  /** Paycrest network slug the stablecoin sits on, e.g. "base". */
+  /** Paycrest network slug, e.g. "base". */
   network: string;
-  /** Address Paycrest refunds to if the order fails or expires. */
   refundAddress: `0x${string}`;
-  /** ISO fiat code to pay out in. */
   currency: PaycrestFiat;
   recipient: PaycrestRecipient;
-  /** Optional caller reference, surfaced back on the order. */
   reference?: string;
 }
+
+/** On-ramp: fiat → stablecoin. */
+export interface PaycrestOnrampRequest {
+  direction: "onramp";
+  amount: string;
+  /** Defaults to "fiat" when omitted. */
+  amountIn?: "fiat" | "crypto";
+  fiatCurrency: PaycrestFiat;
+  refundAccount: PaycrestRefundAccount;
+  token: PaycrestToken;
+  network: string;
+  recipientAddress: `0x${string}`;
+  reference?: string;
+}
+
+/** Flat order body the app posts to /api/paycrest/order. */
+export type PaycrestOrderRequest =
+  | PaycrestOfframpRequest
+  | PaycrestOnrampRequest;
 
 /** Paycrest order lifecycle. Mirrors the status field Paycrest returns. */
 export type PaycrestOrderStatus =
@@ -123,19 +133,123 @@ export type PaycrestOrderStatus =
   | "refunded"
   | "expired";
 
-/** A created off-ramp order, normalised from the Paycrest response. */
+/** A created order, normalised from the Paycrest response. */
 export interface PaycrestOrder {
   id: string;
   status: PaycrestOrderStatus;
-  /** Stablecoin amount the user must send to fulfil the order. */
+  direction: PaycrestDirection;
+  /** Crypto amount (off-ramp: sent; on-ramp: received). */
   amount: string;
-  /** Fiat currency the recipient is paid in. */
+  /** Display currency — fiat code for off-ramp, token symbol for on-ramp. */
   currency: string;
-  /** On-chain address the user funds with the stablecoin. */
+  /** Locked exchange rate when returned by Paycrest. */
+  rate?: string;
+  /** Off-ramp: on-chain address the user funds with stablecoin. */
   receiveAddress?: string;
-  /** When the receive address stops accepting funds (ISO timestamp). */
+  /** On-ramp: virtual account / mobile number to deposit fiat into. */
+  depositInstitution?: string;
+  depositAccountIdentifier?: string;
+  depositAccountName?: string;
+  /** On-ramp: exact fiat amount the user must transfer. */
+  amountToTransfer?: string;
+  depositCurrency?: string;
+  /** Deadline for funding (off-ramp crypto or on-ramp fiat). */
   validUntil?: string;
   createdAt: string;
-  /** Untouched Paycrest payload, for fields this typed view omits. */
   raw?: unknown;
+}
+
+/**
+ * Normalises a Paycrest v2 order payload into our PaycrestOrder shape.
+ * Used by POST and GET /api/paycrest/order routes.
+ */
+export function normalizePaycrestOrder(
+  payload: Record<string, unknown>,
+  raw?: unknown
+): PaycrestOrder {
+  const source = payload.source as { type?: string } | undefined;
+  const destination = payload.destination as
+    | { type?: string; currency?: string }
+    | undefined;
+  const direction: PaycrestDirection =
+    source?.type === "fiat" ? "onramp" : "offramp";
+
+  const providerAccount = payload.providerAccount as
+    | Record<string, unknown>
+    | undefined;
+
+  const fiatCurrency =
+    direction === "onramp"
+      ? typeof source?.type === "string"
+        ? String(
+            (source as { currency?: string }).currency ??
+              destination?.currency ??
+              ""
+          ).toUpperCase()
+        : ""
+      : String(
+          destination?.currency ??
+            (payload.currency as string | undefined) ??
+            ""
+        ).toUpperCase();
+
+  const cryptoCurrency =
+    direction === "onramp"
+      ? String(
+          (destination as { currency?: string } | undefined)?.currency ?? ""
+        )
+      : String(
+          (source as { currency?: string } | undefined)?.currency ?? ""
+        );
+
+  return {
+    id: String(payload.id),
+    status: (payload.status as PaycrestOrderStatus) ?? "initiated",
+    direction,
+    amount:
+      typeof payload.amount === "string" ? payload.amount : String(payload.amount ?? ""),
+    currency: direction === "onramp" ? cryptoCurrency : fiatCurrency,
+    rate: typeof payload.rate === "string" ? payload.rate : undefined,
+    receiveAddress:
+      direction === "offramp" &&
+      typeof providerAccount?.receiveAddress === "string"
+        ? providerAccount.receiveAddress
+        : undefined,
+    depositInstitution:
+      direction === "onramp" &&
+      typeof providerAccount?.institution === "string"
+        ? providerAccount.institution
+        : undefined,
+    depositAccountIdentifier:
+      direction === "onramp" &&
+      typeof providerAccount?.accountIdentifier === "string"
+        ? providerAccount.accountIdentifier
+        : undefined,
+    depositAccountName:
+      direction === "onramp" &&
+      typeof providerAccount?.accountName === "string"
+        ? providerAccount.accountName
+        : undefined,
+    amountToTransfer:
+      direction === "onramp" &&
+      typeof providerAccount?.amountToTransfer === "string"
+        ? providerAccount.amountToTransfer
+        : undefined,
+    depositCurrency:
+      direction === "onramp" &&
+      typeof providerAccount?.currency === "string"
+        ? providerAccount.currency
+        : undefined,
+    validUntil:
+      typeof providerAccount?.validUntil === "string"
+        ? providerAccount.validUntil
+        : undefined,
+    createdAt:
+      typeof payload.createdAt === "string"
+        ? payload.createdAt
+        : typeof payload.timestamp === "string"
+          ? payload.timestamp
+          : new Date().toISOString(),
+    raw: raw ?? payload,
+  };
 }
