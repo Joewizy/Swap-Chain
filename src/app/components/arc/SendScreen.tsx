@@ -1658,6 +1658,7 @@ function paycrestStages(
   const indexFor: Record<PaycrestOfframpStatus, number> = {
     idle: -1,
     creating: 0,
+    awaiting_funding: 1,
     funding: 1,
     settling: 2,
     complete: 4,
@@ -1973,6 +1974,24 @@ export function StatusScreen({
       ? paycrestOnramp.order
       : null;
 
+  // Off-ramp invoice: shown after the order is created, before the user
+  // sends the stablecoin (no auto-firing the wallet).
+  const isOfframpRail =
+    exec?.rail === "paycrest" && exec.action !== "onramp";
+  const offrampOrder = isOfframpRail ? paycrestOfframp.order : null;
+  const awaitingFunding =
+    isOfframpRail && paycrestOfframp.status === "awaiting_funding";
+  const fiatReceive =
+    offrampOrder?.rate && offrampOrder.amount
+      ? Number(offrampOrder.amount) * Number(offrampOrder.rate)
+      : null;
+  const fiatReceiveLabel =
+    fiatReceive !== null && exec?.fiatCurrency
+      ? `${exec.fiatCurrency} ${fiatReceive.toLocaleString("en-US", {
+          maximumFractionDigits: 2,
+        })}`
+      : null;
+
   // Wall-clock elapsed since this screen mounted.
   const startedAt = useRef(Date.now()).current;
   const [now, setNow] = useState(Date.now());
@@ -2050,8 +2069,13 @@ export function StatusScreen({
                 color: done ? "var(--ok)" : "var(--accent)",
               }}
             >
-              {intent?.quote?.to?.amount}
+              {fiatReceiveLabel ?? intent?.quote?.to?.amount}
             </span>
+            {offrampOrder?.rate && (
+              <span className="muted font-mono" style={{ fontSize: 11, marginTop: 2 }}>
+                rate {offrampOrder.rate}/{intent?.quote?.from?.token}
+              </span>
+            )}
           </div>
         </div>
 
@@ -2120,6 +2144,90 @@ export function StatusScreen({
                 {onrampOrder.rate ? ` @ ${onrampOrder.rate}` : ""}
               </span>
             )}
+          </div>
+        )}
+
+        {/* Off-ramp invoice — review, then send. No auto-firing the wallet. */}
+        {awaitingFunding && offrampOrder?.receiveAddress && !bootError && (
+          <div
+            className="col gap-3"
+            style={{
+              marginTop: 18,
+              padding: 16,
+              background: "var(--accent-soft)",
+              border: "1px solid var(--line-2)",
+              borderRadius: 12,
+            }}
+          >
+            <strong style={{ fontSize: 14 }}>Confirm and send</strong>
+            <span style={{ fontSize: 13, color: "var(--fg-soft)" }}>
+              Send exactly{" "}
+              <strong className="font-mono">
+                {offrampOrder.amount} {intent?.quote?.from?.token}
+              </strong>{" "}
+              on {intent?.quote?.from?.chain} to fund this payout.
+            </span>
+
+            <div className="col gap-1">
+              <span className="eyebrow" style={{ fontSize: 10 }}>
+                Receive address
+              </span>
+              <button
+                onClick={() =>
+                  navigator.clipboard?.writeText(offrampOrder.receiveAddress ?? "")
+                }
+                className="row between center"
+                style={{
+                  padding: "10px 12px",
+                  background: "var(--bg-soft)",
+                  border: "1px solid var(--line)",
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  color: "inherit",
+                }}
+                title="Copy address"
+              >
+                <span
+                  className="font-mono"
+                  style={{ fontSize: 12, wordBreak: "break-all" }}
+                >
+                  {offrampOrder.receiveAddress}
+                </span>
+                <Icon.Copy size={13} />
+              </button>
+            </div>
+
+            {(fiatReceiveLabel || offrampOrder.rate) && (
+              <span className="muted" style={{ fontSize: 12 }}>
+                {intent?.quote?.to?.sub ? `${intent.quote.to.sub} ` : ""}
+                receives{" "}
+                <strong style={{ color: "var(--fg)" }}>
+                  {fiatReceiveLabel ?? "—"}
+                </strong>
+                {offrampOrder.rate
+                  ? ` · rate ${offrampOrder.rate}/${intent?.quote?.from?.token}`
+                  : ""}
+              </span>
+            )}
+            {offrampOrder.validUntil && (
+              <span className="muted" style={{ fontSize: 12 }}>
+                Send before {new Date(offrampOrder.validUntil).toLocaleTimeString()}
+              </span>
+            )}
+
+            <button
+              className="btn btn-fat"
+              style={{ background: "var(--btn-bg)", color: "var(--btn-fg)" }}
+              onClick={() => paycrestOfframp.fund().catch(() => {})}
+            >
+              Send {offrampOrder.amount} {intent?.quote?.from?.token}{" "}
+              <Icon.ArrowRight />
+            </button>
+            <span className="muted" style={{ fontSize: 11, textAlign: "center" }}>
+              You&apos;ll approve the transfer in your wallet. Or send the exact
+              amount to the address above yourself.
+            </span>
           </div>
         )}
 

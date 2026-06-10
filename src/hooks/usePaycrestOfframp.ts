@@ -16,8 +16,8 @@
  * Pairs with src/rails/paycrest.ts and the /api/paycrest/* routes.
  */
 
-import { useCallback, useState } from "react";
-import { erc20Abi, parseUnits } from "viem";
+import { useCallback, useRef, useState } from "react";
+import { erc20Abi, getAddress, parseUnits } from "viem";
 import { useAccount, useConfig } from "wagmi";
 import { switchChain, waitForTransactionReceipt, writeContract } from "wagmi/actions";
 import {
@@ -37,6 +37,7 @@ import { getChain, getToken, getTokenAddress, type ChainId } from "@/config/netw
 export type PaycrestOfframpStatus =
   | "idle"
   | "creating"
+  | "awaiting_funding"
   | "funding"
   | "settling"
   | "complete"
@@ -60,7 +61,10 @@ export interface UsePaycrestOfframpReturn {
   transferTxHash: `0x${string}` | null;
   /** True while a run is mid-flight (not idle/complete/error). */
   isRunning: boolean;
+  /** Step 1: create the order. Stops at `awaiting_funding` for user review. */
   offramp: (params: PaycrestOfframpParams) => Promise<PaycrestOrder>;
+  /** Step 2: send the stablecoin (wallet signature) once the user confirms. */
+  fund: () => Promise<PaycrestOrder>;
   reset: () => void;
 }
 
@@ -86,13 +90,24 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
     null
   );
 
+  // Funding context captured at order time, used when the user taps "Send".
+  const fundingRef = useRef<{
+    tokenAddress: `0x${string}`;
+    receiveAddress: `0x${string}`;
+    units: bigint;
+    srcChainId: number;
+    orderId: string;
+  } | null>(null);
+
   const reset = useCallback(() => {
     setStatus("idle");
     setError(null);
     setOrder(null);
     setTransferTxHash(null);
+    fundingRef.current = null;
   }, []);
 
+  // --- Step 1: create the order, then wait for the user to confirm -------
   const offramp = useCallback(
     async (params: PaycrestOfframpParams): Promise<PaycrestOrder> => {
       const { fromChain, token, amount, fiatCurrency, recipient, reference } =
@@ -102,6 +117,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         setError(null);
         setOrder(null);
         setTransferTxHash(null);
+        fundingRef.current = null;
 
         // --- validate ----------------------------------------------------
         if (!isConnected || !address) {
@@ -126,13 +142,13 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         }
         const srcChainId = srcEntry.viemChain.id;
 
-        const tokenAddress = getTokenAddress(token, fromChain) as
-          | `0x${string}`
-          | undefined;
+        const rawToken = getTokenAddress(token, fromChain);
         const decimals = getToken(token)?.decimals;
-        if (!tokenAddress || decimals === undefined) {
+        if (!rawToken || decimals === undefined) {
           throw new Error(`No ${token} address configured for "${fromChain}".`);
         }
+        // Normalise to a valid EIP-55 address regardless of how it's stored.
+        const tokenAddress = getAddress(rawToken.toLowerCase());
 
         let units: bigint;
         try {
@@ -144,9 +160,10 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
           throw new Error("Amount must be greater than zero.");
         }
 
-        // --- 1. create the order (server proxies Paycrest) ---------------
+        // --- create the order (server proxies Paycrest) ------------------
         setStatus("creating");
         const created = await createOrder({
+          direction: "offramp",
           amount,
           token,
           network,
@@ -157,37 +174,22 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         });
         setOrder(created);
 
-        const receiveAddress = created.receiveAddress as
-          | `0x${string}`
-          | undefined;
-        if (!receiveAddress) {
+        if (!created.receiveAddress) {
           throw new Error(
             "Paycrest didn't return a receive address for this order."
           );
         }
 
-        // --- 2. fund the provider's receive address on-chain -------------
-        setStatus("funding");
-        await switchChain(config, { chainId: srcChainId });
-        const transferHash = await writeContract(config, {
-          address: tokenAddress,
-          abi: erc20Abi,
-          functionName: "transfer",
-          args: [receiveAddress, units],
-          chainId: srcChainId,
-        });
-        setTransferTxHash(transferHash);
-        await waitForTransactionReceipt(config, {
-          hash: transferHash,
-          chainId: srcChainId,
-        });
-
-        // --- 3. poll until the provider settles fiat ---------------------
-        setStatus("settling");
-        const settled = await pollOrder(created.id, setOrder);
-
-        setStatus("complete");
-        return settled;
+        // Stash everything fund() needs; wait for explicit user action.
+        fundingRef.current = {
+          tokenAddress,
+          receiveAddress: getAddress(created.receiveAddress.toLowerCase()),
+          units,
+          srcChainId,
+          orderId: created.id,
+        };
+        setStatus("awaiting_funding");
+        return created;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Off-ramp failed.";
         setError(msg);
@@ -195,8 +197,47 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         throw err instanceof Error ? err : new Error(msg);
       }
     },
-    [address, isConnected, config]
+    [address, isConnected]
   );
+
+  // --- Step 2: send the stablecoin once the user confirms the invoice ----
+  const fund = useCallback(async (): Promise<PaycrestOrder> => {
+    const ctx = fundingRef.current;
+    if (!ctx) {
+      throw new Error("No order to fund — create the order first.");
+    }
+    try {
+      setError(null);
+
+      // Move the stablecoin to the provider's receive address.
+      setStatus("funding");
+      await switchChain(config, { chainId: ctx.srcChainId });
+      const transferHash = await writeContract(config, {
+        address: ctx.tokenAddress,
+        abi: erc20Abi,
+        functionName: "transfer",
+        args: [ctx.receiveAddress, ctx.units],
+        chainId: ctx.srcChainId,
+      });
+      setTransferTxHash(transferHash);
+      await waitForTransactionReceipt(config, {
+        hash: transferHash,
+        chainId: ctx.srcChainId,
+      });
+
+      // Poll until the provider settles fiat to the recipient.
+      setStatus("settling");
+      const settled = await pollOrder(ctx.orderId, setOrder);
+
+      setStatus("complete");
+      return settled;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Transfer failed.";
+      setError(msg);
+      setStatus("error");
+      throw err instanceof Error ? err : new Error(msg);
+    }
+  }, [config]);
 
   return {
     status,
@@ -206,6 +247,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
     isRunning:
       status !== "idle" && status !== "complete" && status !== "error",
     offramp,
+    fund,
     reset,
   };
 }
@@ -215,6 +257,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
 // ---------------------------------------------------------------------------
 
 interface CreateOrderBody {
+  direction: "offramp";
   amount: string;
   token: PaycrestToken;
   network: string;
