@@ -993,6 +993,13 @@ export function ReviewScreen({
   const needsWallet = true;
   const walletReady = isConnected || !needsWallet;
   const canConfirm = walletReady && payoutReady;
+
+  // Once the account name resolves, show the confirmed recipient in the
+  // headline instead of the raw account number / placeholder.
+  const recipientLine =
+    needsAccountDetails && payout.accountName
+      ? `${payout.accountName}${payout.institutionName ? ` · ${payout.institutionName}` : ""}`
+      : `${quote.to.label} · ${quote.to.sub}`;
   return (
     <div className="col gap-6">
       <header className="row between center wrap" style={{ gap: 16 }}>
@@ -1072,7 +1079,7 @@ export function ReviewScreen({
               className="muted font-mono"
               style={{ fontSize: 12, marginTop: 4 }}
             >
-              {quote.to.label} · {quote.to.sub}
+              {recipientLine}
             </span>
           </div>
         </div>
