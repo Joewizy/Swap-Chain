@@ -85,7 +85,7 @@ export default function AppShell() {
       case "describe":
         return (
           <WithBack onBack={backToChooser}>
-            <SendScreen onSubmit={submit} />
+            <SendScreen onSubmit={submit} describeOnly />
           </WithBack>
         );
       default:
@@ -109,10 +109,17 @@ export default function AppShell() {
         width: "100%",
       }}
     >
-      {view === "send" && sendBody}
-      {view === "history" && <HistoryScreen />}
-      {view === "recipients" && <RecipientsScreen />}
-      {view === "settings" && <SettingsScreen />}
+      {/* Re-keyed per screen so each navigation fades in (respects
+          prefers-reduced-motion via the global guard). */}
+      <div
+        key={`${view}|${flow}|${showStatus}`}
+        style={{ animation: "fade-up .22s var(--ease) both" }}
+      >
+        {view === "send" && sendBody}
+        {view === "history" && <HistoryScreen />}
+        {view === "recipients" && <RecipientsScreen />}
+        {view === "settings" && <SettingsScreen />}
+      </div>
     </main>
   );
 

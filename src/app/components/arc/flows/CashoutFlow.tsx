@@ -13,6 +13,7 @@
 import React, { useState } from "react";
 import { DEFAULT_SETTLEMENT_CHAIN_ID, getChain } from "@/config/network";
 import { PAYCREST_FIAT } from "@/rails/paycrest";
+import { formatFiat } from "@/utils";
 import {
   ReviewScreen,
   quoteFromIntent,
@@ -60,9 +61,30 @@ export function CashoutFlow({
       confidence: 1,
     };
     const r = await quoteFromIntent(intent);
+    if (!r) {
+      setLoading(false);
+      return setError("Couldn't build a quote — try again.");
+    }
+    if ("error" in r) {
+      setLoading(false);
+      return setError(r.reason);
+    }
+
+    // Estimate the fiat the recipient gets from the live rate (fiat per USDC).
+    try {
+      const res = await fetch(
+        `/api/paycrest/rate?fiat=${encodeURIComponent(currency)}&token=${token}`
+      );
+      const data = await res.json();
+      if (res.ok && data?.rate) {
+        r.to.amount = `≈ ${formatFiat(currency, Number(amount) * Number(data.rate))}`;
+        r.rate = `${data.rate} ${currency}/${token}`;
+      }
+    } catch {
+      // Rate is a nicety — the exact figure comes from the order invoice.
+    }
+
     setLoading(false);
-    if (!r) return setError("Couldn't build a quote — try again.");
-    if ("error" in r) return setError(r.reason);
     setQuote(r);
   };
 
