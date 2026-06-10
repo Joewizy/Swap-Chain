@@ -160,6 +160,25 @@ function looksLikePhone(s: string): boolean {
   return /^\+?\d[\d\s-]{6,}$/.test(s.trim());
 }
 
+/** Local-currency symbols for the supported payout corridors. */
+const FIAT_SYMBOLS: Record<string, string> = {
+  NGN: "₦",
+  KES: "KSh",
+  GHS: "₵",
+  UGX: "USh",
+  XOF: "CFA",
+  ZMW: "ZK",
+  TZS: "TSh",
+  ZAR: "R",
+};
+
+/** Formats a fiat amount with its symbol, e.g. "₦136,490.00". */
+function formatFiat(code: string, amount: number): string {
+  const sym = FIAT_SYMBOLS[code.toUpperCase()];
+  const n = amount.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return sym ? `${sym}${n}` : `${code} ${n}`;
+}
+
 /**
  * Calls /api/intent then /api/router, building an editable Quote — or a
  * ParseError the compose card surfaces inline. Replaces the old
@@ -1745,6 +1764,7 @@ export function StatusScreen({
   // Local error for cases where we can't even hand off to a rail
   // (no wallet, missing chain, etc.) — distinct from the rail's own error.
   const [bootError, setBootError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Kick off execution exactly once per intent.
   const startedFor = useRef<string | null>(null);
@@ -1986,17 +2006,21 @@ export function StatusScreen({
   const isOfframpRail =
     exec?.rail === "paycrest" && exec.action !== "onramp";
   const offrampOrder = isOfframpRail ? paycrestOfframp.order : null;
-  const awaitingFunding =
-    isOfframpRail && paycrestOfframp.status === "awaiting_funding";
+  const offrampFunding =
+    isOfframpRail && paycrestOfframp.status === "funding";
+  // Keep the invoice on screen while the wallet prompt is open, so it
+  // doesn't collapse when the user taps Send.
+  const showInvoice =
+    isOfframpRail &&
+    (paycrestOfframp.status === "awaiting_funding" || offrampFunding) &&
+    !!offrampOrder?.receiveAddress;
   const fiatReceive =
     offrampOrder?.rate && offrampOrder.amount
       ? Number(offrampOrder.amount) * Number(offrampOrder.rate)
       : null;
   const fiatReceiveLabel =
     fiatReceive !== null && exec?.fiatCurrency
-      ? `${exec.fiatCurrency} ${fiatReceive.toLocaleString("en-US", {
-          maximumFractionDigits: 2,
-        })}`
+      ? formatFiat(exec.fiatCurrency, fiatReceive)
       : null;
 
   // Wall-clock elapsed since this screen mounted.
@@ -2155,7 +2179,7 @@ export function StatusScreen({
         )}
 
         {/* Off-ramp invoice — review, then send. No auto-firing the wallet. */}
-        {awaitingFunding && offrampOrder?.receiveAddress && !bootError && (
+        {showInvoice && offrampOrder?.receiveAddress && !bootError && (
           <div
             className="col gap-3"
             style={{
@@ -2180,9 +2204,15 @@ export function StatusScreen({
                 Receive address
               </span>
               <button
-                onClick={() =>
-                  navigator.clipboard?.writeText(offrampOrder.receiveAddress ?? "")
-                }
+                onClick={() => {
+                  navigator.clipboard
+                    ?.writeText(offrampOrder.receiveAddress ?? "")
+                    .then(() => {
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1600);
+                    })
+                    .catch(() => {});
+                }}
                 className="row between center"
                 style={{
                   padding: "10px 12px",
@@ -2201,7 +2231,16 @@ export function StatusScreen({
                 >
                   {offrampOrder.receiveAddress}
                 </span>
-                <Icon.Copy size={13} />
+                {copied ? (
+                  <span
+                    className="row center gap-1"
+                    style={{ flex: "0 0 auto", fontSize: 11, color: "var(--ok)" }}
+                  >
+                    <Icon.Check size={12} /> Copied
+                  </span>
+                ) : (
+                  <Icon.Copy size={13} />
+                )}
               </button>
             </div>
 
@@ -2225,11 +2264,24 @@ export function StatusScreen({
 
             <button
               className="btn btn-fat"
-              style={{ background: "var(--btn-bg)", color: "var(--btn-fg)" }}
+              disabled={offrampFunding}
+              style={{
+                background: offrampFunding ? "var(--bg-sunk)" : "var(--btn-bg)",
+                color: offrampFunding ? "var(--fg-faint)" : "var(--btn-fg)",
+                cursor: offrampFunding ? "default" : "pointer",
+              }}
               onClick={() => paycrestOfframp.fund().catch(() => {})}
             >
-              Send {offrampOrder.amount} {intent?.quote?.from?.token}{" "}
-              <Icon.ArrowRight />
+              {offrampFunding ? (
+                <>
+                  <Icon.Spinner size={14} /> Confirm in your wallet…
+                </>
+              ) : (
+                <>
+                  Send {offrampOrder.amount} {intent?.quote?.from?.token}{" "}
+                  <Icon.ArrowRight />
+                </>
+              )}
             </button>
             <span className="muted" style={{ fontSize: 11, textAlign: "center" }}>
               You&apos;ll approve the transfer in your wallet. Or send the exact

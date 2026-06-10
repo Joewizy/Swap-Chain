@@ -17,7 +17,13 @@
  */
 
 import { useCallback, useRef, useState } from "react";
-import { erc20Abi, getAddress, parseUnits } from "viem";
+import {
+  BaseError,
+  UserRejectedRequestError,
+  erc20Abi,
+  getAddress,
+  parseUnits,
+} from "viem";
 import { useAccount, useConfig } from "wagmi";
 import { switchChain, waitForTransactionReceipt, writeContract } from "wagmi/actions";
 import {
@@ -232,6 +238,12 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
       setStatus("complete");
       return settled;
     } catch (err) {
+      // User backed out in the wallet — not an error. Return them to the
+      // invoice so they can send when ready; show nothing scary.
+      if (isUserRejection(err)) {
+        setStatus("awaiting_funding");
+        throw err;
+      }
       const msg = err instanceof Error ? err.message : "Transfer failed.";
       setError(msg);
       setStatus("error");
@@ -255,6 +267,15 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/** True when the wallet error is the user declining the signature. */
+export function isUserRejection(err: unknown): boolean {
+  if (err instanceof BaseError) {
+    return Boolean(err.walk((e) => e instanceof UserRejectedRequestError));
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return /user rejected|user denied|denied transaction|user cancel/i.test(msg);
+}
 
 interface CreateOrderBody {
   direction: "offramp";
