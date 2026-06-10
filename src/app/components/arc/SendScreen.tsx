@@ -1235,6 +1235,11 @@ function PayoutForm({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Account-name verification: resolve the holder's name from the
+  // institution + account number so the user confirms rather than types it.
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!currency) return;
     let cancelled = false;
@@ -1259,6 +1264,52 @@ function PayoutForm({
       cancelled = true;
     };
   }, [currency]);
+
+  const { institution, accountIdentifier } = value;
+  const acct = accountIdentifier.trim();
+
+  // Debounced verify whenever institution + account number are both set.
+  useEffect(() => {
+    if (!institution || acct.length < 6) {
+      setVerifying(false);
+      setVerifyError(null);
+      if (value.accountName) onChange({ ...value, accountName: "" });
+      return;
+    }
+    let cancelled = false;
+    setVerifying(true);
+    setVerifyError(null);
+    const id = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/paycrest/verify-account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ institution, accountIdentifier: acct }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !data?.accountName) {
+          setVerifyError(data?.error || "Couldn't verify this account.");
+          onChange({ ...value, accountName: "" });
+        } else {
+          onChange({ ...value, accountName: data.accountName });
+        }
+      } catch {
+        if (!cancelled) {
+          setVerifyError("Couldn't reach the verification service.");
+          onChange({ ...value, accountName: "" });
+        }
+      } finally {
+        if (!cancelled) setVerifying(false);
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+    // value.accountName is intentionally excluded — we set it here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [institution, acct]);
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
@@ -1339,22 +1390,97 @@ function PayoutForm({
           />
         </label>
 
-        <label className="col gap-1">
-          <span className="font-mono" style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}>
-            Account name
-          </span>
-          <input
-            value={value.accountName}
-            onChange={(e) =>
-              onChange({ ...value, accountName: e.target.value })
-            }
-            placeholder="Recipient's full name"
-            style={inputStyle}
+        {/* Resolved account name — confirm, not type. */}
+        {value.institution && acct.length >= 6 && (
+          <AccountNameStatus
+            verifying={verifying}
+            error={verifyError}
+            name={value.accountName}
           />
-        </label>
+        )}
       </div>
     </div>
   );
+}
+
+function AccountNameStatus({
+  verifying,
+  error,
+  name,
+}: {
+  verifying: boolean;
+  error: string | null;
+  name: string;
+}) {
+  if (verifying) {
+    return (
+      <div
+        className="row center gap-2"
+        style={{
+          padding: "11px 12px",
+          background: "var(--bg-soft)",
+          border: "1px solid var(--line)",
+          borderRadius: 10,
+          fontSize: 13,
+          color: "var(--fg-soft)",
+        }}
+      >
+        <Icon.Spinner size={13} /> Checking account…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div
+        style={{
+          padding: "11px 12px",
+          background: "var(--err-soft)",
+          border: "1px solid var(--err)",
+          borderRadius: 10,
+          fontSize: 13,
+          color: "var(--fg-soft)",
+        }}
+      >
+        {error} — check the number and institution.
+      </div>
+    );
+  }
+  if (name) {
+    return (
+      <div
+        className="row center gap-2"
+        style={{
+          padding: "11px 12px",
+          background: "var(--ok-soft)",
+          border: "1px solid var(--ok)",
+          borderRadius: 10,
+        }}
+      >
+        <span
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: "50%",
+            background: "var(--ok)",
+            color: "#fff",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flex: "0 0 20px",
+          }}
+        >
+          <Icon.Check size={11} />
+        </span>
+        <div className="col" style={{ gap: 1 }}>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>{name}</span>
+          <span className="muted" style={{ fontSize: 11 }}>
+            Confirm this is the right recipient.
+          </span>
+        </div>
+      </div>
+    );
+  }
+  return null;
 }
 
 /* ───────── STATUS — real rail execution ───────── */
