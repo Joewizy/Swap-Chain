@@ -1363,7 +1363,7 @@ function PayoutForm({
       <div className="col gap-3">
         <label className="col gap-1">
           <span className="font-mono" style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}>
-            Bank / mobile money
+            Bank name
           </span>
           <select
             value={value.institution}
@@ -1381,10 +1381,10 @@ function PayoutForm({
           >
             <option value="">
               {loading
-                ? "Loading institutions…"
+                ? "Loading banks…"
                 : loadError
-                  ? "Couldn't load institutions"
-                  : "Select institution"}
+                  ? "Couldn't load banks"
+                  : "Select your bank"}
             </option>
             {institutions.map((i) => (
               <option key={i.code} value={i.code}>

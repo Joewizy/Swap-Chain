@@ -27,6 +27,7 @@ import {
 import { useAccount, useConfig } from "wagmi";
 import { switchChain, waitForTransactionReceipt, writeContract } from "wagmi/actions";
 import {
+  humanizePaycrestError,
   isPaycrestFiat,
   paycrestNetworkSlug,
   type PaycrestFiat,
@@ -198,7 +199,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         return created;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Off-ramp failed.";
-        setError(msg);
+        setError(humanizePaycrestError(msg));
         setStatus("error");
         throw err instanceof Error ? err : new Error(msg);
       }
@@ -245,7 +246,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         throw err;
       }
       const msg = err instanceof Error ? err.message : "Transfer failed.";
-      setError(msg);
+      setError(humanizePaycrestError(msg));
       setStatus("error");
       throw err instanceof Error ? err : new Error(msg);
     }

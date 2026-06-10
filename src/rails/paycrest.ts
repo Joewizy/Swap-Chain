@@ -39,6 +39,28 @@ export function isPaycrestFiat(code: string): code is PaycrestFiat {
   return (PAYCREST_FIAT as readonly string[]).includes(code.toUpperCase());
 }
 
+/**
+ * Turns a raw Paycrest error into something a non-technical user can act on.
+ * Falls back to the original message (minus the noisy validation prefix).
+ */
+export function humanizePaycrestError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("no provider available")) {
+    return "No provider can fill an order this size right now. Try a smaller amount, or check back shortly.";
+  }
+  if (m.includes("rate validation") || m.includes("no rate")) {
+    return "We couldn't lock a rate for that amount — try a different amount.";
+  }
+  if (m.includes("insufficient") || m.includes("minimum")) {
+    return "That amount is outside the supported range for this payout — try a different amount.";
+  }
+  // Strip the noisy "Failed to validate payload [X]" prefix if present.
+  const cleaned = message
+    .replace(/^failed to validate payload\s*\[[^\]]*\]\s*/i, "")
+    .trim();
+  return cleaned || message;
+}
+
 /** Stablecoins Paycrest accepts. */
 export type PaycrestToken = "USDC" | "USDT";
 

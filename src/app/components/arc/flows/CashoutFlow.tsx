@@ -13,7 +13,7 @@
 import React, { useState } from "react";
 import { DEFAULT_SETTLEMENT_CHAIN_ID, getChain } from "@/config/network";
 import { PAYCREST_FIAT } from "@/rails/paycrest";
-import { formatAmountInput, formatFiat } from "@/utils";
+import { fiatOptionLabel, formatAmountInput, formatFiat } from "@/utils";
 import {
   ReviewScreen,
   quoteFromIntent,
@@ -171,7 +171,7 @@ export function CashoutFlow({
           >
             {PAYCREST_FIAT.map((c) => (
               <option key={c} value={c}>
-                {c}
+                {fiatOptionLabel(c)}
               </option>
             ))}
           </select>

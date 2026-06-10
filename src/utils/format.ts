@@ -17,6 +17,24 @@ export const FIAT_SYMBOLS: Record<string, string> = {
   ZAR: "R",
 };
 
+/** Full names for the supported payout currencies. */
+export const FIAT_NAMES: Record<string, string> = {
+  NGN: "Nigerian Naira",
+  KES: "Kenyan Shilling",
+  GHS: "Ghanaian Cedi",
+  UGX: "Ugandan Shilling",
+  XOF: "West African CFA Franc",
+  ZMW: "Zambian Kwacha",
+  TZS: "Tanzanian Shilling",
+  ZAR: "South African Rand",
+};
+
+/** Dropdown label for a currency, e.g. "NGN — Nigerian Naira". */
+export function fiatOptionLabel(code: string): string {
+  const name = FIAT_NAMES[code.toUpperCase()];
+  return name ? `${code} — ${name}` : code;
+}
+
 /** "10000" → "10,000". Accepts a number or numeric string. */
 export function formatNumber(
   value: number | string,

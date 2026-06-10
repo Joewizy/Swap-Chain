@@ -12,6 +12,7 @@
 
 import { useCallback, useState } from "react";
 import {
+  humanizePaycrestError,
   isPaycrestFiat,
   paycrestNetworkSlug,
   type PaycrestFiat,
@@ -134,7 +135,7 @@ export function usePaycrestOnramp(): UsePaycrestOnrampReturn {
         return settled;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "On-ramp failed.";
-        setError(msg);
+        setError(humanizePaycrestError(msg));
         setStatus("error");
         throw err instanceof Error ? err : new Error(msg);
       }

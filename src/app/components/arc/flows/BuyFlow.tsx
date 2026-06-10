@@ -12,7 +12,7 @@
 import React, { useState } from "react";
 import { DEFAULT_SETTLEMENT_CHAIN_ID, getChain } from "@/config/network";
 import { PAYCREST_FIAT } from "@/rails/paycrest";
-import { formatAmountInput, formatToken } from "@/utils";
+import { fiatOptionLabel, formatAmountInput, formatToken } from "@/utils";
 import {
   ReviewScreen,
   quoteFromIntent,
@@ -131,30 +131,37 @@ export function BuyFlow({
           >
             You pay
           </span>
-          <div className="row center gap-2">
-            <input
-              value={formatAmountInput(amount)}
-              onChange={(e) => {
-                const v = e.target.value.replace(/[^0-9.]/g, "");
-                if ((v.match(/\./g) || []).length > 1) return;
-                setAmount(v);
-              }}
-              inputMode="decimal"
-              placeholder="0"
-              style={{ ...INPUT, fontSize: 22, fontWeight: 500 }}
-            />
-            <select
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              style={{ ...INPUT, width: "auto", flex: "0 0 auto", cursor: "pointer" }}
-            >
-              {PAYCREST_FIAT.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
+          <input
+            value={formatAmountInput(amount)}
+            onChange={(e) => {
+              const v = e.target.value.replace(/[^0-9.]/g, "");
+              if ((v.match(/\./g) || []).length > 1) return;
+              setAmount(v);
+            }}
+            inputMode="decimal"
+            placeholder="0"
+            style={{ ...INPUT, fontSize: 22, fontWeight: 500 }}
+          />
+        </label>
+
+        <label className="col gap-2">
+          <span
+            className="font-mono"
+            style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}
+          >
+            Paying with
+          </span>
+          <select
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+            style={{ ...INPUT, cursor: "pointer" }}
+          >
+            {PAYCREST_FIAT.map((c) => (
+              <option key={c} value={c}>
+                {fiatOptionLabel(c)}
+              </option>
+            ))}
+          </select>
           <span className="muted" style={{ fontSize: 12 }}>
             You receive USDC on {destName}
           </span>
