@@ -13,11 +13,28 @@ import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { parseUnits } from "viem";
 import { Icon } from "./icons";
 import { SwapForm } from "./SwapForm";
-import { useCctp, type CctpStatus } from "@/hooks";
+import {
+  useCctp,
+  usePaycrestOfframp,
+  type CctpStatus,
+  type PaycrestOfframpStatus,
+} from "@/hooks";
 import { getChain, type ChainId, type TokenSymbol } from "@/config/network";
+import type { PaycrestFiat, PaycrestToken } from "@/rails/paycrest";
 
 /* ───────── types ───────── */
 export type RailKey = "cctp" | "chainrails" | "relay" | "paycrest";
+
+/** Bank / mobile-money payout details, collected in Review for off-ramps. */
+export type PayoutDetails = {
+  /** Paycrest institution code, e.g. "GTBINGLA". */
+  institution: string;
+  /** Human name for display, e.g. "Guaranty Trust Bank". */
+  institutionName: string;
+  /** Bank account number or mobile-money phone number. */
+  accountIdentifier: string;
+  accountName: string;
+};
 
 /** Raw routing data StatusScreen needs to actually call a rail. */
 export type QuoteExec = {
@@ -31,6 +48,8 @@ export type QuoteExec = {
   toToken: TokenSymbol | null;
   fiatCurrency: string | null;
   recipient: string | null;
+  /** Off-ramp payout target — filled in Review before execution. */
+  payout?: PayoutDetails | null;
 };
 
 export type Quote = {
@@ -352,7 +371,17 @@ export function SendScreen({
         quote={result as Quote}
         text={text}
         onBack={() => setStage("compose")}
-        onConfirm={() => onSubmit({ text, quote: result as Quote })}
+        onConfirm={(payout) =>
+          onSubmit({
+            text,
+            quote: payout
+              ? {
+                  ...(result as Quote),
+                  exec: { ...(result as Quote).exec, payout },
+                }
+              : (result as Quote),
+          })
+        }
       />
     );
   }
@@ -870,16 +899,32 @@ function ReviewScreen({
   quote: Quote;
   text: string;
   onBack: () => void;
-  onConfirm: () => void;
+  onConfirm: (payout: PayoutDetails | null) => void;
 }) {
   const { isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
-  // Rails that need a wallet signature on the source side. Paycrest also
-  // ultimately needs a funded source wallet, but the order itself can be
-  // created without one — we still require connect to capture the refund
-  // address.
+
+  // Off-ramp needs structured payout details Paycrest can route to. We
+  // collect them here, prefilling the account field from anything the
+  // intent parser already pulled out of the sentence.
+  const isOfframp = quote.exec.action === "offramp";
+  const [payout, setPayout] = useState<PayoutDetails>({
+    institution: "",
+    institutionName: "",
+    accountIdentifier: quote.exec.recipient ?? "",
+    accountName: "",
+  });
+  const payoutReady =
+    !isOfframp ||
+    (!!payout.institution &&
+      !!payout.accountIdentifier.trim() &&
+      !!payout.accountName.trim());
+
+  // Every rail needs a connected wallet — Paycrest signs the on-chain
+  // transfer that funds the order; the others sign the source-chain tx.
   const needsWallet = true;
   const walletReady = isConnected || !needsWallet;
+  const canConfirm = walletReady && payoutReady;
   return (
     <div className="col gap-6">
       <header className="row between center wrap" style={{ gap: 16 }}>
@@ -1037,29 +1082,190 @@ function ReviewScreen({
         </div>
       </div>
 
+      {/* Off-ramp payout target — bank / mobile-money details Paycrest needs. */}
+      {isOfframp && (
+        <PayoutForm
+          currency={quote.exec.fiatCurrency}
+          value={payout}
+          onChange={setPayout}
+        />
+      )}
+
       <button
         className="btn btn-fat"
         style={{
-          background: walletReady ? "var(--btn-bg)" : "var(--accent)",
-          color: walletReady ? "var(--btn-fg)" : "#fff",
+          background: !walletReady
+            ? "var(--accent)"
+            : canConfirm
+              ? "var(--btn-bg)"
+              : "var(--bg-sunk)",
+          color: !walletReady
+            ? "#fff"
+            : canConfirm
+              ? "var(--btn-fg)"
+              : "var(--fg-faint)",
+          cursor: !walletReady || canConfirm ? "pointer" : "default",
         }}
-        onClick={walletReady ? onConfirm : () => openConnectModal?.()}
+        disabled={walletReady && !canConfirm}
+        onClick={
+          !walletReady
+            ? () => openConnectModal?.()
+            : canConfirm
+              ? () => onConfirm(isOfframp ? payout : null)
+              : undefined
+        }
       >
-        {walletReady ? (
-          <>
-            Confirm and sign <Icon.ArrowRight />
-          </>
-        ) : (
+        {!walletReady ? (
           <>
             Connect wallet to continue <Icon.ArrowRight />
+          </>
+        ) : !payoutReady ? (
+          "Enter payout details to continue"
+        ) : (
+          <>
+            Confirm and sign <Icon.ArrowRight />
           </>
         )}
       </button>
       <span className="muted" style={{ fontSize: 12, textAlign: "center" }}>
-        {walletReady
-          ? "You'll approve the transactions in your wallet. Funds move only after that."
-          : "We need a connected wallet to sign the source-chain transaction."}
+        {!walletReady
+          ? "We need a connected wallet to sign the source-chain transaction."
+          : isOfframp
+            ? "You'll send the stablecoin in your wallet; the provider then pays out the fiat."
+            : "You'll approve the transactions in your wallet. Funds move only after that."}
       </span>
+    </div>
+  );
+}
+
+/* ───────── payout details form (off-ramp only) ───────── */
+function PayoutForm({
+  currency,
+  value,
+  onChange,
+}: {
+  currency: string | null;
+  value: PayoutDetails;
+  onChange: (next: PayoutDetails) => void;
+}) {
+  const [institutions, setInstitutions] = useState<
+    { name: string; code: string; type: string }[]
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currency) return;
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    fetch(`/api/paycrest/institutions?currency=${encodeURIComponent(currency)}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+        if (!cancelled) setInstitutions(data.institutions ?? []);
+      })
+      .catch((err) => {
+        if (!cancelled)
+          setLoadError(
+            err instanceof Error ? err.message : "Couldn't load institutions."
+          );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currency]);
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "11px 12px",
+    background: "var(--bg-soft)",
+    border: "1px solid var(--line)",
+    borderRadius: 10,
+    color: "var(--fg)",
+    fontSize: 14,
+    outline: "none",
+  };
+
+  return (
+    <div className="card" style={{ padding: 20 }}>
+      <div className="row between center" style={{ marginBottom: 14 }}>
+        <span className="eyebrow">Payout details</span>
+        <span className="font-mono" style={{ fontSize: 11, color: "var(--fg-mute)" }}>
+          {currency ? `Paid out in ${currency}` : "—"}
+        </span>
+      </div>
+
+      <div className="col gap-3">
+        <label className="col gap-1">
+          <span className="font-mono" style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}>
+            Bank / mobile money
+          </span>
+          <select
+            value={value.institution}
+            disabled={loading || !!loadError}
+            onChange={(e) => {
+              const code = e.target.value;
+              const inst = institutions.find((i) => i.code === code);
+              onChange({
+                ...value,
+                institution: code,
+                institutionName: inst?.name ?? "",
+              });
+            }}
+            style={{ ...inputStyle, cursor: loading ? "wait" : "pointer" }}
+          >
+            <option value="">
+              {loading
+                ? "Loading institutions…"
+                : loadError
+                  ? "Couldn't load institutions"
+                  : "Select institution"}
+            </option>
+            {institutions.map((i) => (
+              <option key={i.code} value={i.code}>
+                {i.name}
+                {i.type === "mobile_money" ? " (mobile money)" : ""}
+              </option>
+            ))}
+          </select>
+          {loadError && (
+            <span style={{ fontSize: 12, color: "var(--err)" }}>{loadError}</span>
+          )}
+        </label>
+
+        <label className="col gap-1">
+          <span className="font-mono" style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}>
+            Account / phone number
+          </span>
+          <input
+            value={value.accountIdentifier}
+            onChange={(e) =>
+              onChange({ ...value, accountIdentifier: e.target.value })
+            }
+            placeholder="e.g. 8170106043"
+            inputMode="numeric"
+            style={inputStyle}
+          />
+        </label>
+
+        <label className="col gap-1">
+          <span className="font-mono" style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}>
+            Account name
+          </span>
+          <input
+            value={value.accountName}
+            onChange={(e) =>
+              onChange({ ...value, accountName: e.target.value })
+            }
+            placeholder="Recipient's full name"
+            style={inputStyle}
+          />
+        </label>
+      </div>
     </div>
   );
 }
@@ -1146,6 +1352,60 @@ function cctpStages(
   };
 }
 
+/**
+ * Maps a PaycrestOfframpStatus to the off-ramp stage list + active index,
+ * filling per-row refs (order id, funding tx) from the live hook state.
+ */
+function paycrestStages(
+  status: PaycrestOfframpStatus,
+  orderId: string | null,
+  transferTxHash: string | null,
+  fromChain: ChainId,
+  token: string,
+  currency: string | null,
+  accountName: string | null
+): { stages: StageRow[]; activeIndex: number; done: boolean } {
+  const srcName = getChain(fromChain)?.name ?? fromChain;
+  const stages: StageRow[] = [
+    {
+      l: "Create order",
+      d: "Reserving the payout with a liquidity provider.",
+      ref: orderId ? `order ${orderId.slice(0, 8)}…` : undefined,
+    },
+    {
+      l: `Send ${token} on ${srcName}`,
+      d: "Sending the stablecoin to the provider's address.",
+      ref: transferTxHash ? `tx ${short0x(transferTxHash)}` : undefined,
+      refHref: transferTxHash
+        ? explorerTxUrl(fromChain, transferTxHash) ?? undefined
+        : undefined,
+    },
+    {
+      l: "Provider settles",
+      d: "The provider is paying out the fiat to the recipient.",
+    },
+    {
+      l: "Paid out",
+      d: `${currency ?? "Fiat"} delivered${accountName ? ` to ${accountName}` : ""}.`,
+    },
+  ];
+
+  const indexFor: Record<PaycrestOfframpStatus, number> = {
+    idle: -1,
+    creating: 0,
+    funding: 1,
+    settling: 2,
+    complete: 4,
+    error: -1,
+  };
+
+  return {
+    stages,
+    activeIndex: indexFor[status],
+    done: status === "complete",
+  };
+}
+
 export function StatusScreen({
   intent,
   onDone,
@@ -1156,6 +1416,7 @@ export function StatusScreen({
   const exec = intent?.quote?.exec;
   const { address, isConnected } = useAccount();
   const cctp = useCctp();
+  const paycrest = usePaycrestOfframp();
 
   // Local error for cases where we can't even hand off to a rail
   // (no wallet, missing chain, etc.) — distinct from the rail's own error.
@@ -1173,6 +1434,7 @@ export function StatusScreen({
 
     setBootError(null);
     cctp.reset();
+    paycrest.reset();
 
     if (!isConnected || !address) {
       setBootError(
@@ -1181,6 +1443,45 @@ export function StatusScreen({
       return;
     }
 
+    // --- Paycrest off-ramp -------------------------------------------------
+    if (exec.rail === "paycrest") {
+      if (exec.action !== "offramp") {
+        setBootError("Paycrest only handles fiat off-ramps.");
+        return;
+      }
+      if (!exec.fiatCurrency) {
+        setBootError("We couldn't determine a payout currency — try rephrasing.");
+        return;
+      }
+      if (
+        !exec.payout?.institution ||
+        !exec.payout.accountIdentifier ||
+        !exec.payout.accountName
+      ) {
+        setBootError("Payout details are missing — go back and add them.");
+        return;
+      }
+
+      paycrest
+        .offramp({
+          fromChain: exec.fromChain,
+          token: exec.fromToken as PaycrestToken,
+          amount: exec.fromAmount,
+          fiatCurrency: exec.fiatCurrency as PaycrestFiat,
+          recipient: {
+            institution: exec.payout.institution,
+            accountIdentifier: exec.payout.accountIdentifier,
+            accountName: exec.payout.accountName,
+          },
+          reference: `swap-chain-${Date.now()}`,
+        })
+        .catch(() => {
+          // The hook exposes the error via paycrest.error — no rethrow.
+        });
+      return;
+    }
+
+    // --- CCTP bridge -------------------------------------------------------
     if (exec.rail !== "cctp") {
       setBootError(
         "This route isn't ready for signing yet — we're rolling it out soon. " +
@@ -1236,12 +1537,27 @@ export function StatusScreen({
           exec.fromChain,
           exec.toChain
         )
-      : { stages: [], activeIndex: -1, done: false };
+      : exec?.rail === "paycrest"
+        ? paycrestStages(
+            paycrest.status,
+            paycrest.order?.id ?? null,
+            paycrest.transferTxHash,
+            exec.fromChain,
+            exec.fromToken,
+            exec.fiatCurrency,
+            exec.payout?.accountName ?? null
+          )
+        : { stages: [], activeIndex: -1, done: false };
 
   const stages = view.stages;
   const activeIndex = view.activeIndex;
   const done = view.done;
-  const railError = exec?.rail === "cctp" ? cctp.error : null;
+  const railError =
+    exec?.rail === "cctp"
+      ? cctp.error
+      : exec?.rail === "paycrest"
+        ? paycrest.error
+        : null;
 
   // Wall-clock elapsed since this screen mounted.
   const startedAt = useRef(Date.now()).current;
@@ -1479,6 +1795,7 @@ export function StatusScreen({
                 onClick={() => {
                   startedFor.current = null;
                   cctp.reset();
+                  paycrest.reset();
                 }}
               >
                 Retry

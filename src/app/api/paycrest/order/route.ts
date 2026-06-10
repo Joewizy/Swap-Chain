@@ -151,14 +151,18 @@ export async function POST(req: NextRequest) {
   const raw: unknown = await res.json().catch(() => null);
 
   if (!res.ok) {
-    const message =
-      raw && typeof raw === "object"
-        ? String(
-            (raw as Record<string, unknown>).message ??
-              (raw as Record<string, unknown>).error ??
-              `Paycrest order failed (${res.status}).`
-          )
-        : `Paycrest order failed (${res.status}).`;
+    let message = `Paycrest order failed (${res.status}).`;
+    if (raw && typeof raw === "object") {
+      const r = raw as Record<string, unknown>;
+      message = String(r.message ?? r.error ?? message);
+      // Validation errors carry the specifics in data.{field,message}.
+      const detail = r.data as
+        | { field?: unknown; message?: unknown }
+        | undefined;
+      if (detail && typeof detail.message === "string") {
+        message += ` ${detail.field ? `[${String(detail.field)}] ` : ""}${detail.message}`;
+      }
+    }
     return NextResponse.json(
       { error: message },
       { status: res.status === 401 ? 401 : 502 }

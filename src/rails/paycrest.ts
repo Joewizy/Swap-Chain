@@ -16,6 +16,8 @@
  * See ARCHITECTURE.md §"Phase 1 — Local payout MVP".
  */
 
+import type { ChainId } from "@/config/network";
+
 /** Paycrest Sender API host. Auth is the `API-Key` request header. */
 export const PAYCREST_BASE_URL = "https://api.paycrest.io";
 
@@ -40,6 +42,33 @@ export function isPaycrestFiat(code: string): code is PaycrestFiat {
 
 /** Stablecoins Paycrest accepts as off-ramp source funds. */
 export type PaycrestToken = "USDC" | "USDT";
+
+// ---------------------------------------------------------------------------
+// Networks — map our app ChainId to Paycrest's network slug. Off-ramp funds
+// are sent on this chain to the provider's receive address. Slugs mirror
+// Paycrest's "Supported Stablecoins & Networks" list; "base" is verified
+// against a live order. Chains absent here can't be off-ramp sources.
+// ---------------------------------------------------------------------------
+
+export const PAYCREST_NETWORK_SLUGS: Partial<Record<ChainId, string>> = {
+  base: "base",
+  arbitrum: "arbitrum-one",
+  polygon: "polygon",
+  bnb: "bnb-smart-chain",
+};
+
+/** Paycrest network slug for a chain, or null when it can't off-ramp there. */
+export function paycrestNetworkSlug(chainId: ChainId): string | null {
+  return PAYCREST_NETWORK_SLUGS[chainId] ?? null;
+}
+
+/** A payout institution (bank or mobile-money) from Paycrest's catalogue. */
+export interface PaycrestInstitution {
+  name: string;
+  /** Code passed as recipient.institution, e.g. "GTBINGLA", "OPAYNGPC". */
+  code: string;
+  type: "bank" | "mobile_money";
+}
 
 /**
  * True when the Paycrest API key is present in the server env. Returns

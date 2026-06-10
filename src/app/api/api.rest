@@ -171,16 +171,21 @@ Content-Type: application/json
 # Paycrest — fiat off-ramp (PAYCREST_API_KEY; mainnet slugs; 501 if unset)
 ###############################################################################
 
-### Paycrest order — NGN mobile money
+### Paycrest order — NGN payout (OPay)
+# Institution codes from GET /v1/institutions/ngn — e.g. OPAYNGPC (OPay),
+# KUDANGPC (Kuda), PALMNGPC (PalmPay), MONINGPC (Moniepoint), GTBINGLA (GTBank).
+# accountIdentifier is the account number (OPay = phone number without +234).
+# Creating an order moves NO funds — payout only happens after you send the
+# stablecoin to the returned receiveAddress before validUntil.
 POST {{baseUrl}}/api/paycrest/order
 Content-Type: application/json
 
 {
-  "amount": "5",
+  "amount": "0.5",
   "token": "USDC",
   "network": "base",
   "refundAddress": "{{wallet}}",
   "currency": "NGN",
-  "recipient": { "institution": "OPAY", "accountIdentifier": "+2348012345678", "accountName": "Test User" },
+  "recipient": { "institution": "OPAYNGPC", "accountIdentifier": "8012345678", "accountName": "Test User" },
   "reference": "swap-chain-rest-test"
 }
