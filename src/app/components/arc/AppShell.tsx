@@ -1,31 +1,59 @@
 "use client";
 
-// AppShell.tsx — sidebar shell + screen switcher
+// AppShell.tsx — responsive shell + screen switcher
 //
-// The sidebar's account chip is wired to wagmi: when a wallet is connected
-// the chip shows the real address + chain (and opens the disconnect menu);
-// when none is connected it becomes a Connect button that opens the
-// RainbowKit modal. The Send → Status flow passes the connected address
-// through to StatusScreen, which uses it as the CCTP mint recipient.
+// Mobile-first: below ~860px the sidebar collapses into a hamburger drawer
+// and the main column goes full-width; at desktop widths the sidebar is
+// sticky. The Send experience starts at the Home goal chooser, which routes
+// into the existing Send flow (per-goal guided flows land in Phase 2). The
+// account chip is wired to wagmi; the connected address flows through to
+// StatusScreen as the CCTP mint recipient.
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAccount, useDisconnect } from "wagmi";
 import { useAccountModal, useConnectModal } from "@rainbow-me/rainbowkit";
 import { Icon } from "./icons";
 import { SendScreen, StatusScreen, type Intent } from "./SendScreen";
+import { Home } from "./Home";
 import { HistoryScreen, RecipientsScreen, SettingsScreen } from "./AppScreens";
 import { IS_TESTNET } from "@/config/network";
 
 type View = "send" | "history" | "recipients" | "settings";
 
+const MOBILE_QUERY = "(max-width: 860px)";
+
+function useIsMobile(): boolean {
+  // Default desktop so SSR + first paint match; correct on mount.
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_QUERY);
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return isMobile;
+}
+
 export default function AppShell() {
   const router = useRouter();
   const onBack = () => router.push("/");
+  const isMobile = useIsMobile();
 
   const [view, setView] = useState<View>("send");
   const [recentIntent, setRecentIntent] = useState<Intent | null>(null);
   const [showStatus, setShowStatus] = useState(false);
+  // Send view starts on the Home chooser; entering a goal shows the flow.
+  const [entered, setEntered] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const goToView = (v: View) => {
+    setShowStatus(false);
+    setEntered(false);
+    setView(v);
+    setDrawerOpen(false);
+  };
 
   // jump to status pane when a send is confirmed
   const submit = (intent: Intent) => {
@@ -33,6 +61,108 @@ export default function AppShell() {
     setShowStatus(true);
   };
 
+  const sendBody = showStatus ? (
+    <StatusScreen intent={recentIntent} onDone={() => setShowStatus(false)} />
+  ) : entered ? (
+    <div className="col gap-4">
+      <button
+        className="btn btn-quiet btn-sm"
+        onClick={() => setEntered(false)}
+        style={{ padding: "0 8px", alignSelf: "flex-start" }}
+      >
+        <Icon.Arrow rotate={180} size={12} /> Choose another
+      </button>
+      <SendScreen onSubmit={submit} />
+    </div>
+  ) : (
+    <Home onPick={() => setEntered(true)} />
+  );
+
+  const main = (
+    <main
+      style={{
+        padding: isMobile
+          ? "16px 16px 96px"
+          : "28px clamp(20px, 3vw, 44px) 64px",
+        maxWidth: 1100,
+        width: "100%",
+      }}
+    >
+      {view === "send" && sendBody}
+      {view === "history" && <HistoryScreen />}
+      {view === "recipients" && <RecipientsScreen />}
+      {view === "settings" && <SettingsScreen />}
+    </main>
+  );
+
+  // ---- mobile: top bar + slide-in drawer ----
+  if (isMobile) {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
+        <MobileTopBar onMenu={() => setDrawerOpen(true)} onBack={onBack} />
+        {main}
+        {drawerOpen && (
+          <div
+            onClick={() => setDrawerOpen(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.45)",
+              zIndex: 40,
+              animation: "fade-up .15s var(--ease) both",
+            }}
+          >
+            <aside
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: 264,
+                maxWidth: "84vw",
+                height: "100%",
+                background: "var(--bg)",
+                borderRight: "1px solid var(--line)",
+                padding: "18px 16px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              <div
+                className="row between center"
+                style={{ marginBottom: 4 }}
+              >
+                <span className="row center gap-2" style={{ fontSize: 14, fontWeight: 500 }}>
+                  <Icon.Logo size={20} /> Swap Chain
+                </span>
+                <button
+                  onClick={() => setDrawerOpen(false)}
+                  aria-label="Close menu"
+                  style={{
+                    background: "transparent",
+                    border: 0,
+                    color: "var(--fg-soft)",
+                    cursor: "pointer",
+                    padding: 4,
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path
+                      d="M6 6l12 12M18 6L6 18"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+              <NavContent view={view} setView={goToView} onBack={onBack} />
+            </aside>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ---- desktop: sticky sidebar grid ----
   return (
     <div
       style={{
@@ -42,39 +172,101 @@ export default function AppShell() {
         background: "var(--bg)",
       }}
     >
-      <Sidebar
-        view={view}
-        setView={(v) => {
-          setShowStatus(false);
-          setView(v);
-        }}
-        onBack={onBack}
-      />
-      <main
+      <aside
         style={{
-          padding: "28px clamp(20px, 3vw, 44px) 64px",
-          maxWidth: 1100,
-          width: "100%",
+          borderRight: "1px solid var(--line)",
+          padding: "20px 16px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          position: "sticky",
+          top: 0,
+          height: "100vh",
+          background: "var(--bg)",
         }}
       >
-        {view === "send" &&
-          (showStatus ? (
-            <StatusScreen
-              intent={recentIntent}
-              onDone={() => setShowStatus(false)}
-            />
-          ) : (
-            <SendScreen onSubmit={submit} />
-          ))}
-        {view === "history" && <HistoryScreen />}
-        {view === "recipients" && <RecipientsScreen />}
-        {view === "settings" && <SettingsScreen />}
-      </main>
+        <button
+          onClick={onBack}
+          className="row center gap-2"
+          style={{
+            background: "transparent",
+            border: 0,
+            color: "var(--fg)",
+            padding: "6px 4px",
+            fontSize: 14,
+            fontWeight: 500,
+            marginBottom: 4,
+          }}
+        >
+          <Icon.Logo size={20} /> <span>Swap Chain</span>
+        </button>
+        <NavContent view={view} setView={goToView} onBack={onBack} />
+      </aside>
+      {main}
     </div>
   );
 }
 
-function Sidebar({
+function MobileTopBar({
+  onMenu,
+  onBack,
+}: {
+  onMenu: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <div
+      className="row between center"
+      style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 30,
+        padding: "12px 14px",
+        background: "var(--bg)",
+        borderBottom: "1px solid var(--line)",
+      }}
+    >
+      <button
+        onClick={onMenu}
+        aria-label="Open menu"
+        style={{
+          background: "transparent",
+          border: 0,
+          color: "var(--fg)",
+          cursor: "pointer",
+          padding: 6,
+          display: "inline-flex",
+        }}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path
+            d="M3 6h18M3 12h18M3 18h18"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
+      <button
+        onClick={onBack}
+        className="row center gap-2"
+        style={{
+          background: "transparent",
+          border: 0,
+          color: "var(--fg)",
+          fontSize: 14,
+          fontWeight: 500,
+          cursor: "pointer",
+        }}
+      >
+        <Icon.Logo size={18} /> Swap Chain
+      </button>
+      <AccountChip compact />
+    </div>
+  );
+}
+
+function NavContent({
   view,
   setView,
   onBack,
@@ -90,35 +282,7 @@ function Sidebar({
     { id: "settings", label: "Settings", icon: <Icon.Settings /> },
   ];
   return (
-    <aside
-      style={{
-        borderRight: "1px solid var(--line)",
-        padding: "20px 16px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-        position: "sticky",
-        top: 0,
-        height: "100vh",
-        background: "var(--bg)",
-      }}
-    >
-      <button
-        onClick={onBack}
-        className="row center gap-2"
-        style={{
-          background: "transparent",
-          border: 0,
-          color: "var(--fg)",
-          padding: "6px 4px",
-          fontSize: 14,
-          fontWeight: 500,
-          marginBottom: 4,
-        }}
-      >
-        <Icon.Logo size={20} /> <span>Swap Chain</span>
-      </button>
-
+    <>
       <AccountChip />
 
       <div className="col gap-1">
@@ -163,11 +327,11 @@ function Sidebar({
       >
         <Icon.Arrow rotate={180} size={12} /> Back to site
       </button>
-    </aside>
+    </>
   );
 }
 
-function AccountChip() {
+function AccountChip({ compact }: { compact?: boolean }) {
   const { address, isConnected, chain } = useAccount();
   const { disconnect } = useDisconnect();
   const { openConnectModal } = useConnectModal();
@@ -179,31 +343,55 @@ function AccountChip() {
         onClick={() => openConnectModal?.()}
         className="card row center between"
         style={{
-          padding: "10px 12px",
-          marginBottom: 8,
+          padding: compact ? "6px 10px" : "10px 12px",
+          marginBottom: compact ? 0 : 8,
           cursor: "pointer",
           border: "1px solid var(--line)",
         }}
       >
         <span className="row center gap-2" style={{ fontSize: 13 }}>
-          <span
-            style={{
-              width: 26,
-              height: 26,
-              borderRadius: "50%",
-              background: "var(--bg-sunk)",
-              border: "1px dashed var(--line-2)",
-            }}
-          />
-          <span style={{ color: "var(--fg-soft)" }}>Connect wallet</span>
+          {!compact && (
+            <span
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: "50%",
+                background: "var(--bg-sunk)",
+                border: "1px dashed var(--line-2)",
+              }}
+            />
+          )}
+          <span style={{ color: "var(--fg-soft)" }}>Connect</span>
         </span>
-        <Icon.ArrowRight size={11} />
+        {!compact && <Icon.ArrowRight size={11} />}
       </button>
     );
   }
 
   const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
   const chainLabel = chain?.name ?? "Unknown network";
+
+  if (compact) {
+    return (
+      <button
+        onClick={() => openAccountModal?.()}
+        className="card row center gap-2"
+        style={{ padding: "6px 10px", cursor: "pointer" }}
+      >
+        <span
+          style={{
+            width: 18,
+            height: 18,
+            borderRadius: "50%",
+            background: "var(--accent)",
+          }}
+        />
+        <span className="font-mono" style={{ fontSize: 11, color: "var(--fg)" }}>
+          {short}
+        </span>
+      </button>
+    );
+  }
 
   return (
     <div
@@ -232,16 +420,10 @@ function AccountChip() {
           }}
         />
         <div className="col" style={{ lineHeight: 1.2 }}>
-          <span
-            className="font-mono"
-            style={{ fontSize: 11.5, color: "var(--fg)" }}
-          >
+          <span className="font-mono" style={{ fontSize: 11.5, color: "var(--fg)" }}>
             {short}
           </span>
-          <span
-            className="font-mono"
-            style={{ fontSize: 10, color: "var(--fg-mute)" }}
-          >
+          <span className="font-mono" style={{ fontSize: 10, color: "var(--fg-mute)" }}>
             {chainLabel} · connected
           </span>
         </div>
