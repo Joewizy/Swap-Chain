@@ -17,10 +17,13 @@ import {
   useCctp,
   usePaycrestOfframp,
   usePaycrestOnramp,
+  useRelaySwap,
   type CctpStatus,
   type PaycrestOfframpStatus,
   type PaycrestOnrampStatus,
+  type RelaySwapStatus,
 } from "@/hooks";
+import type { ExecutionProgress } from "@/hooks/useRelayExecutor";
 import { getChain, type ChainId, type TokenSymbol } from "@/config/network";
 import type { PaycrestFiat, PaycrestToken } from "@/rails/paycrest";
 
@@ -1535,6 +1538,55 @@ function paycrestStages(
   };
 }
 
+/**
+ * Relay swap/bridge stages. Relay returns a dynamic step list, so we map it
+ * onto three stable phases and surface the live step + tx in the middle row.
+ */
+function relayStages(
+  status: RelaySwapStatus,
+  progress: ExecutionProgress | null,
+  fromChain: ChainId,
+  toChain: ChainId,
+  fromToken: string,
+  toToken: string | null
+): { stages: StageRow[]; activeIndex: number; done: boolean } {
+  const srcName = getChain(fromChain)?.name ?? fromChain;
+  const dstName = getChain(toChain)?.name ?? toChain;
+  const stepDetail = progress
+    ? `${progress.stepName} · step ${progress.currentStep} of ${progress.totalSteps}`
+    : "You'll approve each step in your wallet.";
+  const stages: StageRow[] = [
+    {
+      l: "Prepare route",
+      d: `Finding the best path from ${srcName} to ${dstName}.`,
+    },
+    {
+      l: "Confirm & send",
+      d: stepDetail,
+      ref: progress?.txHash ? `tx ${short0x(progress.txHash)}` : undefined,
+      refHref: progress?.txLink ?? undefined,
+    },
+    {
+      l: "Receive",
+      d: `${toToken ?? fromToken} arrives on ${dstName}.`,
+    },
+  ];
+
+  const indexFor: Record<RelaySwapStatus, number> = {
+    idle: -1,
+    quoting: 0,
+    executing: 1,
+    complete: 3,
+    error: -1,
+  };
+
+  return {
+    stages,
+    activeIndex: indexFor[status],
+    done: status === "complete",
+  };
+}
+
 export function StatusScreen({
   intent,
   onDone,
@@ -1547,6 +1599,7 @@ export function StatusScreen({
   const cctp = useCctp();
   const paycrestOfframp = usePaycrestOfframp();
   const paycrestOnramp = usePaycrestOnramp();
+  const relay = useRelaySwap();
 
   // Local error for cases where we can't even hand off to a rail
   // (no wallet, missing chain, etc.) — distinct from the rail's own error.
@@ -1566,6 +1619,7 @@ export function StatusScreen({
     cctp.reset();
     paycrestOfframp.reset();
     paycrestOnramp.reset();
+    relay.reset();
 
     if (!isConnected || !address) {
       setBootError(
@@ -1657,6 +1711,29 @@ export function StatusScreen({
       return;
     }
 
+    // --- Relay swap / non-USDC bridge -------------------------------------
+    if (exec.rail === "relay") {
+      if (!exec.toChain) {
+        setBootError(
+          "We couldn't determine a destination chain from your request — try rephrasing."
+        );
+        return;
+      }
+      relay
+        .swap({
+          fromChain: exec.fromChain,
+          toChain: exec.toChain,
+          fromToken: exec.fromToken,
+          toToken: exec.toToken ?? exec.fromToken,
+          amount: exec.fromAmount,
+          recipient: exec.recipient,
+        })
+        .catch(() => {
+          // The hook exposes the error via relay.error — no rethrow.
+        });
+      return;
+    }
+
     // --- CCTP bridge -------------------------------------------------------
     if (exec.rail !== "cctp") {
       setBootError(
@@ -1733,7 +1810,16 @@ export function StatusScreen({
               exec.fiatCurrency,
               exec.payout?.accountName ?? null
             )
-          : { stages: [], activeIndex: -1, done: false };
+          : exec?.rail === "relay" && exec.toChain
+            ? relayStages(
+                relay.status,
+                relay.progress,
+                exec.fromChain,
+                exec.toChain,
+                exec.fromToken,
+                exec.toToken
+              )
+            : { stages: [], activeIndex: -1, done: false };
 
   const stages = view.stages;
   const activeIndex = view.activeIndex;
@@ -1745,7 +1831,9 @@ export function StatusScreen({
         ? paycrestOnramp.error
         : exec?.rail === "paycrest"
           ? paycrestOfframp.error
-          : null;
+          : exec?.rail === "relay"
+            ? relay.error
+            : null;
 
   const onrampOrder =
     exec?.rail === "paycrest" && exec.action === "onramp"
@@ -2034,6 +2122,7 @@ export function StatusScreen({
                   cctp.reset();
                   paycrestOfframp.reset();
                   paycrestOnramp.reset();
+                  relay.reset();
                 }}
               >
                 Retry

@@ -33,3 +33,17 @@ export type {
   PaycrestOfframpParams,
   UsePaycrestOfframpReturn,
 } from "./usePaycrestOfframp";
+
+export { usePaycrestOnramp } from "./usePaycrestOnramp";
+export type {
+  PaycrestOnrampStatus,
+  PaycrestOnrampParams,
+  UsePaycrestOnrampReturn,
+} from "./usePaycrestOnramp";
+
+export { useRelaySwap } from "./useRelaySwap";
+export type {
+  RelaySwapStatus,
+  RelaySwapParams,
+  UseRelaySwapReturn,
+} from "./useRelaySwap";
