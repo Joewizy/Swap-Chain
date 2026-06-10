@@ -1084,6 +1084,11 @@ export function ReviewScreen({
           </div>
         </div>
 
+        {/* Fiat legs (Paycrest on/off-ramp) skip the crypto rail stages and
+            the placeholder fee table — the real numbers come from the order
+            invoice. Crypto routes keep the breakdown. */}
+        {!needsAccountDetails && (
+          <>
         <div className="hr" style={{ margin: "22px 0" }} />
 
         {/* rail */}
@@ -1155,6 +1160,8 @@ export function ReviewScreen({
             value={<span className="font-mono">{quote.from.chain}</span>}
           />
         </div>
+          </>
+        )}
       </div>
 
       {/* Paycrest bank / mobile-money details (payout or refund account). */}
