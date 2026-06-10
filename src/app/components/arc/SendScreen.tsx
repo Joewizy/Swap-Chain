@@ -16,8 +16,10 @@ import { SwapForm } from "./SwapForm";
 import {
   useCctp,
   usePaycrestOfframp,
+  usePaycrestOnramp,
   type CctpStatus,
   type PaycrestOfframpStatus,
+  type PaycrestOnrampStatus,
 } from "@/hooks";
 import { getChain, type ChainId, type TokenSymbol } from "@/config/network";
 import type { PaycrestFiat, PaycrestToken } from "@/rails/paycrest";
@@ -99,7 +101,7 @@ const SUGGESTIONS = [
 /* ───────── real intent → route pipeline ───────── */
 
 /** The slice of /api/intent's response this screen reads. */
-type IntentResponse = {
+export type IntentResponse = {
   action: "onramp" | "offramp" | "bridge" | "swap" | "unclear";
   fromChain: string | null;
   fromToken: string | null;
@@ -196,7 +198,21 @@ async function resolveIntent(text: string): Promise<ParseResult> {
   }
 
   // 3. essentials present?
-  if (!intent.fromChain || !intent.fromToken || !intent.fromAmount) {
+  if (intent.action === "onramp") {
+    if (!intent.fromAmount) {
+      return {
+        error: "Missing details",
+        reason: "How much do you want to buy — in fiat or USDC?",
+      };
+    }
+    if (!intent.fiatCurrency) {
+      return {
+        error: "Missing details",
+        reason:
+          "Which fiat currency are you paying with? (e.g. NGN, KES)",
+      };
+    }
+  } else if (!intent.fromChain || !intent.fromToken || !intent.fromAmount) {
     return {
       error: "Missing details",
       reason:
@@ -204,7 +220,18 @@ async function resolveIntent(text: string): Promise<ParseResult> {
     };
   }
 
-  // 4. pick the rail
+  // 4. pick the rail + build the quote
+  return quoteFromIntent(intent);
+}
+
+/**
+ * Router + quote half of the pipeline, shared by the natural-language path
+ * (resolveIntent) and the structured guided flows. Takes a fully-formed
+ * IntentResponse and returns a Quote or a ParseError.
+ */
+export async function quoteFromIntent(
+  intent: IntentResponse
+): Promise<ParseResult> {
   let routed: RouterResponse;
   try {
     const res = await fetch("/api/router", {
@@ -212,11 +239,19 @@ async function resolveIntent(text: string): Promise<ParseResult> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: intent.action,
-        fromChain: intent.fromChain,
-        fromToken: intent.fromToken,
+        fromChain:
+          intent.fromChain ??
+          (intent.action === "onramp" ? intent.toChain ?? "base" : undefined),
+        fromToken:
+          intent.fromToken ??
+          (intent.action === "onramp" ? "USDC" : undefined),
         amount: intent.fromAmount,
-        toChain: intent.toChain ?? undefined,
-        toToken: intent.toToken ?? undefined,
+        toChain:
+          intent.toChain ??
+          (intent.action === "onramp" ? "base" : undefined),
+        toToken:
+          intent.toToken ??
+          (intent.action === "onramp" ? "USDC" : undefined),
         fiatCurrency: intent.fiatCurrency ?? undefined,
       }),
     });
@@ -243,7 +278,11 @@ function buildQuote(intent: IntentResponse, routed: RouterResponse): Quote {
   const amount = Number(intent.fromAmount) || 0;
   const fromToken = intent.fromToken || "USDC";
   const isOfframp = intent.action === "offramp";
+  const isOnramp = intent.action === "onramp";
   const recipient = intent.recipient || "";
+  const toChain =
+    intent.toChain ?? (isOnramp ? "base" : null);
+  const toToken = intent.toToken ?? (isOnramp ? "USDC" : null);
 
   // CCTP fast-transfer fee, when the router quoted it inline.
   let railFee = "—";
@@ -265,42 +304,67 @@ function buildQuote(intent: IntentResponse, routed: RouterResponse): Quote {
         label: "Bank / mobile money",
         sub: recipient || "—",
       }
-    : {
-        kind: intent.action === "swap" ? "Wallet" : "Chain",
-        currency: intent.toToken || fromToken,
-        amount: `${amount.toLocaleString("en-US", {
-          maximumFractionDigits: 4,
-        })} ${intent.toToken || fromToken}`,
-        label: prettyChain(intent.toChain),
-        sub: recipient || "Your connected wallet",
-      };
+    : isOnramp
+      ? {
+          kind: "Wallet",
+          currency: toToken || "USDC",
+          amount:
+            fromToken === "USDC" || fromToken === "USDT"
+              ? `${amount.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${fromToken}`
+              : `≈ ${amount.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${toToken || "USDC"}`,
+          label: prettyChain(toChain),
+          sub: recipient || "Your connected wallet",
+        }
+      : {
+          kind: intent.action === "swap" ? "Wallet" : "Chain",
+          currency: toToken || fromToken,
+          amount: `${amount.toLocaleString("en-US", {
+            maximumFractionDigits: 4,
+          })} ${toToken || fromToken}`,
+          label: prettyChain(toChain),
+          sub: recipient || "Your connected wallet",
+        };
 
   const railStages = isOfframp
     ? ["Deposit", "Settle", "Payout"]
-    : routed.rail === "cctp"
+    : isOnramp
+      ? ["Order", "Deposit fiat", "Receive crypto"]
+      : routed.rail === "cctp"
       ? ["Lock", "Confirm", "Release"]
       : intent.action === "swap"
         ? ["Deposit", "Swap", "Receive"]
         : ["Deposit", "Bridge", "Receive"];
 
   return {
-    from: { token: fromToken, chain: prettyChain(intent.fromChain), amount },
+    from: isOnramp
+      ? {
+          token: intent.fiatCurrency || "FIAT",
+          chain: "Local fiat",
+          amount,
+        }
+      : {
+          token: fromToken,
+          chain: prettyChain(intent.fromChain),
+          amount,
+        },
     to,
     rate: null,
     fee: { network: "—", rail: railFee, spread: "—", total },
     eta: RAIL_ETA[routed.rail],
     rail: railStages,
-    kind: isOfframp ? "fiat" : "crosschain",
+    kind: isOfframp || isOnramp ? "fiat" : "crosschain",
     railName: RAIL_LABEL[routed.rail],
     railReason: routed.reason,
     exec: {
       rail: routed.rail,
       action: intent.action === "unclear" ? "bridge" : intent.action,
-      fromChain: intent.fromChain as ChainId,
+      fromChain: (intent.fromChain ??
+        toChain ??
+        "base") as ChainId,
       fromToken: fromToken as TokenSymbol,
       fromAmount: intent.fromAmount || "0",
-      toChain: (intent.toChain as ChainId | null) ?? null,
-      toToken: (intent.toToken as TokenSymbol | null) ?? null,
+      toChain: (toChain as ChainId | null) ?? null,
+      toToken: (toToken as TokenSymbol | null) ?? null,
       fiatCurrency: intent.fiatCurrency,
       recipient: intent.recipient,
     },
@@ -890,7 +954,7 @@ function FeeRow({
 }
 
 /* ───────── REVIEW (pre-sign confirmation) ───────── */
-function ReviewScreen({
+export function ReviewScreen({
   quote,
   text,
   onBack,
@@ -904,10 +968,11 @@ function ReviewScreen({
   const { isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
 
-  // Off-ramp needs structured payout details Paycrest can route to. We
-  // collect them here, prefilling the account field from anything the
-  // intent parser already pulled out of the sentence.
+  // Paycrest fiat legs need structured bank / mobile-money details.
   const isOfframp = quote.exec.action === "offramp";
+  const isOnramp =
+    quote.exec.action === "onramp" && quote.exec.rail === "paycrest";
+  const needsAccountDetails = isOfframp || isOnramp;
   const [payout, setPayout] = useState<PayoutDetails>({
     institution: "",
     institutionName: "",
@@ -915,7 +980,7 @@ function ReviewScreen({
     accountName: "",
   });
   const payoutReady =
-    !isOfframp ||
+    !needsAccountDetails ||
     (!!payout.institution &&
       !!payout.accountIdentifier.trim() &&
       !!payout.accountName.trim());
@@ -1082,12 +1147,13 @@ function ReviewScreen({
         </div>
       </div>
 
-      {/* Off-ramp payout target — bank / mobile-money details Paycrest needs. */}
-      {isOfframp && (
+      {/* Paycrest bank / mobile-money details (payout or refund account). */}
+      {needsAccountDetails && (
         <PayoutForm
           currency={quote.exec.fiatCurrency}
           value={payout}
           onChange={setPayout}
+          mode={isOnramp ? "refund" : "payout"}
         />
       )}
 
@@ -1111,7 +1177,7 @@ function ReviewScreen({
           !walletReady
             ? () => openConnectModal?.()
             : canConfirm
-              ? () => onConfirm(isOfframp ? payout : null)
+              ? () => onConfirm(needsAccountDetails ? payout : null)
               : undefined
         }
       >
@@ -1120,7 +1186,13 @@ function ReviewScreen({
             Connect wallet to continue <Icon.ArrowRight />
           </>
         ) : !payoutReady ? (
-          "Enter payout details to continue"
+          isOnramp
+            ? "Enter refund account to continue"
+            : "Enter payout details to continue"
+        ) : isOnramp ? (
+          <>
+            Confirm and continue <Icon.ArrowRight />
+          </>
         ) : (
           <>
             Confirm and sign <Icon.ArrowRight />
@@ -1129,24 +1201,30 @@ function ReviewScreen({
       </button>
       <span className="muted" style={{ fontSize: 12, textAlign: "center" }}>
         {!walletReady
-          ? "We need a connected wallet to sign the source-chain transaction."
-          : isOfframp
-            ? "You'll send the stablecoin in your wallet; the provider then pays out the fiat."
-            : "You'll approve the transactions in your wallet. Funds move only after that."}
+          ? isOnramp
+            ? "We need your wallet address as the USDC destination."
+            : "We need a connected wallet to sign the source-chain transaction."
+          : isOnramp
+            ? "You'll transfer fiat to the virtual account we show next; USDC arrives in your wallet once settled."
+            : isOfframp
+              ? "You'll send the stablecoin in your wallet; the provider then pays out the fiat."
+              : "You'll approve the transactions in your wallet. Funds move only after that."}
       </span>
     </div>
   );
 }
 
-/* ───────── payout details form (off-ramp only) ───────── */
+/* ───────── payout / refund account form (Paycrest fiat legs) ───────── */
 function PayoutForm({
   currency,
   value,
   onChange,
+  mode = "payout",
 }: {
   currency: string | null;
   value: PayoutDetails;
   onChange: (next: PayoutDetails) => void;
+  mode?: "payout" | "refund";
 }) {
   const [institutions, setInstitutions] = useState<
     { name: string; code: string; type: string }[]
@@ -1193,9 +1271,15 @@ function PayoutForm({
   return (
     <div className="card" style={{ padding: 20 }}>
       <div className="row between center" style={{ marginBottom: 14 }}>
-        <span className="eyebrow">Payout details</span>
+        <span className="eyebrow">
+          {mode === "refund" ? "Refund account" : "Payout details"}
+        </span>
         <span className="font-mono" style={{ fontSize: 11, color: "var(--fg-mute)" }}>
-          {currency ? `Paid out in ${currency}` : "—"}
+          {currency
+            ? mode === "refund"
+              ? `Refunds in ${currency}`
+              : `Paid out in ${currency}`
+            : "—"}
         </span>
       </div>
 
@@ -1356,6 +1440,51 @@ function cctpStages(
  * Maps a PaycrestOfframpStatus to the off-ramp stage list + active index,
  * filling per-row refs (order id, funding tx) from the live hook state.
  */
+function paycrestOnrampStages(
+  status: PaycrestOnrampStatus,
+  orderId: string | null,
+  depositLabel: string | null,
+  toChain: ChainId | null,
+  token: string | null
+): { stages: StageRow[]; activeIndex: number; done: boolean } {
+  const dstName = toChain ? (getChain(toChain)?.name ?? toChain) : "chain";
+  const stages: StageRow[] = [
+    {
+      l: "Create order",
+      d: "Locking a rate and reserving a virtual deposit account.",
+      ref: orderId ? `order ${orderId.slice(0, 8)}…` : undefined,
+    },
+    {
+      l: "Deposit fiat",
+      d: "Transfer the exact fiat amount to the account shown below.",
+      ref: depositLabel ?? undefined,
+    },
+    {
+      l: "Provider settles",
+      d: "The provider confirms your deposit and releases stablecoin.",
+    },
+    {
+      l: "Received",
+      d: `${token ?? "USDC"} delivered on ${dstName}.`,
+    },
+  ];
+
+  const indexFor: Record<PaycrestOnrampStatus, number> = {
+    idle: -1,
+    creating: 0,
+    awaiting_deposit: 1,
+    settling: 2,
+    complete: 4,
+    error: -1,
+  };
+
+  return {
+    stages,
+    activeIndex: indexFor[status],
+    done: status === "complete",
+  };
+}
+
 function paycrestStages(
   status: PaycrestOfframpStatus,
   orderId: string | null,
@@ -1416,7 +1545,8 @@ export function StatusScreen({
   const exec = intent?.quote?.exec;
   const { address, isConnected } = useAccount();
   const cctp = useCctp();
-  const paycrest = usePaycrestOfframp();
+  const paycrestOfframp = usePaycrestOfframp();
+  const paycrestOnramp = usePaycrestOnramp();
 
   // Local error for cases where we can't even hand off to a rail
   // (no wallet, missing chain, etc.) — distinct from the rail's own error.
@@ -1434,7 +1564,8 @@ export function StatusScreen({
 
     setBootError(null);
     cctp.reset();
-    paycrest.reset();
+    paycrestOfframp.reset();
+    paycrestOnramp.reset();
 
     if (!isConnected || !address) {
       setBootError(
@@ -1443,41 +1574,86 @@ export function StatusScreen({
       return;
     }
 
-    // --- Paycrest off-ramp -------------------------------------------------
+    // --- Paycrest fiat legs ------------------------------------------------
     if (exec.rail === "paycrest") {
-      if (exec.action !== "offramp") {
-        setBootError("Paycrest only handles fiat off-ramps.");
-        return;
-      }
-      if (!exec.fiatCurrency) {
-        setBootError("We couldn't determine a payout currency — try rephrasing.");
-        return;
-      }
-      if (
-        !exec.payout?.institution ||
-        !exec.payout.accountIdentifier ||
-        !exec.payout.accountName
-      ) {
-        setBootError("Payout details are missing — go back and add them.");
+      if (exec.action === "offramp") {
+        if (!exec.fiatCurrency) {
+          setBootError(
+            "We couldn't determine a payout currency — try rephrasing."
+          );
+          return;
+        }
+        if (
+          !exec.payout?.institution ||
+          !exec.payout.accountIdentifier ||
+          !exec.payout.accountName
+        ) {
+          setBootError("Payout details are missing — go back and add them.");
+          return;
+        }
+
+        paycrestOfframp
+          .offramp({
+            fromChain: exec.fromChain,
+            token: exec.fromToken as PaycrestToken,
+            amount: exec.fromAmount,
+            fiatCurrency: exec.fiatCurrency as PaycrestFiat,
+            recipient: {
+              institution: exec.payout.institution,
+              accountIdentifier: exec.payout.accountIdentifier,
+              accountName: exec.payout.accountName,
+            },
+            reference: `swap-chain-offramp-${Date.now()}`,
+          })
+          .catch(() => {});
         return;
       }
 
-      paycrest
-        .offramp({
-          fromChain: exec.fromChain,
-          token: exec.fromToken as PaycrestToken,
-          amount: exec.fromAmount,
-          fiatCurrency: exec.fiatCurrency as PaycrestFiat,
-          recipient: {
-            institution: exec.payout.institution,
-            accountIdentifier: exec.payout.accountIdentifier,
-            accountName: exec.payout.accountName,
-          },
-          reference: `swap-chain-${Date.now()}`,
-        })
-        .catch(() => {
-          // The hook exposes the error via paycrest.error — no rethrow.
-        });
+      if (exec.action === "onramp") {
+        if (!exec.fiatCurrency) {
+          setBootError(
+            "We couldn't determine the fiat currency — try rephrasing."
+          );
+          return;
+        }
+        if (!exec.toChain) {
+          setBootError("We couldn't determine a destination chain.");
+          return;
+        }
+        if (
+          !exec.payout?.institution ||
+          !exec.payout.accountIdentifier ||
+          !exec.payout.accountName
+        ) {
+          setBootError("Refund account details are missing — go back and add them.");
+          return;
+        }
+
+        const amountIn =
+          exec.fromToken === "USDC" || exec.fromToken === "USDT"
+            ? "crypto"
+            : "fiat";
+
+        paycrestOnramp
+          .onramp({
+            toChain: exec.toChain,
+            token: (exec.toToken ?? "USDC") as PaycrestToken,
+            amount: exec.fromAmount,
+            amountIn,
+            fiatCurrency: exec.fiatCurrency as PaycrestFiat,
+            refundAccount: {
+              institution: exec.payout.institution,
+              accountIdentifier: exec.payout.accountIdentifier,
+              accountName: exec.payout.accountName,
+            },
+            recipientAddress: address,
+            reference: `swap-chain-onramp-${Date.now()}`,
+          })
+          .catch(() => {});
+        return;
+      }
+
+      setBootError("This Paycrest action isn't supported yet.");
       return;
     }
 
@@ -1537,17 +1713,27 @@ export function StatusScreen({
           exec.fromChain,
           exec.toChain
         )
-      : exec?.rail === "paycrest"
-        ? paycrestStages(
-            paycrest.status,
-            paycrest.order?.id ?? null,
-            paycrest.transferTxHash,
-            exec.fromChain,
-            exec.fromToken,
-            exec.fiatCurrency,
-            exec.payout?.accountName ?? null
+      : exec?.rail === "paycrest" && exec.action === "onramp"
+        ? paycrestOnrampStages(
+            paycrestOnramp.status,
+            paycrestOnramp.order?.id ?? null,
+            paycrestOnramp.order?.depositAccountIdentifier
+              ? `${paycrestOnramp.order.amountToTransfer ?? ""} ${paycrestOnramp.order.depositCurrency ?? ""} → ${paycrestOnramp.order.depositAccountIdentifier}`
+              : null,
+            exec.toChain,
+            exec.toToken
           )
-        : { stages: [], activeIndex: -1, done: false };
+        : exec?.rail === "paycrest"
+          ? paycrestStages(
+              paycrestOfframp.status,
+              paycrestOfframp.order?.id ?? null,
+              paycrestOfframp.transferTxHash,
+              exec.fromChain,
+              exec.fromToken,
+              exec.fiatCurrency,
+              exec.payout?.accountName ?? null
+            )
+          : { stages: [], activeIndex: -1, done: false };
 
   const stages = view.stages;
   const activeIndex = view.activeIndex;
@@ -1555,9 +1741,16 @@ export function StatusScreen({
   const railError =
     exec?.rail === "cctp"
       ? cctp.error
-      : exec?.rail === "paycrest"
-        ? paycrest.error
-        : null;
+      : exec?.rail === "paycrest" && exec.action === "onramp"
+        ? paycrestOnramp.error
+        : exec?.rail === "paycrest"
+          ? paycrestOfframp.error
+          : null;
+
+  const onrampOrder =
+    exec?.rail === "paycrest" && exec.action === "onramp"
+      ? paycrestOnramp.order
+      : null;
 
   // Wall-clock elapsed since this screen mounted.
   const startedAt = useRef(Date.now()).current;
@@ -1662,6 +1855,50 @@ export function StatusScreen({
             <span style={{ fontSize: 13, color: "var(--fg-soft)" }}>
               {bootError}
             </span>
+          </div>
+        )}
+
+        {onrampOrder?.depositAccountIdentifier && !bootError && (
+          <div
+            className="col gap-2"
+            style={{
+              marginTop: 18,
+              padding: "14px 16px",
+              background: "var(--accent-soft)",
+              border: "1px solid var(--line-2)",
+              borderRadius: 12,
+            }}
+          >
+            <strong style={{ fontSize: 14 }}>Deposit instructions</strong>
+            <span style={{ fontSize: 13, color: "var(--fg-soft)" }}>
+              Transfer exactly{" "}
+              <strong className="font-mono">
+                {onrampOrder.amountToTransfer} {onrampOrder.depositCurrency}
+              </strong>{" "}
+              to:
+            </span>
+            <span className="font-mono" style={{ fontSize: 13 }}>
+              {onrampOrder.depositAccountName}
+            </span>
+            <span className="font-mono" style={{ fontSize: 15, fontWeight: 500 }}>
+              {onrampOrder.depositAccountIdentifier}
+            </span>
+            {onrampOrder.depositInstitution && (
+              <span className="muted" style={{ fontSize: 12 }}>
+                {onrampOrder.depositInstitution}
+              </span>
+            )}
+            {onrampOrder.validUntil && (
+              <span className="muted" style={{ fontSize: 12 }}>
+                Deposit before {new Date(onrampOrder.validUntil).toLocaleString()}
+              </span>
+            )}
+            {onrampOrder.amount && onrampOrder.currency && (
+              <span className="muted" style={{ fontSize: 12 }}>
+                You receive ≈ {onrampOrder.amount} {onrampOrder.currency}
+                {onrampOrder.rate ? ` @ ${onrampOrder.rate}` : ""}
+              </span>
+            )}
           </div>
         )}
 
@@ -1795,7 +2032,8 @@ export function StatusScreen({
                 onClick={() => {
                   startedFor.current = null;
                   cctp.reset();
-                  paycrest.reset();
+                  paycrestOfframp.reset();
+                  paycrestOnramp.reset();
                 }}
               >
                 Retry

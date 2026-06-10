@@ -15,7 +15,10 @@ import { useAccount, useDisconnect } from "wagmi";
 import { useAccountModal, useConnectModal } from "@rainbow-me/rainbowkit";
 import { Icon } from "./icons";
 import { SendScreen, StatusScreen, type Intent } from "./SendScreen";
-import { Home } from "./Home";
+import { Home, type FlowId } from "./Home";
+import { SwapForm } from "./SwapForm";
+import { CashoutFlow } from "./flows/CashoutFlow";
+import { BuyFlow } from "./flows/BuyFlow";
 import { HistoryScreen, RecipientsScreen, SettingsScreen } from "./AppScreens";
 import { IS_TESTNET } from "@/config/network";
 
@@ -44,13 +47,13 @@ export default function AppShell() {
   const [view, setView] = useState<View>("send");
   const [recentIntent, setRecentIntent] = useState<Intent | null>(null);
   const [showStatus, setShowStatus] = useState(false);
-  // Send view starts on the Home chooser; entering a goal shows the flow.
-  const [entered, setEntered] = useState(false);
+  // Send view starts on the Home chooser; picking a goal opens its flow.
+  const [flow, setFlow] = useState<FlowId | "describe" | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const goToView = (v: View) => {
     setShowStatus(false);
-    setEntered(false);
+    setFlow(null);
     setView(v);
     setDrawerOpen(false);
   };
@@ -61,21 +64,39 @@ export default function AppShell() {
     setShowStatus(true);
   };
 
+  const backToChooser = () => setFlow(null);
+
+  // "Send crypto" and "Convert" share the swap card; "describe" is the NL
+  // path; cash out / buy are guided fiat flows. All converge on the same
+  // Review → StatusScreen contract via onSubmit.
+  const flowBody = () => {
+    switch (flow) {
+      case "cashout":
+        return <CashoutFlow onSubmit={submit} onBack={backToChooser} />;
+      case "buy":
+        return <BuyFlow onSubmit={submit} onBack={backToChooser} />;
+      case "send":
+      case "convert":
+        return (
+          <WithBack onBack={backToChooser}>
+            <SwapForm onSubmit={submit} />
+          </WithBack>
+        );
+      case "describe":
+        return (
+          <WithBack onBack={backToChooser}>
+            <SendScreen onSubmit={submit} />
+          </WithBack>
+        );
+      default:
+        return <Home onPick={setFlow} />;
+    }
+  };
+
   const sendBody = showStatus ? (
     <StatusScreen intent={recentIntent} onDone={() => setShowStatus(false)} />
-  ) : entered ? (
-    <div className="col gap-4">
-      <button
-        className="btn btn-quiet btn-sm"
-        onClick={() => setEntered(false)}
-        style={{ padding: "0 8px", alignSelf: "flex-start" }}
-      >
-        <Icon.Arrow rotate={180} size={12} /> Choose another
-      </button>
-      <SendScreen onSubmit={submit} />
-    </div>
   ) : (
-    <Home onPick={() => setEntered(true)} />
+    flowBody()
   );
 
   const main = (
@@ -203,6 +224,27 @@ export default function AppShell() {
         <NavContent view={view} setView={goToView} onBack={onBack} />
       </aside>
       {main}
+    </div>
+  );
+}
+
+function WithBack({
+  onBack,
+  children,
+}: {
+  onBack: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="col gap-4">
+      <button
+        className="btn btn-quiet btn-sm"
+        onClick={onBack}
+        style={{ padding: "0 8px", alignSelf: "flex-start" }}
+      >
+        <Icon.Arrow rotate={180} size={12} /> Choose another
+      </button>
+      {children}
     </div>
   );
 }
