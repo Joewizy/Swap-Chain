@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
+import { formatFiat } from "@/utils";
 import { Icon } from "./icons";
 
 /* ────────────────── HISTORY ────────────────── */
@@ -27,17 +28,6 @@ type Order = {
   createdAt: string | null;
 };
 
-const FIAT_SYMBOLS: Record<string, string> = {
-  NGN: "₦",
-  KES: "KSh",
-  GHS: "₵",
-  UGX: "USh",
-  XOF: "CFA",
-  ZMW: "ZK",
-  TZS: "TSh",
-  ZAR: "R",
-};
-
 /** Maps a Paycrest status to a chip tone + label. */
 function statusChip(status: string): { tone: "ok" | "pend" | "err"; label: string } {
   switch (status) {
@@ -58,9 +48,7 @@ function statusChip(status: string): { tone: "ok" | "pend" | "err"; label: strin
 
 function fiatLabel(currency: string | null, amount: number | null): string {
   if (amount === null || !currency) return "—";
-  const sym = FIAT_SYMBOLS[currency.toUpperCase()];
-  const n = amount.toLocaleString("en-US", { maximumFractionDigits: 2 });
-  return sym ? `${sym}${n}` : `${currency} ${n}`;
+  return formatFiat(currency, amount);
 }
 
 function timeAgo(iso: string | null): string {

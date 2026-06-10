@@ -26,6 +26,7 @@ import {
 import type { ExecutionProgress } from "@/hooks/useRelayExecutor";
 import { getChain, type ChainId, type TokenSymbol } from "@/config/network";
 import type { PaycrestFiat, PaycrestToken } from "@/rails/paycrest";
+import { formatFiat, formatNumber } from "@/utils";
 
 /* ───────── types ───────── */
 export type RailKey = "cctp" | "chainrails" | "relay" | "paycrest";
@@ -160,24 +161,6 @@ function looksLikePhone(s: string): boolean {
   return /^\+?\d[\d\s-]{6,}$/.test(s.trim());
 }
 
-/** Local-currency symbols for the supported payout corridors. */
-const FIAT_SYMBOLS: Record<string, string> = {
-  NGN: "₦",
-  KES: "KSh",
-  GHS: "₵",
-  UGX: "USh",
-  XOF: "CFA",
-  ZMW: "ZK",
-  TZS: "TSh",
-  ZAR: "R",
-};
-
-/** Formats a fiat amount with its symbol, e.g. "₦136,490.00". */
-function formatFiat(code: string, amount: number): string {
-  const sym = FIAT_SYMBOLS[code.toUpperCase()];
-  const n = amount.toLocaleString("en-US", { maximumFractionDigits: 2 });
-  return sym ? `${sym}${n}` : `${code} ${n}`;
-}
 
 /**
  * Calls /api/intent then /api/router, building an editable Quote — or a
@@ -1066,7 +1049,7 @@ export function ReviewScreen({
                 letterSpacing: "-0.015em",
               }}
             >
-              {quote.from.amount}{" "}
+              {formatNumber(quote.from.amount)}{" "}
               <span style={{ color: "var(--fg-mute)" }}>
                 {quote.from.token}
               </span>
@@ -2084,7 +2067,8 @@ export function StatusScreen({
               className="font-mono tabular"
               style={{ fontSize: 22, fontWeight: 500 }}
             >
-              {intent?.quote?.from?.amount} {intent?.quote?.from?.token}
+              {formatNumber(intent?.quote?.from?.amount ?? 0)}{" "}
+              {intent?.quote?.from?.token}
             </span>
           </div>
           <Icon.ArrowRight />

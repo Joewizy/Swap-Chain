@@ -12,6 +12,7 @@
 import React, { useState } from "react";
 import { DEFAULT_SETTLEMENT_CHAIN_ID, getChain } from "@/config/network";
 import { PAYCREST_FIAT } from "@/rails/paycrest";
+import { formatToken } from "@/utils";
 import {
   ReviewScreen,
   quoteFromIntent,
@@ -45,7 +46,9 @@ export function BuyFlow({
     const intent: IntentResponse = {
       action: "onramp",
       fromChain: null,
-      fromToken: null,
+      // fromToken = the fiat code marks this as a fiat-denominated buy
+      // (the pipeline reads "you pay this much fiat", not "buy this much USDC").
+      fromToken: currency,
       fromAmount: amount,
       toChain: destChain,
       toToken: "USDC",
@@ -56,9 +59,31 @@ export function BuyFlow({
       confidence: 1,
     };
     const r = await quoteFromIntent(intent);
+    if (!r) {
+      setLoading(false);
+      return setError("Couldn't build a quote — try again.");
+    }
+    if ("error" in r) {
+      setLoading(false);
+      return setError(r.reason);
+    }
+
+    // Estimate the USDC received from the live rate (fiat per 1 USDC).
+    try {
+      const res = await fetch(
+        `/api/paycrest/rate?fiat=${encodeURIComponent(currency)}&token=USDC`
+      );
+      const data = await res.json();
+      if (res.ok && data?.rate) {
+        const usdc = Number(amount) / Number(data.rate);
+        r.to.amount = `≈ ${formatToken(usdc, "USDC", 2)}`;
+        r.rate = `${data.rate} ${currency}/USDC`;
+      }
+    } catch {
+      // Rate is a nicety — fall back to the placeholder estimate.
+    }
+
     setLoading(false);
-    if (!r) return setError("Couldn't build a quote — try again.");
-    if ("error" in r) return setError(r.reason);
     setQuote(r);
   };
 

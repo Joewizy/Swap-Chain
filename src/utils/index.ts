@@ -5,6 +5,7 @@
  *
  * Grouped by domain, numeric helpers first:
  *   amount   — USD valuation, fee arithmetic
+ *   format   — number / token / fiat display formatting
  *   gas      — per-chain gas-buffer estimates
  *   balance  — on-chain balance reads + affordability checks
  *   icons    — token / chain icon lookups
@@ -12,6 +13,7 @@
  */
 
 export * from "./amount";
+export * from "./format";
 export * from "./gas";
 export * from "./balance";
 export * from "./icons";
