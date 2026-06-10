@@ -2,104 +2,77 @@
 
 // AppScreens.tsx — History, Recipients, Settings screens
 
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import { useAccount } from "wagmi";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { Icon } from "./icons";
 
 /* ────────────────── HISTORY ────────────────── */
-type Txn = {
-  when: string;
-  who: string;
-  sent: string;
-  got: string;
-  rail: string;
+
+/** One order from /api/paycrest/orders. */
+type Order = {
+  id: string;
+  direction: "offramp" | "onramp";
   status: string;
-  tone: "ok" | "pend" | "err";
-  kind: "Crypto" | "Fiat";
+  amount: string;
+  token: string;
+  network: string;
+  rate: string | null;
+  currency: string | null;
+  fiatAmount: number | null;
+  recipientName: string | null;
+  institution: string | null;
+  accountIdentifier: string | null;
+  txHash: string | null;
+  createdAt: string | null;
 };
 
-const TXNS: Txn[] = [
-  {
-    when: "Today · 14:22",
-    who: "Tunde Adebayo · GTBank",
-    sent: "200.00 USDC",
-    got: "₦318,420",
-    rail: "Deposit → Settle → Payout",
-    status: "Paid",
-    tone: "ok",
-    kind: "Fiat",
-  },
-  {
-    when: "Today · 10:08",
-    who: "0xA2…91Bc · Arbitrum",
-    sent: "20.00 USDC",
-    got: "20.00 USDC",
-    rail: "Deposit → Bridge → Payout",
-    status: "Paid",
-    tone: "ok",
-    kind: "Crypto",
-  },
-  {
-    when: "Yesterday",
-    who: "SEPA · DE89 3704 0044",
-    sent: "100.00 USDC",
-    got: "€92.04",
-    rail: "Deposit → Settle → Payout",
-    status: "Paid",
-    tone: "ok",
-    kind: "Fiat",
-  },
-  {
-    when: "Yesterday",
-    who: "Tunde Adebayo · MTN MoMo",
-    sent: "50.00 USDC",
-    got: "₦79,605",
-    rail: "Deposit → Settle → Payout",
-    status: "Paid",
-    tone: "ok",
-    kind: "Fiat",
-  },
-  {
-    when: "Mon · 18:44",
-    who: "ACH · *****4429",
-    sent: "150.00 USDC",
-    got: "$149.70",
-    rail: "Deposit → Settle → Payout",
-    status: "Pending",
-    tone: "pend",
-    kind: "Fiat",
-  },
-  {
-    when: "Sun · 09:22",
-    who: "Your wallet · Solana",
-    sent: "1,000.00 USDC",
-    got: "1,000.00 USDC",
-    rail: "Deposit → Bridge → Payout",
-    status: "Paid",
-    tone: "ok",
-    kind: "Crypto",
-  },
-  {
-    when: "Sat · 21:10",
-    who: "Amaka · Kuda 9920 1144",
-    sent: "30.00 USDC",
-    got: "₦47,763",
-    rail: "Deposit → Settle → Payout",
-    status: "Failed",
-    tone: "err",
-    kind: "Fiat",
-  },
-  {
-    when: "Fri · 12:01",
-    who: "Your wallet · Base",
-    sent: "0.5 ETH",
-    got: "0.4998 ETH",
-    rail: "Deposit → Bridge → Payout",
-    status: "Paid",
-    tone: "ok",
-    kind: "Crypto",
-  },
-];
-const FILTERS = ["All", "Crypto", "Fiat", "Pending", "Failed"];
+const FIAT_SYMBOLS: Record<string, string> = {
+  NGN: "₦",
+  KES: "KSh",
+  GHS: "₵",
+  UGX: "USh",
+  XOF: "CFA",
+  ZMW: "ZK",
+  TZS: "TSh",
+  ZAR: "R",
+};
+
+/** Maps a Paycrest status to a chip tone + label. */
+function statusChip(status: string): { tone: "ok" | "pend" | "err"; label: string } {
+  switch (status) {
+    case "settled":
+      return { tone: "ok", label: "Paid" };
+    case "refunded":
+      return { tone: "err", label: "Refunded" };
+    case "expired":
+      return { tone: "err", label: "Expired" };
+    case "processing":
+      return { tone: "pend", label: "Processing" };
+    case "pending":
+      return { tone: "pend", label: "Pending" };
+    default:
+      return { tone: "pend", label: "Awaiting funds" };
+  }
+}
+
+function fiatLabel(currency: string | null, amount: number | null): string {
+  if (amount === null || !currency) return "—";
+  const sym = FIAT_SYMBOLS[currency.toUpperCase()];
+  const n = amount.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return sym ? `${sym}${n}` : `${currency} ${n}`;
+}
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso).getTime();
+  const mins = Math.round((Date.now() - d) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 type Recipient = {
   name: string;
@@ -186,173 +159,180 @@ const RECIPIENTS: Recipient[] = [
 ];
 
 export function HistoryScreen() {
-  const [filter, setFilter] = useState("All");
-  const rows = TXNS.filter((t) => {
-    if (filter === "All") return true;
-    if (filter === "Crypto" || filter === "Fiat") return t.kind === filter;
-    return t.status === filter;
-  });
+  const { address, isConnected } = useAccount();
+  const { openConnectModal } = useConnectModal();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!address) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/paycrest/orders?address=${address}`
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+      setOrders(data.orders ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't load orders.");
+    } finally {
+      setLoading(false);
+    }
+  }, [address]);
+
+  useEffect(() => {
+    if (isConnected && address) load();
+    else setOrders([]);
+  }, [isConnected, address, load]);
 
   return (
     <div className="col gap-6">
-      <header>
-        <span className="eyebrow">Activity</span>
-        <h1
-          style={{
-            fontSize: 30,
-            lineHeight: 1.1,
-            letterSpacing: "-0.02em",
-            marginTop: 6,
-            fontWeight: 500,
-          }}
-        >
-          History
-        </h1>
-        <span className="muted" style={{ fontSize: 14 }}>
-          Everything that moved through Swap Chain.
-        </span>
+      <header className="row between center wrap" style={{ gap: 12 }}>
+        <div>
+          <span className="eyebrow">Activity</span>
+          <h1
+            style={{
+              fontSize: 30,
+              lineHeight: 1.1,
+              letterSpacing: "-0.02em",
+              marginTop: 6,
+              fontWeight: 500,
+            }}
+          >
+            History
+          </h1>
+          <span className="muted" style={{ fontSize: 14 }}>
+            Your cash-out and on-ramp orders.
+          </span>
+        </div>
+        {isConnected && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={load}
+            disabled={loading}
+          >
+            {loading ? <Icon.Spinner size={12} /> : <Icon.Arrow size={12} />}{" "}
+            Refresh
+          </button>
+        )}
       </header>
 
-      <div className="row center between wrap" style={{ gap: 12 }}>
-        <div className="row gap-2 wrap">
-          {FILTERS.map((f) => (
+      {!isConnected ? (
+        <EmptyState
+          title="Connect your wallet"
+          sub="Connect to see the orders tied to your address."
+          action={
             <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className="chip"
-              style={{
-                cursor: "pointer",
-                background: filter === f ? "var(--btn-bg)" : "var(--bg-elev)",
-                color: filter === f ? "var(--btn-fg)" : "var(--fg-soft)",
-                borderColor: filter === f ? "var(--btn-bg)" : "var(--line-2)",
-                padding: "6px 12px",
-                fontSize: 12,
-              }}
+              className="btn btn-primary btn-sm"
+              onClick={() => openConnectModal?.()}
             >
-              {f}
+              Connect wallet
             </button>
+          }
+        />
+      ) : error ? (
+        <EmptyState title="Couldn't load orders" sub={error} />
+      ) : loading && orders.length === 0 ? (
+        <EmptyState title="Loading…" sub="Fetching your orders." />
+      ) : orders.length === 0 ? (
+        <EmptyState
+          title="No orders yet"
+          sub="Your cash-outs will show up here once you create one."
+        />
+      ) : (
+        <div className="col gap-3">
+          {orders.map((o) => (
+            <OrderCard key={o.id} order={o} />
           ))}
         </div>
-        <div className="row center gap-2">
-          <button className="btn btn-ghost btn-sm">
-            <Icon.Search size={12} /> Search
-          </button>
-          <button className="btn btn-ghost btn-sm">Export CSV</button>
-        </div>
-      </div>
+      )}
+    </div>
+  );
+}
 
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        {/* head */}
-        <div
-          className="row center"
-          style={{
-            padding: "12px 20px",
-            borderBottom: "1px solid var(--line)",
-            fontFamily: "Geist Mono, monospace",
-            fontSize: 10.5,
-            letterSpacing: 0.08,
-            textTransform: "uppercase",
-            color: "var(--fg-mute)",
-            gap: 16,
-          }}
-        >
-          <span style={{ flex: "0 0 14%" }}>When</span>
-          <span style={{ flex: "1 1 28%" }}>Recipient</span>
-          <span style={{ flex: "0 0 18%", textAlign: "right" }}>Sent</span>
-          <span style={{ flex: "0 0 18%", textAlign: "right" }}>Received</span>
-          <span style={{ flex: "1 1 16%" }}>Rail</span>
-          <span style={{ flex: "0 0 100px", textAlign: "right" }}>Status</span>
-        </div>
-
-        {rows.map((r, i) => (
-          <button
-            key={i}
-            className="row center"
+function OrderCard({ order }: { order: Order }) {
+  const chip = statusChip(order.status);
+  const isOfframp = order.direction === "offramp";
+  return (
+    <article className="card" style={{ padding: 16 }}>
+      <div className="row between center" style={{ gap: 12 }}>
+        <div className="col" style={{ gap: 2, minWidth: 0 }}>
+          <span style={{ fontSize: 15, fontWeight: 500 }}>
+            {isOfframp ? "Cash out" : "Buy crypto"} ·{" "}
+            <span className="font-mono">
+              {order.amount} {order.token}
+            </span>
+          </span>
+          <span
+            className="muted"
             style={{
-              width: "100%",
-              textAlign: "left",
-              border: 0,
-              background: "transparent",
-              padding: "16px 20px",
-              borderBottom:
-                i < rows.length - 1 ? "1px solid var(--line)" : "none",
-              gap: 16,
-              color: "inherit",
-              cursor: "pointer",
+              fontSize: 12.5,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
-            onMouseOver={(e) =>
-              (e.currentTarget.style.background = "var(--bg-soft)")
-            }
-            onMouseOut={(e) =>
-              (e.currentTarget.style.background = "transparent")
-            }
           >
-            <span
-              className="font-mono"
-              style={{
-                flex: "0 0 14%",
-                fontSize: 12,
-                color: "var(--fg-mute)",
-              }}
-            >
-              {r.when}
-            </span>
-            <span style={{ flex: "1 1 28%", fontSize: 14 }}>{r.who}</span>
-            <span
-              className="font-mono tabular"
-              style={{ flex: "0 0 18%", fontSize: 13.5, textAlign: "right" }}
-            >
-              {r.sent}
-            </span>
-            <span
-              className="font-mono tabular"
-              style={{
-                flex: "0 0 18%",
-                fontSize: 13.5,
-                textAlign: "right",
-                color: r.tone === "err" ? "var(--fg-faint)" : "var(--fg)",
-              }}
-            >
-              {r.got}
-            </span>
-            <span
-              className="font-mono"
-              style={{
-                flex: "1 1 16%",
-                fontSize: 11,
-                color: "var(--fg-mute)",
-              }}
-            >
-              {r.rail}
-            </span>
-            <span style={{ flex: "0 0 100px", textAlign: "right" }}>
-              <span
-                className={
-                  r.tone === "ok"
-                    ? "chip chip-ok"
-                    : r.tone === "pend"
-                      ? "chip chip-pend"
-                      : "chip chip-err"
-                }
-                style={{ padding: "2px 10px" }}
-              >
-                {r.status}
-              </span>
-            </span>
-          </button>
-        ))}
-
-        {rows.length === 0 && (
-          <div
-            className="col center gap-2"
-            style={{ padding: 48, textAlign: "center" }}
-          >
-            <span className="muted" style={{ fontSize: 14 }}>
-              No transactions match that filter.
-            </span>
-          </div>
-        )}
+            {order.recipientName
+              ? `${order.recipientName}${order.institution ? ` · ${order.institution}` : ""}`
+              : order.network}
+            {order.accountIdentifier ? ` · ${order.accountIdentifier}` : ""}
+          </span>
+        </div>
+        <span
+          className={
+            chip.tone === "ok"
+              ? "chip chip-ok"
+              : chip.tone === "pend"
+                ? "chip chip-pend"
+                : "chip chip-err"
+          }
+          style={{ padding: "2px 10px", flex: "0 0 auto" }}
+        >
+          {chip.label}
+        </span>
       </div>
+
+      <div className="hr" style={{ margin: "12px 0" }} />
+
+      <div className="row between center" style={{ fontSize: 12.5 }}>
+        <span className="font-mono" style={{ color: "var(--accent)" }}>
+          {isOfframp
+            ? fiatLabel(order.currency, order.fiatAmount)
+            : `${order.amount} ${order.token}`}
+          {order.rate ? (
+            <span className="muted"> · {order.rate}/{order.token}</span>
+          ) : null}
+        </span>
+        <span className="muted font-mono" style={{ fontSize: 11 }}>
+          {timeAgo(order.createdAt)}
+        </span>
+      </div>
+    </article>
+  );
+}
+
+function EmptyState({
+  title,
+  sub,
+  action,
+}: {
+  title: string;
+  sub: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div
+      className="card col center gap-2"
+      style={{ padding: 40, textAlign: "center" }}
+    >
+      <span style={{ fontSize: 15, fontWeight: 500 }}>{title}</span>
+      <span className="muted" style={{ fontSize: 13, maxWidth: "40ch" }}>
+        {sub}
+      </span>
+      {action && <div style={{ marginTop: 8 }}>{action}</div>}
     </div>
   );
 }
