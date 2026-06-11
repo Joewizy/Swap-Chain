@@ -32,6 +32,7 @@ import type {
   PaycrestToken,
 } from "@/rails/paycrest";
 import {
+  currencyLabel,
   formatCountdown,
   formatFiat,
   formatNumber,
@@ -1371,16 +1372,16 @@ function PayoutForm({
           <InfoHint
             text={
               mode === "refund"
-                ? `If this purchase can't be completed, your ${currency ?? "money"} is refunded to this account. Use a ${currency ?? "local"} account you control — ideally the one you're paying from.`
-                : `The bank or mobile-money account that receives the ${currency ?? "cash"} payout.`
+                ? `If this purchase can't be completed, your ${currency ? currencyLabel(currency) : "money"} is refunded to this account. Use a ${currency ? currencyLabel(currency) : "local"} account you control — ideally the one you're paying from.`
+                : `The bank or mobile-money account that receives the ${currency ? currencyLabel(currency) : "cash"} payout.`
             }
           />
         </span>
         <span className="font-mono" style={{ fontSize: 11, color: "var(--fg-mute)" }}>
           {currency
             ? mode === "refund"
-              ? `Refunds in ${currency}`
-              : `Paid out in ${currency}`
+              ? `Refunds in ${currencyLabel(currency)}`
+              : `Paid out in ${currencyLabel(currency)}`
             : "—"}
         </span>
       </div>

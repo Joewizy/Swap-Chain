@@ -35,6 +35,24 @@ export function fiatOptionLabel(code: string): string {
   return name ? `${code} — ${name}` : code;
 }
 
+/** Short, friendly currency names for inline prose. */
+export const FIAT_SHORT_NAMES: Record<string, string> = {
+  NGN: "Naira",
+  KES: "Kenyan Shilling",
+  GHS: "Cedi",
+  UGX: "Ugandan Shilling",
+  XOF: "CFA Franc",
+  ZMW: "Kwacha",
+  TZS: "Tanzanian Shilling",
+  ZAR: "Rand",
+};
+
+/** Inline currency label, e.g. "Naira (NGN)" (falls back to the code). */
+export function currencyLabel(code: string): string {
+  const name = FIAT_SHORT_NAMES[code.toUpperCase()];
+  return name ? `${name} (${code.toUpperCase()})` : code;
+}
+
 /** ISO timestamp → "Mon, Jun 11, 8:41 PM" (empty for invalid input). */
 export function formatDeadline(iso: string): string {
   const d = new Date(iso);
