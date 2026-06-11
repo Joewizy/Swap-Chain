@@ -1683,6 +1683,9 @@ function offrampPhase(
   if (paid > 0 && amt > 0 && paid < amt) return "partial";
   if (paid > 0 || order.status === "pending") return "confirming-deposit";
   if (status === "funding") return "sending";
+  // We've sent the transfer and are polling — Paycrest's order status may
+  // still read "initiated" for a moment, so don't fall back to "waiting".
+  if (status === "settling") return "confirming-deposit";
   return "awaiting-funds";
 }
 
@@ -2695,6 +2698,20 @@ export function StatusScreen({
               <span className="font-mono muted" style={{ fontSize: 11 }}>
                 Order {offrampOrder.id}
               </span>
+              {paycrestOfframp.transferTxHash && exec && (
+                <a
+                  className="font-mono"
+                  style={{ fontSize: 11, color: "var(--accent)" }}
+                  href={
+                    explorerTxUrl(exec.fromChain, paycrestOfframp.transferTxHash) ??
+                    "#"
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Your payment {short0x(paycrestOfframp.transferTxHash)}
+                </a>
+              )}
               {offrampOrder.txHash && exec && (
                 <a
                   className="font-mono"
