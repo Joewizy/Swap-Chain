@@ -1661,31 +1661,38 @@ function paycrestOnrampStages(
 type OfframpPhase =
   | "creating"
   | "awaiting-funds"
-  | "partial"
   | "sending"
-  | "confirming-deposit"
+  | "confirming"
+  | "partial"
   | "converting"
   | "settled"
   | "expired"
   | "refunded";
 
+/**
+ * `sent` = we know the deposit went out on-chain (this session or a remembered
+ * one). It lets us say "Confirming your deposit" instead of "Waiting…" even
+ * while Paycrest's order still reads `initiated` (its indexer lags the chain).
+ */
 function offrampPhase(
   status: PaycrestOfframpStatus,
-  order: PaycrestOrder | null
+  order: PaycrestOrder | null,
+  sent: boolean
 ): OfframpPhase {
   if (!order) return "creating";
   if (order.status === "settled" || status === "complete") return "settled";
   if (order.status === "refunded") return "refunded";
   if (order.status === "expired") return "expired";
-  if (order.status === "processing") return "converting";
   const paid = Number(order.amountPaid ?? 0);
   const amt = Number(order.amount ?? 0);
   if (paid > 0 && amt > 0 && paid < amt) return "partial";
-  if (paid > 0 || order.status === "pending") return "confirming-deposit";
+  // Paycrest has actually credited / is processing the deposit.
+  if (order.status === "processing" || order.status === "pending" || paid > 0) {
+    return "converting";
+  }
   if (status === "funding") return "sending";
-  // We've sent the transfer and are polling — Paycrest's order status may
-  // still read "initiated" for a moment, so don't fall back to "waiting".
-  if (status === "settling") return "confirming-deposit";
+  // We sent it, but Paycrest hasn't credited yet — honestly "confirming".
+  if (sent || status === "settling") return "confirming";
   return "awaiting-funds";
 }
 
@@ -1704,10 +1711,10 @@ function offrampHeadline(
       return `Waiting for your ${sendLabel}`;
     case "sending":
       return "Sending from your wallet…";
+    case "confirming":
+      return "Confirming your deposit";
     case "partial":
       return "Waiting for the rest of your deposit";
-    case "confirming-deposit":
-      return "Confirming your deposit";
     case "converting":
       return `Converting to ${fiatCode}`;
     case "settled":
@@ -1730,21 +1737,24 @@ function paycrestStages(
   bank: string | null,
   acct: string | null
 ): { stages: StageRow[]; activeIndex: number; done: boolean } {
-  const depositSeen =
-    phase === "confirming-deposit" ||
-    phase === "converting" ||
-    phase === "settled";
+  const received = phase === "converting" || phase === "settled";
+  const confirming = phase === "confirming";
+  const step2Label = received
+    ? `${token} received`
+    : confirming
+      ? `Confirming your ${token}`
+      : `Waiting for your ${token}`;
+  const step2Desc = received
+    ? "We've got your funds."
+    : confirming
+      ? "Sent on-chain — finalizing with the provider."
+      : "Send the exact amount to continue.";
   const paidLine = `${fiatLabel ?? fiatCode} to ${recipient ?? "recipient"}${
     bank ? ` · ${bank}` : ""
   }${acct ? ` · ${acct}` : ""}`;
   const stages: StageRow[] = [
     { l: "Rate locked", d: "Your rate is held for this transfer." },
-    {
-      l: depositSeen ? `${token} received` : `Waiting for your ${token}`,
-      d: depositSeen
-        ? "We've got your funds."
-        : "Send the exact amount to continue.",
-    },
+    { l: step2Label, d: step2Desc },
     { l: `Converting to ${fiatCode}`, d: "Almost there." },
     { l: paidLine, d: "Delivered to the recipient." },
   ];
@@ -1753,8 +1763,8 @@ function paycrestStages(
     creating: 0,
     "awaiting-funds": 1,
     sending: 1,
+    confirming: 1,
     partial: 1,
-    "confirming-deposit": 2,
     converting: 2,
     settled: 4,
     expired: 1,
@@ -2040,8 +2050,13 @@ export function StatusScreen({
   // ----- Off-ramp (cash-out) presentation state -----------------------------
   const isOfframpRail = exec?.rail === "paycrest" && exec.action !== "onramp";
   const offrampOrder = isOfframpRail ? paycrestOfframp.order : null;
+  // We know the deposit was sent if we have its tx (this session or a
+  // remembered/resumed one) or Paycrest already shows some credited.
+  const depositSent =
+    !!paycrestOfframp.transferTxHash ||
+    (offrampOrder ? Number(offrampOrder.amountPaid ?? 0) > 0 : false);
   const offrampPhaseValue: OfframpPhase | null = isOfframpRail
-    ? offrampPhase(paycrestOfframp.status, offrampOrder)
+    ? offrampPhase(paycrestOfframp.status, offrampOrder, depositSent)
     : null;
   const offrampFunding = paycrestOfframp.status === "funding";
 
@@ -2161,14 +2176,26 @@ export function StatusScreen({
     ? new Date(offrampOrder.validUntil).getTime()
     : null;
   const remainingMs = expiryMs !== null ? expiryMs - now : null;
-  const countdown = remainingMs !== null ? formatCountdown(remainingMs) : null;
+  // Once the deposit is sent the on-chain order locks the rate, so the
+  // countdown is moot — hide it rather than scaring the user with 00:00.
+  const countdown =
+    remainingMs !== null && !depositSent ? formatCountdown(remainingMs) : null;
   const expiringSoon =
-    remainingMs !== null && remainingMs > 0 && remainingMs < 5 * 60 * 1000;
+    !depositSent &&
+    remainingMs !== null &&
+    remainingMs > 0 &&
+    remainingMs < 5 * 60 * 1000;
+  // Only a window that lapsed WITHOUT a deposit is a real expiry.
   const timedOut =
+    !depositSent &&
     remainingMs !== null &&
     remainingMs <= 0 &&
     (offrampPhaseValue === "awaiting-funds" || offrampPhaseValue === "partial");
-  const isExpired = offrampPhaseValue === "expired" || timedOut;
+  const apiExpired = offrampPhaseValue === "expired";
+  const isExpired = apiExpired || timedOut;
+  // Paycrest reports expired but we know it was paid → don't offer "Get new
+  // rate" (double-send risk); the deposit is on-chain. Point to support.
+  const stuckAfterPaid = apiExpired && depositSent;
 
   const headline =
     railError || bootError
@@ -2352,7 +2379,16 @@ export function StatusScreen({
 
         {/* Off-ramp terminal states */}
         {isOfframpRail && isExpired && !bootError && (
-          <ExpiredCard onNewRate={restart} />
+          stuckAfterPaid ? (
+            <StuckCard
+              orderId={offrampOrder?.id ?? null}
+              txHash={paycrestOfframp.transferTxHash}
+              fromChain={exec?.fromChain ?? null}
+              refundAddress={address ?? null}
+            />
+          ) : (
+            <ExpiredCard onNewRate={restart} />
+          )
         )}
         {isOfframpRail &&
           offrampPhaseValue === "refunded" &&
@@ -2873,6 +2909,60 @@ function ExpiredCard({ onNewRate }: { onNewRate: () => void }) {
       >
         Get new rate <Icon.ArrowRight />
       </button>
+    </div>
+  );
+}
+
+/** Shown when we know the deposit was paid but Paycrest reports expired —
+ *  never offer a new rate (the money is already on-chain). */
+function StuckCard({
+  orderId,
+  txHash,
+  fromChain,
+  refundAddress,
+}: {
+  orderId: string | null;
+  txHash: string | null;
+  fromChain: ChainId | null;
+  refundAddress: string | null;
+}) {
+  return (
+    <div
+      className="col gap-2"
+      style={{
+        marginTop: 18,
+        padding: 16,
+        background: "var(--bg-soft)",
+        border: "1px solid var(--line)",
+        borderRadius: 12,
+      }}
+    >
+      <strong style={{ fontSize: 14 }}>Payment received — taking longer</strong>
+      <span className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+        We have your payment on-chain, but the payout is taking longer than
+        usual to confirm. Don&apos;t send again. If it doesn&apos;t complete
+        shortly, contact support with the order below
+        {refundAddress
+          ? ` — if it can't be fulfilled, your funds return to ${short0x(refundAddress)}`
+          : ""}
+        .
+      </span>
+      {orderId && (
+        <span className="font-mono muted" style={{ fontSize: 11 }}>
+          Order {orderId}
+        </span>
+      )}
+      {txHash && fromChain && (
+        <a
+          className="font-mono"
+          style={{ fontSize: 11, color: "var(--accent)" }}
+          href={explorerTxUrl(fromChain, txHash) ?? "#"}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Your payment {short0x(txHash)}
+        </a>
+      )}
     </div>
   );
 }

@@ -235,6 +235,9 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         chainId: ctx.srcChainId,
       });
       setTransferTxHash(transferHash);
+      // Remember the deposit so a resumed order knows it's already funded,
+      // even before Paycrest credits it (avoids a double-send prompt).
+      rememberDeposit(ctx.orderId, transferHash);
       await waitForTransactionReceipt(config, {
         hash: transferHash,
         chainId: ctx.srcChainId,
@@ -291,6 +294,10 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
           throw new Error("Couldn't load this order.");
         }
         setOrder(fetched);
+        // If we funded this order in a past session, restore that so the UI
+        // shows "confirming" rather than asking the user to pay again.
+        const priorTx = recallDeposit(orderId);
+        if (priorTx) setTransferTxHash(priorTx as `0x${string}`);
 
         if (fetched.status === "settled") {
           setStatus("complete");
@@ -443,4 +450,24 @@ async function pollOrder(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// --- deposit memory (per order, survives reloads / resume) -----------------
+
+const depositKey = (orderId: string) => `paycrest:deposit:${orderId}`;
+
+function rememberDeposit(orderId: string, txHash: string): void {
+  try {
+    localStorage.setItem(depositKey(orderId), txHash);
+  } catch {
+    // localStorage unavailable — non-fatal
+  }
+}
+
+function recallDeposit(orderId: string): string | null {
+  try {
+    return localStorage.getItem(depositKey(orderId));
+  } catch {
+    return null;
+  }
 }
