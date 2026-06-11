@@ -19,7 +19,7 @@
 # AI assistant — multi-turn chat → flow handoff (OPENAI_API_KEY)
 ###############################################################################
 
-### Chat — DAI to NGN on Opay (clarifying)
+### Chat — DAI to NGN on Opay (ready → bridge, amount on Swap page)
 POST {{baseUrl}}/api/chat
 Content-Type: application/json
 
@@ -29,24 +29,6 @@ Content-Type: application/json
       "role": "user",
       "content": "Hi, I want to convert my DAI to naira and send it to my opay"
     }
-  ]
-}
-
-### Chat — follow-up with amount (ready → bridge handoff)
-POST {{baseUrl}}/api/chat
-Content-Type: application/json
-
-{
-  "messages": [
-    {
-      "role": "user",
-      "content": "Hi, I want to convert my DAI to naira and send it to my opay"
-    },
-    {
-      "role": "assistant",
-      "content": "We can pay out to Nigerian Naira — including Opay — but settlement requires USDC or USDT. Your DAI will need a quick swap to USDC first, then a cash-out. How much DAI are you converting?"
-    },
-    { "role": "user", "content": "200" }
   ]
 }
 

@@ -25,11 +25,11 @@ import {
 } from "../SendScreen";
 import { Icon } from "../icons";
 import {
-  clearAssistantPrefill,
   clearFlowDraft,
+  clearPendingLaunch,
   isDraftStale,
-  loadAssistantPrefill,
   loadFlowDraft,
+  loadPendingLaunch,
   storeFlowDraft,
   type FlowDraft,
 } from "../swapUrl";
@@ -115,24 +115,24 @@ export function CashoutFlow({
     clearPendingRecipient();
   }, []);
 
-  // Prefill from the conversational assistant handoff.
+  // Seed fields from chat → cashout launch payload.
   useEffect(() => {
-    const prefill = loadAssistantPrefill();
-    if (!prefill || prefill.flow !== "cashout") return;
-    if (prefill.amount) setAmount(prefill.amount);
-    if (prefill.currency) setCurrency(prefill.currency);
-    if (prefill.token === "USDC" || prefill.token === "USDT") {
-      setToken(prefill.token);
+    const launch = loadPendingLaunch();
+    if (!launch || launch.flow !== "cashout") return;
+    if (launch.amount) setAmount(launch.amount);
+    if (launch.currency) setCurrency(launch.currency);
+    if (launch.token === "USDC" || launch.token === "USDT") {
+      setToken(launch.token);
     }
-    if (prefill.institution || prefill.institutionName) {
+    if (launch.institution || launch.institutionName) {
       setPayoutDraft((prev) => ({
-        institution: prefill.institution ?? prev?.institution ?? "",
-        institutionName: prefill.institutionName ?? prev?.institutionName ?? "",
+        institution: launch.institution ?? prev?.institution ?? "",
+        institutionName: launch.institutionName ?? prev?.institutionName ?? "",
         accountIdentifier: prev?.accountIdentifier ?? "",
         accountName: prev?.accountName ?? "",
       }));
     }
-    clearAssistantPrefill();
+    clearPendingLaunch();
   }, []);
 
   const refreshRate = async (draft: FlowDraft) => {

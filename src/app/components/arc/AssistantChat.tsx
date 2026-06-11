@@ -7,31 +7,27 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import type {
-  AssistantFlow,
-  AssistantHandoff,
-  AssistantTurn,
-  ChatMessage,
-} from "@/assistant/types";
+import type { ChatMessage, ChatReply, FlowLaunch } from "@/assistant/types";
+import type { FlowId } from "./Home";
 import { Icon } from "./icons";
 import { clearChatState, loadChatState, storeChatState } from "./swapUrl";
 
-const FLOW_CTA: Record<AssistantFlow, string> = {
+const FLOW_CTA: Record<FlowId, string> = {
   cashout: "Continue to cash out",
   buy: "Buy crypto",
   bridge: "Open swap",
 };
 
 type Props = {
-  onHandoff: (handoff: AssistantHandoff) => void;
+  onLaunch: (launch: FlowLaunch) => void;
 };
 
-export function AssistantChat({ onHandoff }: Props) {
+export function AssistantChat({ onLaunch }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastTurn, setLastTurn] = useState<AssistantTurn | null>(null);
+  const [lastReply, setLastReply] = useState<ChatReply | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -41,13 +37,13 @@ export function AssistantChat({ onHandoff }: Props) {
     const saved = loadChatState();
     if (saved) {
       setMessages(saved.messages);
-      setLastTurn(saved.lastTurn);
+      setLastReply(saved.lastReply);
     }
   }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, lastTurn, thinking]);
+  }, [messages, lastReply, thinking]);
 
   useEffect(() => {
     const ta = inputRef.current;
@@ -68,7 +64,7 @@ export function AssistantChat({ onHandoff }: Props) {
     setInput("");
     setError(null);
     setThinking(true);
-    setLastTurn(null);
+    setLastReply(null);
 
     try {
       const res = await fetch("/api/chat", {
@@ -83,14 +79,14 @@ export function AssistantChat({ onHandoff }: Props) {
         return;
       }
 
-      const turn = data as AssistantTurn;
+      const reply = data as ChatReply;
       const withReply: ChatMessage[] = [
         ...nextMessages,
-        { role: "assistant", content: turn.message },
+        { role: "assistant", content: reply.message },
       ];
-      setLastTurn(turn);
+      setLastReply(reply);
       setMessages(withReply);
-      storeChatState({ messages: withReply, lastTurn: turn });
+      storeChatState({ messages: withReply, lastReply: reply });
     } catch {
       setError("Couldn't reach the assistant — check your connection.");
     } finally {
@@ -100,25 +96,18 @@ export function AssistantChat({ onHandoff }: Props) {
 
   const startOver = () => {
     setMessages([]);
-    setLastTurn(null);
+    setLastReply(null);
     setError(null);
     setInput("");
     clearChatState();
   };
 
-  const handleHandoff = () => {
-    if (!lastTurn || lastTurn.status !== "ready" || !lastTurn.targetFlow) return;
+  const handleLaunch = () => {
+    if (!lastReply?.launch) return;
     const firstUser = messages.find((m) => m.role === "user")?.content;
-    onHandoff({
-      flow: lastTurn.targetFlow,
-      amount: lastTurn.prefill.amount,
-      token: lastTurn.prefill.token,
-      fromToken: lastTurn.prefill.fromToken,
-      toToken: lastTurn.prefill.toToken,
-      currency: lastTurn.prefill.currency,
-      recipientHint: lastTurn.prefill.recipientHint,
-      institutionHint: lastTurn.prefill.institutionHint,
-      plan: lastTurn.plan.length ? lastTurn.plan : undefined,
+    onLaunch({
+      ...lastReply.launch,
+      plan: lastReply.plan.length ? lastReply.plan : lastReply.launch.plan,
       chatSummary: firstUser,
     });
   };
@@ -228,7 +217,7 @@ export function AssistantChat({ onHandoff }: Props) {
           </div>
         )}
 
-        {lastTurn?.status === "ready" && lastTurn.targetFlow && (
+        {lastReply?.launch && (
           <div
             className="col gap-3"
             style={{
@@ -238,7 +227,7 @@ export function AssistantChat({ onHandoff }: Props) {
               background: "var(--bg-elev)",
             }}
           >
-            {lastTurn.plan.length > 0 && (
+            {lastReply.plan.length > 0 && (
               <ol
                 className="col gap-1"
                 style={{
@@ -248,16 +237,16 @@ export function AssistantChat({ onHandoff }: Props) {
                   color: "var(--fg-soft)",
                 }}
               >
-                {lastTurn.plan.map((step, i) => (
+                {lastReply.plan.map((step, i) => (
                   <li key={i}>{step}</li>
                 ))}
               </ol>
             )}
             <button
               className="btn btn-primary btn-fat"
-              onClick={handleHandoff}
+              onClick={handleLaunch}
             >
-              {FLOW_CTA[lastTurn.targetFlow]} <Icon.ArrowRight />
+              {FLOW_CTA[lastReply.launch.flow]} <Icon.ArrowRight />
             </button>
           </div>
         )}

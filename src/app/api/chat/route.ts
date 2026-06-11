@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import type { AssistantTurn, ChatMessage } from "@/assistant/types";
+import type { ChatMessage, ChatReply, FlowLaunch, FlowSeed } from "@/assistant/types";
 import { buildAssistantSystemPrompt } from "@/assistant/productRules";
 
 const apiKey = process.env.OPENAI_API_KEY ?? process.env.OPEN_API_KEY;
@@ -14,8 +14,31 @@ if (!apiKey) {
 
 const client = apiKey ? new OpenAI({ apiKey, baseURL }) : null;
 
+const seedSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    amount: { type: ["string", "null"] },
+    token: { type: ["string", "null"] },
+    fromToken: { type: ["string", "null"] },
+    toToken: { type: ["string", "null"] },
+    currency: { type: ["string", "null"] },
+    recipientHint: { type: ["string", "null"] },
+    institutionHint: { type: ["string", "null"] },
+  },
+  required: [
+    "amount",
+    "token",
+    "fromToken",
+    "toToken",
+    "currency",
+    "recipientHint",
+    "institutionHint",
+  ],
+} as const;
+
 const chatSchema = {
-  name: "swap_chain_assistant_turn",
+  name: "swap_chain_chat_reply",
   strict: true,
   schema: {
     type: "object",
@@ -29,31 +52,17 @@ const chatSchema = {
         type: "string",
         enum: ["clarifying", "ready", "unsupported"],
       },
-      targetFlow: {
-        type: ["string", "null"],
-        enum: ["cashout", "buy", "bridge", null],
-      },
-      prefill: {
-        type: "object",
+      launch: {
+        type: ["object", "null"],
         additionalProperties: false,
         properties: {
-          amount: { type: ["string", "null"] },
-          token: { type: ["string", "null"] },
-          fromToken: { type: ["string", "null"] },
-          toToken: { type: ["string", "null"] },
-          currency: { type: ["string", "null"] },
-          recipientHint: { type: ["string", "null"] },
-          institutionHint: { type: ["string", "null"] },
+          flow: {
+            type: "string",
+            enum: ["cashout", "buy", "bridge"],
+          },
+          seed: seedSchema,
         },
-        required: [
-          "amount",
-          "token",
-          "fromToken",
-          "toToken",
-          "currency",
-          "recipientHint",
-          "institutionHint",
-        ],
+        required: ["flow", "seed"],
       },
       plan: {
         type: "array",
@@ -64,42 +73,50 @@ const chatSchema = {
         items: { type: "string" },
       },
     },
-    required: ["message", "status", "targetFlow", "prefill", "plan", "missing"],
+    required: ["message", "status", "launch", "plan", "missing"],
   },
 } as const;
 
-type RawTurn = {
+type RawSeed = {
+  amount: string | null;
+  token: string | null;
+  fromToken: string | null;
+  toToken: string | null;
+  currency: string | null;
+  recipientHint: string | null;
+  institutionHint: string | null;
+};
+
+type RawReply = {
   message: string;
   status: "clarifying" | "ready" | "unsupported";
-  targetFlow: "cashout" | "buy" | "bridge" | null;
-  prefill: {
-    amount: string | null;
-    token: string | null;
-    fromToken: string | null;
-    toToken: string | null;
-    currency: string | null;
-    recipientHint: string | null;
-    institutionHint: string | null;
-  };
+  launch: { flow: "cashout" | "buy" | "bridge"; seed: RawSeed } | null;
   plan: string[];
   missing: string[];
 };
 
-function normaliseTurn(raw: RawTurn): AssistantTurn {
+function normaliseSeed(raw: RawSeed): FlowSeed {
   const pick = (v: string | null) => (v && v.trim() ? v.trim() : undefined);
+  return {
+    amount: pick(raw.amount),
+    token: pick(raw.token)?.toUpperCase(),
+    fromToken: pick(raw.fromToken)?.toUpperCase(),
+    toToken: pick(raw.toToken)?.toUpperCase(),
+    currency: pick(raw.currency)?.toUpperCase(),
+    recipientHint: pick(raw.recipientHint),
+    institutionHint: pick(raw.institutionHint)?.toLowerCase(),
+  };
+}
+
+function normaliseReply(raw: RawReply): ChatReply {
+  let launch: FlowLaunch | undefined;
+  if (raw.status === "ready" && raw.launch?.flow) {
+    launch = { flow: raw.launch.flow, ...normaliseSeed(raw.launch.seed) };
+  }
   return {
     message: raw.message,
     status: raw.status,
-    targetFlow: raw.targetFlow,
-    prefill: {
-      amount: pick(raw.prefill.amount),
-      token: pick(raw.prefill.token)?.toUpperCase(),
-      fromToken: pick(raw.prefill.fromToken)?.toUpperCase(),
-      toToken: pick(raw.prefill.toToken)?.toUpperCase(),
-      currency: pick(raw.prefill.currency)?.toUpperCase(),
-      recipientHint: pick(raw.prefill.recipientHint),
-      institutionHint: pick(raw.prefill.institutionHint)?.toLowerCase(),
-    },
+    launch,
     plan: raw.plan ?? [],
     missing: raw.missing ?? [],
   };
@@ -140,8 +157,8 @@ export async function POST(req: NextRequest) {
     const content = completion.choices?.[0]?.message?.content;
     if (!content) throw new Error("Empty response from model");
 
-    const raw = JSON.parse(content) as RawTurn;
-    return NextResponse.json(normaliseTurn(raw));
+    const raw = JSON.parse(content) as RawReply;
+    return NextResponse.json(normaliseReply(raw));
   } catch (err) {
     console.error("[chat] error:", err);
 

@@ -157,12 +157,12 @@ Centralise chain lists in something like `src/config/network.ts` instead of scat
 
 **Today (repo):**
 
-- `src/app/api/chat/route.ts` — multi-turn conversational assistant with structured JSON turns (`clarifying` | `ready` | `unsupported`).
-- `src/assistant/productRules.ts` — product constraints (USDC/USDT settlement for Paycrest, swap-then-cashout for DAI, etc.) injected into the system prompt.
-- `src/app/components/arc/AssistantChat.tsx` — chat UI on the describe flow; hands off to guided flows (`cashout`, `buy`, `bridge`) via `AssistantPrefill` in sessionStorage.
-- `src/app/api/intent/route.ts` — legacy single-shot parser (dashboard still uses it).
+- `src/app/api/chat/route.ts` — multi-turn chat; each turn returns a `ChatReply` with optional `launch: FlowLaunch` when ready.
+- `src/assistant/productRules.ts` — product constraints (USDC/USDT settlement, swap-then-cashout, amount optional in chat).
+- `src/app/components/arc/AssistantChat.tsx` — describe-flow UI; `launchFlow()` saves `savePendingLaunch()` then navigates.
+- `src/app/api/intent/route.ts` — legacy single-shot parser (dashboard).
 
-**Handoff model:** Chat understands and routes; guided flows (`CashoutFlow`, `BuyFlow`, `RelaySwapPanel`) collect details, quote, and execute. Recipient names and institution hints are resolved client-side — never sent to the LLM.
+**Type progression:** `ChatMessage` → `ChatReply` → `FlowLaunch` (pending) → guided flow → `Intent` (quoted) → execution. `Intent` is never used for chat routing.
 
 **Later — assistant scope:** chained swap→cashout auto-continuation, recurring sends, quote-only comparisons across rails, spend summaries.
 

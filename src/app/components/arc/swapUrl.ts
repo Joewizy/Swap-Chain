@@ -1,8 +1,4 @@
-import type {
-  AssistantHandoff,
-  AssistantTurn,
-  ChatMessage,
-} from "@/assistant/types";
+import type { ChatMessage, ChatReply, FlowLaunch } from "@/assistant/types";
 import type { FlowId } from "./Home";
 import type { Intent, PayoutDetails, Quote } from "./SendScreen";
 
@@ -14,11 +10,11 @@ const VIEW_IDS = new Set<string>(["history", "recipients", "settings"]);
 
 export const SWAP_INTENT_STORAGE_KEY = "swap-chain:intent";
 export const SWAP_FLOW_DRAFT_KEY = "swap-chain:flow-draft";
-export const ASSISTANT_PREFILL_KEY = "swap-chain:assistant-prefill";
-export const ASSISTANT_CHAT_KEY = "swap-chain:assistant-chat";
+export const PENDING_LAUNCH_KEY = "swap-chain:pending-launch";
+export const CHAT_STATE_KEY = "swap-chain:chat-state";
 
 /** Persisted chat transcript so the conversation survives a refresh. */
-export type ChatState = { messages: ChatMessage[]; lastTurn: AssistantTurn | null };
+export type ChatState = { messages: ChatMessage[]; lastReply: ChatReply | null };
 
 /** Persisted guided-flow state (cash out / buy) so review survives refresh. */
 export type FlowDraft = {
@@ -143,27 +139,31 @@ export function clearFlowDraft(): void {
   }
 }
 
-export function storeAssistantPrefill(handoff: AssistantHandoff): void {
+/** One-shot buffer while navigating chat → guided flow. */
+export function savePendingLaunch(launch: FlowLaunch): void {
   try {
-    sessionStorage.setItem(ASSISTANT_PREFILL_KEY, JSON.stringify(handoff));
+    sessionStorage.setItem(PENDING_LAUNCH_KEY, JSON.stringify(launch));
   } catch {
     // ignore
   }
 }
 
-export function loadAssistantPrefill(): AssistantHandoff | null {
+export function loadPendingLaunch(): FlowLaunch | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(ASSISTANT_PREFILL_KEY);
-    return raw ? (JSON.parse(raw) as AssistantHandoff) : null;
+    const raw =
+      sessionStorage.getItem(PENDING_LAUNCH_KEY) ??
+      sessionStorage.getItem("swap-chain:flow-launch");
+    return raw ? (JSON.parse(raw) as FlowLaunch) : null;
   } catch {
     return null;
   }
 }
 
-export function clearAssistantPrefill(): void {
+export function clearPendingLaunch(): void {
   try {
-    sessionStorage.removeItem(ASSISTANT_PREFILL_KEY);
+    sessionStorage.removeItem(PENDING_LAUNCH_KEY);
+    sessionStorage.removeItem("swap-chain:flow-launch");
   } catch {
     // ignore
   }
@@ -173,17 +173,40 @@ export function clearAssistantPrefill(): void {
 
 export function storeChatState(state: ChatState): void {
   try {
-    sessionStorage.setItem(ASSISTANT_CHAT_KEY, JSON.stringify(state));
+    sessionStorage.setItem(CHAT_STATE_KEY, JSON.stringify(state));
   } catch {
     // ignore
   }
 }
 
+function migrateChatReply(
+  reply: ChatReply & {
+    targetFlow?: FlowId | null;
+    seed?: FlowLaunch;
+  }
+): ChatReply {
+  if (reply.launch) return reply;
+  if (reply.targetFlow) {
+    return {
+      ...reply,
+      launch: { flow: reply.targetFlow, ...(reply.seed ?? {}) },
+    };
+  }
+  return reply;
+}
+
 export function loadChatState(): ChatState | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(ASSISTANT_CHAT_KEY);
-    return raw ? (JSON.parse(raw) as ChatState) : null;
+    const raw = sessionStorage.getItem(CHAT_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ChatState & { lastTurn?: ChatReply | null };
+    const lastReply = parsed.lastReply ?? parsed.lastTurn ?? null;
+    if (!parsed.messages) return null;
+    return {
+      messages: parsed.messages,
+      lastReply: lastReply ? migrateChatReply(lastReply) : null,
+    };
   } catch {
     return null;
   }
@@ -191,7 +214,7 @@ export function loadChatState(): ChatState | null {
 
 export function clearChatState(): void {
   try {
-    sessionStorage.removeItem(ASSISTANT_CHAT_KEY);
+    sessionStorage.removeItem(CHAT_STATE_KEY);
   } catch {
     // ignore
   }

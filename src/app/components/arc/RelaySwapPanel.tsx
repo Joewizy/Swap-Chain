@@ -15,7 +15,7 @@ import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { useWalletClient } from "wagmi";
 import toast from "react-hot-toast";
 import { Icon } from "./icons";
-import { clearAssistantPrefill, loadAssistantPrefill } from "./swapUrl";
+import { clearPendingLaunch, loadPendingLaunch } from "./swapUrl";
 import {
   DEFAULT_SETTLEMENT_CHAIN_ID,
   getChain,
@@ -54,7 +54,7 @@ function defaultPair(): { from?: Token; to?: Token } {
   return { from, to: to?.address === from?.address ? undefined : to };
 }
 
-function pairFromPrefill(
+function pairFromLaunch(
   fromSymbol?: string,
   toSymbol?: string
 ): { from?: Token; to?: Token } {
@@ -89,14 +89,14 @@ export function RelaySwapPanel() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const prefill = loadAssistantPrefill();
+    const launch = loadPendingLaunch();
     const base = defaultPair();
-    if (prefill?.flow === "bridge") {
-      const seeded = pairFromPrefill(prefill.fromToken, prefill.toToken);
+    if (launch?.flow === "bridge") {
+      const seeded = pairFromLaunch(launch.fromToken, launch.toToken);
       setFromToken(seeded.from ?? base.from);
       setToToken(seeded.to ?? base.to);
-      if (prefill.amount) setDefaultAmount(prefill.amount);
-      clearAssistantPrefill();
+      if (launch.amount) setDefaultAmount(launch.amount);
+      clearPendingLaunch();
     } else {
       setFromToken(base.from);
       setToToken(base.to);

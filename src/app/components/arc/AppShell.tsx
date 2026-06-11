@@ -34,16 +34,16 @@ import {
 import { chainIdFromPaycrestSlug } from "@/rails/paycrest";
 import { formatFiat, titleCase } from "@/utils";
 import { resolveInstitutionHint } from "@/assistant/institutions";
-import type { AssistantHandoff } from "@/assistant/types";
+import type { FlowLaunch } from "@/assistant/types";
 import {
-  clearAssistantPrefill,
   clearChatState,
   clearFlowDraft,
+  clearPendingLaunch,
   clearStoredIntent,
   loadStoredIntent,
   parseFlow,
   parseView,
-  storeAssistantPrefill,
+  savePendingLaunch,
   storeIntent,
   type SwapView,
 } from "./swapUrl";
@@ -189,24 +189,23 @@ export default function AppShell() {
     patchUrl({ view: "send", flow: id, status: null, step: null });
   };
 
-  const handoffFromChat = async (handoff: AssistantHandoff) => {
+  const launchFlow = async (launch: FlowLaunch) => {
     clearFlowDraft();
-    clearAssistantPrefill();
+    clearPendingLaunch();
 
-    const currency = handoff.currency ?? "NGN";
-    const matched = handoff.recipientHint
-      ? matchRecipient(handoff.recipientHint, currency)
+    const currency = launch.currency ?? "NGN";
+    const matched = launch.recipientHint
+      ? matchRecipient(launch.recipientHint, currency)
       : null;
     if (matched) storePendingRecipient(matched);
 
-    // Resolve the bank/mobile-money hint client-side (no PII to the LLM) so the
-    // cash-out form opens with the bank pre-selected. (Swaps don't need it.)
+    // Resolve bank/mobile-money hint client-side (no PII to the LLM).
     let institution: string | undefined;
     let institutionName: string | undefined;
-    if (handoff.flow === "cashout" && handoff.institutionHint) {
+    if (launch.flow === "cashout" && launch.institutionHint) {
       const partial = await resolveInstitutionHint(
         currency,
-        handoff.institutionHint
+        launch.institutionHint
       );
       if (partial) {
         institution = partial.institution;
@@ -214,12 +213,8 @@ export default function AppShell() {
       }
     }
 
-    storeAssistantPrefill({
-      ...handoff,
-      institution,
-      institutionName,
-    });
-    pickFlow(handoff.flow);
+    savePendingLaunch({ ...launch, institution, institutionName });
+    pickFlow(launch.flow);
     setDrawerOpen(false);
   };
 
@@ -253,7 +248,7 @@ export default function AppShell() {
       case "describe":
         return (
           <WithBack onBack={backToChooser}>
-            <SendScreen onHandoff={handoffFromChat} />
+            <SendScreen onLaunch={launchFlow} />
           </WithBack>
         );
       default:

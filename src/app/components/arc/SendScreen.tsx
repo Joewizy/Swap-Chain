@@ -10,7 +10,7 @@ import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { parseUnits } from "viem";
 import { Icon } from "./icons";
 import { AssistantChat } from "./AssistantChat";
-import type { AssistantHandoff } from "@/assistant/types";
+import type { FlowLaunch } from "@/assistant/types";
 import {
   useCctp,
   usePaycrestOfframp,
@@ -325,9 +325,9 @@ function buildQuote(intent: IntentResponse, routed: RouterResponse): Quote {
 
 /* ───────── Send root (conversational describe flow) ───────── */
 export function SendScreen({
-  onHandoff,
+  onLaunch,
 }: {
-  onHandoff: (handoff: AssistantHandoff) => void;
+  onLaunch: (launch: FlowLaunch) => void;
 }) {
   return (
     <div className="col gap-6">
@@ -346,7 +346,7 @@ export function SendScreen({
           Chat with the assistant — we&apos;ll route you to the right flow.
         </span>
       </header>
-      <AssistantChat onHandoff={onHandoff} />
+      <AssistantChat onLaunch={onLaunch} />
     </div>
   );
 }

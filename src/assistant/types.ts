@@ -1,4 +1,11 @@
-/** Shared types for the conversational assistant (client + server). */
+/**
+ * Chat routing types — distinct from SendScreen's `Intent`, which is a
+ * fully-quoted transfer ready for signing (text + Quote).
+ *
+ * Progression: ChatMessage → ChatReply → FlowLaunch → Intent → Execution
+ */
+
+import type { FlowId } from "@/app/components/arc/Home";
 
 export type ChatRole = "user" | "assistant";
 
@@ -7,11 +14,11 @@ export type ChatMessage = {
   content: string;
 };
 
-export type AssistantFlow = "cashout" | "buy" | "bridge";
+/** One structured reply from POST /api/chat. */
+export type ReplyStatus = "clarifying" | "ready" | "unsupported";
 
-export type AssistantStatus = "clarifying" | "ready" | "unsupported";
-
-export type AssistantPrefill = {
+/** Partial fields a guided flow can prefill — amount is optional (entered on the flow UI). */
+export type FlowSeed = {
   amount?: string;
   token?: string;
   fromToken?: string;
@@ -21,28 +28,22 @@ export type AssistantPrefill = {
   institutionHint?: string;
 };
 
-export type AssistantTurn = {
-  message: string;
-  status: AssistantStatus;
-  targetFlow: AssistantFlow | null;
-  prefill: AssistantPrefill;
-  plan: string[];
-  missing: string[];
-};
-
-/** Stored in sessionStorage when handing off from chat to a guided flow. */
-export type AssistantHandoff = {
-  flow: AssistantFlow;
-  amount?: string;
-  token?: string;
-  fromToken?: string;
-  toToken?: string;
-  currency?: string;
-  recipientHint?: string;
-  institutionHint?: string;
+/** Where to go next: flow + seed are always paired. Present on ChatReply when status is ready. */
+export type FlowLaunch = FlowSeed & {
+  flow: FlowId;
   plan?: string[];
+  /** First user message in the thread — attached client-side before navigation. */
   chatSummary?: string;
-  /** Pre-resolved Paycrest institution code (client-side fuzzy match). */
+  /** Resolved client-side from institutionHint (never from the LLM). */
   institution?: string;
   institutionName?: string;
+};
+
+export type ChatReply = {
+  message: string;
+  status: ReplyStatus;
+  /** Set only when status is "ready" — guarantees flow and seed stay coupled. */
+  launch?: FlowLaunch;
+  plan: string[];
+  missing: string[];
 };
