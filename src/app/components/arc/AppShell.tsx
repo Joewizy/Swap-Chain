@@ -10,13 +10,13 @@
 // StatusScreen as the CCTP mint recipient.
 
 import React, { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAccount, useDisconnect } from "wagmi";
 import { useAccountModal, useConnectModal } from "@rainbow-me/rainbowkit";
 import { Icon } from "./icons";
 import { SendScreen, StatusScreen, type Intent } from "./SendScreen";
 import { Home, type FlowId } from "./Home";
-import { SwapForm } from "./SwapForm";
+import { RelaySwapPanel } from "./RelaySwapPanel";
 import { CashoutFlow } from "./flows/CashoutFlow";
 import { BuyFlow } from "./flows/BuyFlow";
 import {
@@ -33,8 +33,18 @@ import {
 } from "@/config/network";
 import { chainIdFromPaycrestSlug } from "@/rails/paycrest";
 import { formatFiat, titleCase } from "@/utils";
+import {
+  clearFlowDraft,
+  clearStoredIntent,
+  loadStoredIntent,
+  parseFlow,
+  parseView,
+  storeIntent,
+  type SwapView,
+} from "./swapUrl";
+import { useSwapFlowNav } from "./useSwapFlowNav";
 
-type View = "send" | "history" | "recipients" | "settings";
+type View = SwapView;
 
 /** Reconstructs a minimal Intent from a History order so StatusScreen can
  *  adopt and fund it (resumeOrderId tells StatusScreen not to recreate it). */
@@ -104,39 +114,69 @@ function useIsMobile(): boolean {
 
 export default function AppShell() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { patchUrl } = useSwapFlowNav();
   const onBack = () => router.push("/");
   const isMobile = useIsMobile();
 
-  const [view, setView] = useState<View>("send");
+  // Navigation is mirrored in the URL so refresh keeps the current screen.
+  const view = parseView(searchParams.get("view"));
+  const flow = parseFlow(searchParams.get("flow"));
+  const showStatus = searchParams.get("status") === "1";
+
   const [recentIntent, setRecentIntent] = useState<Intent | null>(null);
-  const [showStatus, setShowStatus] = useState(false);
-  // Send view starts on the Home chooser; picking a goal opens its flow.
-  const [flow, setFlow] = useState<FlowId | "describe" | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // Restore in-flight status after refresh (?status=1), or drop a stale param.
+  useEffect(() => {
+    if (!showStatus) {
+      setRecentIntent(null);
+      return;
+    }
+    const stored = loadStoredIntent();
+    if (stored) setRecentIntent(stored);
+    else patchUrl({ status: null });
+  }, [showStatus, patchUrl]);
+
   const goToView = (v: View) => {
-    setShowStatus(false);
-    setFlow(null);
-    setView(v);
+    clearStoredIntent();
+    clearFlowDraft();
+    patchUrl({ view: v, flow: null, status: null, step: null });
     setDrawerOpen(false);
   };
 
-  // jump to status pane when a send is confirmed
   const submit = (intent: Intent) => {
+    clearFlowDraft();
+    storeIntent(intent);
     setRecentIntent(intent);
-    setShowStatus(true);
+    patchUrl({ view: "send", flow: null, status: true, step: null });
   };
 
-  // resume a still-fundable order from History into the status screen
   const resumeOrder = (order: Order) => {
-    setRecentIntent(intentFromOrder(order));
-    setFlow(null);
-    setView("send");
-    setShowStatus(true);
+    clearFlowDraft();
+    const intent = intentFromOrder(order);
+    storeIntent(intent);
+    setRecentIntent(intent);
+    patchUrl({ view: "send", flow: null, status: true, step: null });
     setDrawerOpen(false);
   };
 
-  const backToChooser = () => setFlow(null);
+  const pickFlow = (id: FlowId | "describe") => {
+    clearFlowDraft();
+    patchUrl({ view: "send", flow: id, status: null, step: null });
+  };
+
+  const backToChooser = () => {
+    clearFlowDraft();
+    patchUrl({ flow: null, step: null });
+  };
+
+  const finishStatus = () => {
+    clearStoredIntent();
+    clearFlowDraft();
+    setRecentIntent(null);
+    patchUrl({ status: null, step: null });
+  };
 
   // Bridge/Swap uses the swap card; "describe" is the NL path; cash out /
   // buy are guided fiat flows. All converge on Review → StatusScreen.
@@ -149,22 +189,22 @@ export default function AppShell() {
       case "bridge":
         return (
           <WithBack onBack={backToChooser}>
-            <SwapForm onSubmit={submit} />
+            <RelaySwapPanel />
           </WithBack>
         );
       case "describe":
         return (
           <WithBack onBack={backToChooser}>
-            <SendScreen onSubmit={submit} describeOnly />
+            <SendScreen onSubmit={submit} />
           </WithBack>
         );
       default:
-        return <Home onPick={setFlow} />;
+        return <Home onPick={pickFlow} />;
     }
   };
 
   const sendBody = showStatus ? (
-    <StatusScreen intent={recentIntent} onDone={() => setShowStatus(false)} />
+    <StatusScreen intent={recentIntent} onDone={finishStatus} />
   ) : (
     flowBody()
   );

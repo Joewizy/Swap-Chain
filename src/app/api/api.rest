@@ -207,7 +207,7 @@ Content-Type: application/json
   "network": "base",
   "refundAddress": "{{wallet}}",
   "currency": "NGN",
-  "recipient": { "institution": "OPAYNGPC", "accountIdentifier": "8012345678", "accountName": "Test User" },
+  "recipient": { "institution": "OPAYNGPC", "accountIdentifier": "8170106043"},
   "reference": "swap-chain-offramp-rest"
 }
 
@@ -224,10 +224,10 @@ Content-Type: application/json
   "token": "USDC",
   "network": "base",
   "recipientAddress": "{{wallet}}",
-  "refundAccount": { "institution": "OPAYNGPC", "accountIdentifier": "8012345678", "accountName": "Test User" },
+  "refundAccount": { "institution": "OPAYNGPC", "accountIdentifier": "8170106043"},
   "reference": "swap-chain-onramp-rest"
 }
 
 ### Paycrest order — poll status (replace ORDER_ID)
-GET {{baseUrl}}/api/paycrest/order/28ecaba0-baa1-4a8d-ab96-be08fb4be270
+GET {{baseUrl}}/api/paycrest/order/a6b7f345-6d04-4d4e-ba55-88ee4d9b7d81
 

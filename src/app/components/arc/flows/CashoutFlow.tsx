@@ -10,7 +10,8 @@
  * money details and runs the connect → confirm → execute flow).
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import toast from "react-hot-toast";
 import { DEFAULT_SETTLEMENT_CHAIN_ID, getChain } from "@/config/network";
 import { PAYCREST_FIAT } from "@/rails/paycrest";
 import { fiatOptionLabel, formatAmountInput, formatFiat } from "@/utils";
@@ -19,11 +20,39 @@ import {
   quoteFromIntent,
   type Intent,
   type IntentResponse,
+  type PayoutDetails,
   type Quote,
 } from "../SendScreen";
 import { Icon } from "../icons";
+import {
+  clearFlowDraft,
+  isDraftStale,
+  loadFlowDraft,
+  storeFlowDraft,
+  type FlowDraft,
+} from "../swapUrl";
+import { useSwapFlowNav } from "../useSwapFlowNav";
 
 const TOKENS = ["USDC", "USDT"] as const;
+
+/** Fetch the live off-ramp rate and return the lines to overwrite on a quote. */
+async function fetchCashoutRate(amount: string, currency: string, token: string) {
+  try {
+    const res = await fetch(
+      `/api/paycrest/rate?fiat=${encodeURIComponent(currency)}&token=${token}`
+    );
+    const data = await res.json();
+    if (res.ok && data?.rate) {
+      return {
+        amount: `≈ ${formatFiat(currency, Number(amount) * Number(data.rate))}`,
+        rate: `${data.rate} ${currency}/${token}`,
+      };
+    }
+  } catch {
+    // Rate is a nicety — the exact figure comes from the order invoice.
+  }
+  return null;
+}
 
 export function CashoutFlow({
   onSubmit,
@@ -32,17 +61,75 @@ export function CashoutFlow({
   onSubmit: (intent: Intent) => void;
   onBack: () => void;
 }) {
+  const { step, setStep, patchUrl } = useSwapFlowNav();
   const [amount, setAmount] = useState("");
   const [token, setToken] = useState<(typeof TOKENS)[number]>("USDC");
   const [currency, setCurrency] = useState<string>("NGN");
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [payoutDraft, setPayoutDraft] = useState<PayoutDetails | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(step !== "review");
 
   const sourceChain = DEFAULT_SETTLEMENT_CHAIN_ID;
   const sourceName = getChain(sourceChain)?.name ?? sourceChain;
   const canContinue = Number(amount) > 0;
   const label = `Cash out ${amount} ${token} to ${currency}`;
+
+  useEffect(() => {
+    if (step !== "review") {
+      setReady(true);
+      return;
+    }
+    const draft = loadFlowDraft();
+    if (draft?.flow === "cashout") {
+      setAmount(draft.amount);
+      setCurrency(draft.currency);
+      if (draft.token === "USDC" || draft.token === "USDT") {
+        setToken(draft.token);
+      }
+      setQuote(draft.quote);
+      setPayoutDraft(draft.payout);
+      setReady(true);
+      // A persisted quote is a cache — refresh the rate line if it's gone stale.
+      if (isDraftStale(draft)) void refreshRate(draft);
+      return;
+    }
+    setStep("compose");
+    setReady(true);
+  }, [step, setStep]);
+
+  const refreshRate = async (draft: FlowDraft) => {
+    const rate = await fetchCashoutRate(
+      draft.amount,
+      draft.currency,
+      draft.token ?? "USDC"
+    );
+    if (!rate) return;
+    const next: Quote = {
+      ...draft.quote,
+      to: { ...draft.quote.to, amount: rate.amount },
+      rate: rate.rate,
+    };
+    setQuote(next);
+    storeFlowDraft({ ...draft, quote: next });
+    toast.success("Rate updated");
+  };
+
+  const buildDraft = (q: Quote, payout?: PayoutDetails): FlowDraft => ({
+    flow: "cashout",
+    amount,
+    currency,
+    token,
+    quote: q,
+    label,
+    payout,
+  });
+
+  const persistDraft = (q: Quote, payout?: PayoutDetails) => {
+    storeFlowDraft(buildDraft(q, payout));
+    setStep("review");
+  };
 
   const toReview = async () => {
     setLoading(true);
@@ -70,38 +157,53 @@ export function CashoutFlow({
       return setError(r.reason);
     }
 
-    // Estimate the fiat the recipient gets from the live rate (fiat per USDC).
-    try {
-      const res = await fetch(
-        `/api/paycrest/rate?fiat=${encodeURIComponent(currency)}&token=${token}`
-      );
-      const data = await res.json();
-      if (res.ok && data?.rate) {
-        r.to.amount = `≈ ${formatFiat(currency, Number(amount) * Number(data.rate))}`;
-        r.rate = `${data.rate} ${currency}/${token}`;
-      }
-    } catch {
-      // Rate is a nicety — the exact figure comes from the order invoice.
+    const rate = await fetchCashoutRate(amount, currency, token);
+    if (rate) {
+      r.to.amount = rate.amount;
+      r.rate = rate.rate;
     }
 
     setLoading(false);
     setQuote(r);
+    persistDraft(r, payoutDraft);
   };
+
+  const leaveReview = () => {
+    clearFlowDraft();
+    patchUrl({ step: null });
+    setQuote(null);
+    setPayoutDraft(undefined);
+  };
+
+  const handleBack = () => {
+    clearFlowDraft();
+    patchUrl({ step: null });
+    onBack();
+  };
+
+  if (!ready) return null;
 
   if (quote) {
     return (
       <ReviewScreen
         quote={quote}
         text={label}
-        onBack={() => setQuote(null)}
-        onConfirm={(payout) =>
+        initialPayout={payoutDraft}
+        onPayoutChange={(p) => {
+          setPayoutDraft(p);
+          storeFlowDraft(buildDraft(quote, p));
+        }}
+        onBack={leaveReview}
+        onConfirm={(payout) => {
+          clearFlowDraft();
+          patchUrl({ step: null });
           onSubmit({
             text: label,
             quote: payout
               ? { ...quote, exec: { ...quote.exec, payout } }
               : quote,
-          })
-        }
+          });
+        }}
       />
     );
   }
@@ -111,7 +213,7 @@ export function CashoutFlow({
       <header className="col gap-1">
         <button
           className="btn btn-quiet btn-sm"
-          onClick={onBack}
+          onClick={handleBack}
           style={{ padding: "0 8px", alignSelf: "flex-start", marginBottom: 4 }}
         >
           <Icon.Arrow rotate={180} size={12} /> Back

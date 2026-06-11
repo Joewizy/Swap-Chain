@@ -12,7 +12,6 @@ import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { parseUnits } from "viem";
 import { Icon } from "./icons";
-import { SwapForm } from "./SwapForm";
 import {
   useCctp,
   usePaycrestOfframp,
@@ -396,11 +395,8 @@ function buildQuote(intent: IntentResponse, routed: RouterResponse): Quote {
 /* ───────── Send root ───────── */
 export function SendScreen({
   onSubmit,
-  describeOnly = false,
 }: {
   onSubmit: (intent: Intent) => void;
-  /** Reached via the "Describe it" goal — lead with the language box only. */
-  describeOnly?: boolean;
 }) {
   const [stage, setStage] = useState<"compose" | "review">("compose");
   const [text, setText] = useState("");
@@ -486,25 +482,17 @@ export function SendScreen({
             fontWeight: 500,
           }}
         >
-          {describeOnly ? "Describe it" : "Send"}
+          Describe it
         </h1>
         <span className="muted" style={{ fontSize: 14, marginTop: 2 }}>
-          {describeOnly
-            ? "Tell us what you want in plain English — we'll work out the route."
-            : "Pick your tokens and chains — or describe what you want in plain English."}
+          Tell us what you want in plain English — we&apos;ll work out the route.
         </span>
       </header>
 
-      {/* PRIMARY: the swap form (hidden when the user chose "Describe it"). */}
-      {!describeOnly && <SwapForm onSubmit={onSubmit} />}
-
-      {/* AI compose. Both paths end in the same StatusScreen. */}
       <div className="card" style={{ padding: 16 }}>
         <div className="row center gap-2" style={{ marginBottom: 8 }}>
           <Icon.Sparkle />
-          <span className="eyebrow">
-            {describeOnly ? "What would you like to do?" : "Or describe it in plain English"}
-          </span>
+          <span className="eyebrow">What would you like to do?</span>
         </div>
         <textarea
           ref={taRef}
@@ -988,11 +976,16 @@ export function ReviewScreen({
   text,
   onBack,
   onConfirm,
+  initialPayout,
+  onPayoutChange,
 }: {
   quote: Quote;
   text: string;
   onBack: () => void;
   onConfirm: (payout: PayoutDetails | null) => void;
+  /** Restored after refresh when the guided flow draft includes payout fields. */
+  initialPayout?: PayoutDetails;
+  onPayoutChange?: (payout: PayoutDetails) => void;
 }) {
   const { isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
@@ -1002,12 +995,18 @@ export function ReviewScreen({
   const isOnramp =
     quote.exec.action === "onramp" && quote.exec.rail === "paycrest";
   const needsAccountDetails = isOfframp || isOnramp;
-  const [payout, setPayout] = useState<PayoutDetails>({
-    institution: "",
-    institutionName: "",
-    accountIdentifier: quote.exec.recipient ?? "",
-    accountName: "",
-  });
+  const [payout, setPayout] = useState<PayoutDetails>(
+    initialPayout ?? {
+      institution: "",
+      institutionName: "",
+      accountIdentifier: quote.exec.recipient ?? "",
+      accountName: "",
+    }
+  );
+  const setPayoutAndPersist = (next: PayoutDetails) => {
+    setPayout(next);
+    onPayoutChange?.(next);
+  };
   const payoutReady =
     !needsAccountDetails ||
     (!!payout.institution &&
@@ -1195,7 +1194,7 @@ export function ReviewScreen({
         <PayoutForm
           currency={quote.exec.fiatCurrency}
           value={payout}
-          onChange={setPayout}
+          onChange={setPayoutAndPersist}
           mode={isOnramp ? "refund" : "payout"}
         />
       )}

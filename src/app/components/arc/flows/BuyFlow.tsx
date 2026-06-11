@@ -9,7 +9,8 @@
  * account and shows the deposit instructions through execution).
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import toast from "react-hot-toast";
 import { DEFAULT_SETTLEMENT_CHAIN_ID, getChain } from "@/config/network";
 import { PAYCREST_FIAT } from "@/rails/paycrest";
 import { fiatOptionLabel, formatAmountInput, formatToken } from "@/utils";
@@ -18,9 +19,38 @@ import {
   quoteFromIntent,
   type Intent,
   type IntentResponse,
+  type PayoutDetails,
   type Quote,
 } from "../SendScreen";
 import { Icon } from "../icons";
+import {
+  clearFlowDraft,
+  isDraftStale,
+  loadFlowDraft,
+  storeFlowDraft,
+  type FlowDraft,
+} from "../swapUrl";
+import { useSwapFlowNav } from "../useSwapFlowNav";
+
+/** Fetch the live on-ramp rate and return the lines to overwrite on a quote. */
+async function fetchBuyRate(amount: string, currency: string) {
+  try {
+    const res = await fetch(
+      `/api/paycrest/rate?fiat=${encodeURIComponent(currency)}&token=USDC`
+    );
+    const data = await res.json();
+    if (res.ok && data?.rate) {
+      const usdc = Number(amount) / Number(data.rate);
+      return {
+        amount: `≈ ${formatToken(usdc, "USDC", 2)}`,
+        rate: `${data.rate} ${currency}/USDC`,
+      };
+    }
+  } catch {
+    // Rate is a nicety — fall back to the placeholder estimate.
+  }
+  return null;
+}
 
 export function BuyFlow({
   onSubmit,
@@ -29,16 +59,67 @@ export function BuyFlow({
   onSubmit: (intent: Intent) => void;
   onBack: () => void;
 }) {
+  const { step, setStep, patchUrl } = useSwapFlowNav();
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<string>("NGN");
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [payoutDraft, setPayoutDraft] = useState<PayoutDetails | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(step !== "review");
 
   const destChain = DEFAULT_SETTLEMENT_CHAIN_ID;
   const destName = getChain(destChain)?.name ?? destChain;
   const canContinue = Number(amount) > 0;
   const label = `Buy USDC with ${amount} ${currency}`;
+
+  // Restore review step after refresh (?flow=buy&step=review).
+  useEffect(() => {
+    if (step !== "review") {
+      setReady(true);
+      return;
+    }
+    const draft = loadFlowDraft();
+    if (draft?.flow === "buy") {
+      setAmount(draft.amount);
+      setCurrency(draft.currency);
+      setQuote(draft.quote);
+      setPayoutDraft(draft.payout);
+      setReady(true);
+      // A persisted quote is a cache — refresh the rate line if it's gone stale.
+      if (isDraftStale(draft)) void refreshRate(draft);
+      return;
+    }
+    setStep("compose");
+    setReady(true);
+  }, [step, setStep]);
+
+  const refreshRate = async (draft: FlowDraft) => {
+    const rate = await fetchBuyRate(draft.amount, draft.currency);
+    if (!rate) return;
+    const next: Quote = {
+      ...draft.quote,
+      to: { ...draft.quote.to, amount: rate.amount },
+      rate: rate.rate,
+    };
+    setQuote(next);
+    storeFlowDraft({ ...draft, quote: next });
+    toast.success("Rate updated");
+  };
+
+  const buildDraft = (q: Quote, payout?: PayoutDetails): FlowDraft => ({
+    flow: "buy",
+    amount,
+    currency,
+    quote: q,
+    label,
+    payout,
+  });
+
+  const persistDraft = (q: Quote, payout?: PayoutDetails) => {
+    storeFlowDraft(buildDraft(q, payout));
+    setStep("review");
+  };
 
   const toReview = async () => {
     setLoading(true);
@@ -46,8 +127,6 @@ export function BuyFlow({
     const intent: IntentResponse = {
       action: "onramp",
       fromChain: null,
-      // fromToken = the fiat code marks this as a fiat-denominated buy
-      // (the pipeline reads "you pay this much fiat", not "buy this much USDC").
       fromToken: currency,
       fromAmount: amount,
       toChain: destChain,
@@ -68,39 +147,53 @@ export function BuyFlow({
       return setError(r.reason);
     }
 
-    // Estimate the USDC received from the live rate (fiat per 1 USDC).
-    try {
-      const res = await fetch(
-        `/api/paycrest/rate?fiat=${encodeURIComponent(currency)}&token=USDC`
-      );
-      const data = await res.json();
-      if (res.ok && data?.rate) {
-        const usdc = Number(amount) / Number(data.rate);
-        r.to.amount = `≈ ${formatToken(usdc, "USDC", 2)}`;
-        r.rate = `${data.rate} ${currency}/USDC`;
-      }
-    } catch {
-      // Rate is a nicety — fall back to the placeholder estimate.
+    const rate = await fetchBuyRate(amount, currency);
+    if (rate) {
+      r.to.amount = rate.amount;
+      r.rate = rate.rate;
     }
 
     setLoading(false);
     setQuote(r);
+    persistDraft(r, payoutDraft);
   };
+
+  const leaveReview = () => {
+    clearFlowDraft();
+    patchUrl({ step: null });
+    setQuote(null);
+    setPayoutDraft(undefined);
+  };
+
+  const handleBack = () => {
+    clearFlowDraft();
+    patchUrl({ step: null });
+    onBack();
+  };
+
+  if (!ready) return null;
 
   if (quote) {
     return (
       <ReviewScreen
         quote={quote}
         text={label}
-        onBack={() => setQuote(null)}
-        onConfirm={(payout) =>
+        initialPayout={payoutDraft}
+        onPayoutChange={(p) => {
+          setPayoutDraft(p);
+          storeFlowDraft(buildDraft(quote, p));
+        }}
+        onBack={leaveReview}
+        onConfirm={(payout) => {
+          clearFlowDraft();
+          patchUrl({ step: null });
           onSubmit({
             text: label,
             quote: payout
               ? { ...quote, exec: { ...quote.exec, payout } }
               : quote,
-          })
-        }
+          });
+        }}
       />
     );
   }
@@ -110,7 +203,7 @@ export function BuyFlow({
       <header className="col gap-1">
         <button
           className="btn btn-quiet btn-sm"
-          onClick={onBack}
+          onClick={handleBack}
           style={{ padding: "0 8px", alignSelf: "flex-start", marginBottom: 4 }}
         >
           <Icon.Arrow rotate={180} size={12} /> Back
