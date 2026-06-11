@@ -72,11 +72,13 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  // On-ramp's source is fiat — there's no crypto source token to validate.
+  const isOnramp = action === "onramp";
   const fromToken: TokenSymbol | undefined =
     typeof body.fromToken === "string"
       ? resolveToken(body.fromToken)
       : undefined;
-  if (!fromToken) {
+  if (!isOnramp && !fromToken) {
     return NextResponse.json(
       { error: `Unknown source token "${String(body.fromToken)}"` },
       { status: 400 }
@@ -124,7 +126,8 @@ export async function POST(req: NextRequest) {
     decision = selectRail({
       action: action as RouteAction,
       fromChain,
-      fromToken,
+      // On-ramp ignores the source token; fall back so the type is satisfied.
+      fromToken: fromToken ?? toToken ?? ("USDC" as TokenSymbol),
       amount,
       toChain,
       toToken,
