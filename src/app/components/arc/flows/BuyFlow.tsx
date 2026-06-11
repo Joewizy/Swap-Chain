@@ -24,8 +24,10 @@ import {
 } from "../SendScreen";
 import { Icon } from "../icons";
 import {
+  clearAssistantPrefill,
   clearFlowDraft,
   isDraftStale,
+  loadAssistantPrefill,
   loadFlowDraft,
   storeFlowDraft,
   type FlowDraft,
@@ -93,6 +95,14 @@ export function BuyFlow({
     setStep("compose");
     setReady(true);
   }, [step, setStep]);
+
+  useEffect(() => {
+    const prefill = loadAssistantPrefill();
+    if (!prefill || prefill.flow !== "buy") return;
+    if (prefill.amount) setAmount(prefill.amount);
+    if (prefill.currency) setCurrency(prefill.currency);
+    clearAssistantPrefill();
+  }, []);
 
   const refreshRate = async (draft: FlowDraft) => {
     const rate = await fetchBuyRate(draft.amount, draft.currency);

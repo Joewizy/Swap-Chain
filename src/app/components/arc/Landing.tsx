@@ -45,20 +45,12 @@ function TopBar({ onOpenApp }: OpenApp) {
         <a href="#settlement" style={{ padding: "8px 12px" }}>
           Settlement
         </a>
-        <a
-          href="#"
-          onClick={(e) => e.preventDefault()}
-          className="row center gap-1"
-          style={{ padding: "8px 12px" }}
-        >
-          Docs <Icon.Arrow size={11} />
-        </a>
         <button
           className="btn btn-primary btn-sm"
           onClick={onOpenApp}
           style={{ marginLeft: 4 }}
         >
-          Try the demo
+          Launch app
         </button>
       </div>
     </nav>
@@ -84,9 +76,6 @@ function Hero({ onOpenApp }: OpenApp) {
         >
           {/* left: copy */}
           <div>
-            <span className="chip chip-accent" style={{ marginBottom: 22 }}>
-              <Icon.Sparkle size={11} /> v0.9 · invite-only
-            </span>
             <h1
               style={{
                 fontSize: "var(--t-display)",
@@ -113,20 +102,10 @@ function Hero({ onOpenApp }: OpenApp) {
               land in a local bank, mobile money account, another wallet, or
               another chain.
             </p>
-            <div
-              className="row gap-3"
-              style={{ marginTop: 32, flexWrap: "wrap" }}
-            >
+            <div style={{ marginTop: 32 }}>
               <button className="btn btn-primary btn-big" onClick={onOpenApp}>
-                Try the demo <Icon.ArrowRight />
+                Launch app <Icon.ArrowRight />
               </button>
-              <a
-                href="#"
-                onClick={(e) => e.preventDefault()}
-                className="btn btn-ghost btn-big"
-              >
-                Request access
-              </a>
             </div>
             <div
               className="row center gap-4"
@@ -219,7 +198,7 @@ function HeroMockup() {
             swap-chain.app · /send
           </span>
           <span className="chip chip-inline" style={{ fontSize: 10 }}>
-            demo
+            live
           </span>
         </div>
 
@@ -1045,20 +1024,10 @@ function FinalCTA({ onOpenApp }: OpenApp) {
           <br />
           <span style={{ color: "var(--fg-mute)" }}>Just say it.</span>
         </h2>
-        <div
-          className="row center gap-3"
-          style={{ justifyContent: "center", marginTop: 28 }}
-        >
+        <div style={{ marginTop: 28, textAlign: "center" }}>
           <button className="btn btn-primary btn-big" onClick={onOpenApp}>
-            Try the demo <Icon.ArrowRight />
+            Launch app <Icon.ArrowRight />
           </button>
-          <a
-            href="#"
-            onClick={(e) => e.preventDefault()}
-            className="btn btn-ghost btn-big"
-          >
-            Request access
-          </a>
         </div>
       </div>
     </section>
@@ -1086,9 +1055,6 @@ function Footer() {
           <span>© 2026 Swap Chain Labs</span>
         </div>
         <div className="row center gap-6">
-          <a href="#" onClick={(e) => e.preventDefault()}>
-            Docs
-          </a>
           <a href="#" onClick={(e) => e.preventDefault()}>
             API
           </a>

@@ -1,3 +1,9 @@
+/**
+ * @deprecated Single-shot intent parser. The main app now uses the multi-turn
+ * conversational assistant at POST /api/chat (see src/app/api/chat/route.ts).
+ * This route is kept only for the legacy /dashboard/transfer page; remove it
+ * once that page is migrated or retired.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import {

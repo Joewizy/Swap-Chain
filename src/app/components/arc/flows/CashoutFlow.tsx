@@ -25,8 +25,10 @@ import {
 } from "../SendScreen";
 import { Icon } from "../icons";
 import {
+  clearAssistantPrefill,
   clearFlowDraft,
   isDraftStale,
+  loadAssistantPrefill,
   loadFlowDraft,
   storeFlowDraft,
   type FlowDraft,
@@ -111,6 +113,26 @@ export function CashoutFlow({
     setCurrency(pending.currency);
     setPayoutDraft(recipientToPayout(pending));
     clearPendingRecipient();
+  }, []);
+
+  // Prefill from the conversational assistant handoff.
+  useEffect(() => {
+    const prefill = loadAssistantPrefill();
+    if (!prefill || prefill.flow !== "cashout") return;
+    if (prefill.amount) setAmount(prefill.amount);
+    if (prefill.currency) setCurrency(prefill.currency);
+    if (prefill.token === "USDC" || prefill.token === "USDT") {
+      setToken(prefill.token);
+    }
+    if (prefill.institution || prefill.institutionName) {
+      setPayoutDraft((prev) => ({
+        institution: prefill.institution ?? prev?.institution ?? "",
+        institutionName: prefill.institutionName ?? prev?.institutionName ?? "",
+        accountIdentifier: prev?.accountIdentifier ?? "",
+        accountName: prev?.accountName ?? "",
+      }));
+    }
+    clearAssistantPrefill();
   }, []);
 
   const refreshRate = async (draft: FlowDraft) => {

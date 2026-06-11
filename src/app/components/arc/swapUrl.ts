@@ -1,3 +1,8 @@
+import type {
+  AssistantHandoff,
+  AssistantTurn,
+  ChatMessage,
+} from "@/assistant/types";
 import type { FlowId } from "./Home";
 import type { Intent, PayoutDetails, Quote } from "./SendScreen";
 
@@ -9,6 +14,11 @@ const VIEW_IDS = new Set<string>(["history", "recipients", "settings"]);
 
 export const SWAP_INTENT_STORAGE_KEY = "swap-chain:intent";
 export const SWAP_FLOW_DRAFT_KEY = "swap-chain:flow-draft";
+export const ASSISTANT_PREFILL_KEY = "swap-chain:assistant-prefill";
+export const ASSISTANT_CHAT_KEY = "swap-chain:assistant-chat";
+
+/** Persisted chat transcript so the conversation survives a refresh. */
+export type ChatState = { messages: ChatMessage[]; lastTurn: AssistantTurn | null };
 
 /** Persisted guided-flow state (cash out / buy) so review survives refresh. */
 export type FlowDraft = {
@@ -128,6 +138,60 @@ export function storeFlowDraft(draft: FlowDraft): void {
 export function clearFlowDraft(): void {
   try {
     sessionStorage.removeItem(SWAP_FLOW_DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function storeAssistantPrefill(handoff: AssistantHandoff): void {
+  try {
+    sessionStorage.setItem(ASSISTANT_PREFILL_KEY, JSON.stringify(handoff));
+  } catch {
+    // ignore
+  }
+}
+
+export function loadAssistantPrefill(): AssistantHandoff | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(ASSISTANT_PREFILL_KEY);
+    return raw ? (JSON.parse(raw) as AssistantHandoff) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearAssistantPrefill(): void {
+  try {
+    sessionStorage.removeItem(ASSISTANT_PREFILL_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+// --- chat transcript (survives refresh) ---------------------------------
+
+export function storeChatState(state: ChatState): void {
+  try {
+    sessionStorage.setItem(ASSISTANT_CHAT_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
+export function loadChatState(): ChatState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(ASSISTANT_CHAT_KEY);
+    return raw ? (JSON.parse(raw) as ChatState) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearChatState(): void {
+  try {
+    sessionStorage.removeItem(ASSISTANT_CHAT_KEY);
   } catch {
     // ignore
   }

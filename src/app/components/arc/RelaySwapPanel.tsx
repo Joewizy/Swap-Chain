@@ -8,13 +8,14 @@
  * CCTP/Chainrails are out of scope here — add a router fork later if needed.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SwapWidget, type Token } from "@relayprotocol/relay-kit-ui";
 import { adaptViemWallet } from "@relayprotocol/relay-sdk";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { useWalletClient } from "wagmi";
 import toast from "react-hot-toast";
 import { Icon } from "./icons";
+import { clearAssistantPrefill, loadAssistantPrefill } from "./swapUrl";
 import {
   DEFAULT_SETTLEMENT_CHAIN_ID,
   getChain,
@@ -53,6 +54,24 @@ function defaultPair(): { from?: Token; to?: Token } {
   return { from, to: to?.address === from?.address ? undefined : to };
 }
 
+function pairFromPrefill(
+  fromSymbol?: string,
+  toSymbol?: string
+): { from?: Token; to?: Token } {
+  const chainId = DEFAULT_SETTLEMENT_CHAIN_ID;
+  const defaults = defaultPair();
+  const from = fromSymbol
+    ? relayToken(fromSymbol as TokenSymbol, chainId)
+    : undefined;
+  const to = toSymbol
+    ? relayToken(toSymbol as TokenSymbol, chainId)
+    : undefined;
+  const resolvedFrom = from ?? defaults.from;
+  const resolvedTo =
+    to && to.address !== resolvedFrom?.address ? to : defaults.to;
+  return { from: resolvedFrom, to: resolvedTo };
+}
+
 export function RelaySwapPanel() {
   const { openConnectModal } = useConnectModal();
   const { data: walletClient } = useWalletClient();
@@ -62,9 +81,28 @@ export function RelaySwapPanel() {
     [walletClient]
   );
 
-  const pair = useMemo(() => defaultPair(), []);
-  const [fromToken, setFromToken] = useState<Token | undefined>(pair.from);
-  const [toToken, setToToken] = useState<Token | undefined>(pair.to);
+  const [fromToken, setFromToken] = useState<Token | undefined>();
+  const [toToken, setToToken] = useState<Token | undefined>();
+  const [defaultAmount, setDefaultAmount] = useState("10");
+  // The widget reads `defaultAmount` only on its first mount, so we hold it
+  // back until the chat prefill is applied — otherwise it locks onto "10".
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const prefill = loadAssistantPrefill();
+    const base = defaultPair();
+    if (prefill?.flow === "bridge") {
+      const seeded = pairFromPrefill(prefill.fromToken, prefill.toToken);
+      setFromToken(seeded.from ?? base.from);
+      setToToken(seeded.to ?? base.to);
+      if (prefill.amount) setDefaultAmount(prefill.amount);
+      clearAssistantPrefill();
+    } else {
+      setFromToken(base.from);
+      setToToken(base.to);
+    }
+    setReady(true);
+  }, []);
 
   return (
     <div style={{ display: "flex", justifyContent: "center", width: "100%" }}>
@@ -78,22 +116,31 @@ export function RelaySwapPanel() {
           </span>
         </header>
 
-        <SwapWidget
-          wallet={wallet}
-          fromToken={fromToken}
-          setFromToken={setFromToken}
-          toToken={toToken}
-          setToToken={setToToken}
-          defaultAmount="10"
-          supportedWalletVMs={["evm"]}
-          onConnectWallet={() => openConnectModal?.()}
-          onSwapSuccess={() => {
-            toast.success("Swap complete");
-          }}
-          onSwapError={(message) => {
-            toast.error(message || "Swap failed");
-          }}
-        />
+        {ready ? (
+          <SwapWidget
+            wallet={wallet}
+            fromToken={fromToken}
+            setFromToken={setFromToken}
+            toToken={toToken}
+            setToToken={setToToken}
+            defaultAmount={defaultAmount}
+            supportedWalletVMs={["evm"]}
+            onConnectWallet={() => openConnectModal?.()}
+            onSwapSuccess={() => {
+              toast.success("Swap complete");
+            }}
+            onSwapError={(message) => {
+              toast.error(message || "Swap failed");
+            }}
+          />
+        ) : (
+          <div
+            className="row center"
+            style={{ minHeight: 360, justifyContent: "center", color: "var(--fg-mute)" }}
+          >
+            <Icon.Spinner size={18} />
+          </div>
+        )}
 
         <span
           className="row center gap-1"

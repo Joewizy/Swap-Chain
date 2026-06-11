@@ -16,7 +16,82 @@
 @cctpBurnTxHash = 0x0000000000000000000000000000000000000000000000000000000000000000
 
 ###############################################################################
-# AI intent — natural language → JSON (OPENAI_API_KEY)
+# AI assistant — multi-turn chat → flow handoff (OPENAI_API_KEY)
+###############################################################################
+
+### Chat — DAI to NGN on Opay (clarifying)
+POST {{baseUrl}}/api/chat
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hi, I want to convert my DAI to naira and send it to my opay"
+    }
+  ]
+}
+
+### Chat — follow-up with amount (ready → bridge handoff)
+POST {{baseUrl}}/api/chat
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hi, I want to convert my DAI to naira and send it to my opay"
+    },
+    {
+      "role": "assistant",
+      "content": "We can pay out to Nigerian Naira — including Opay — but settlement requires USDC or USDT. Your DAI will need a quick swap to USDC first, then a cash-out. How much DAI are you converting?"
+    },
+    { "role": "user", "content": "200" }
+  ]
+}
+
+### Chat — direct USDC cash-out
+POST {{baseUrl}}/api/chat
+Content-Type: application/json
+
+{
+  "messages": [
+    { "role": "user", "content": "Cash out 500 USDC to GTBank" }
+  ]
+}
+
+###############################################################################
+# AI assistant (multi-turn chat) — conversational intent → flow handoff
+###############################################################################
+
+### Chat — DAI to naira on Opay (composite: swap then cash out)
+POST {{baseUrl}}/api/chat
+Content-Type: application/json
+
+{ "messages": [
+  { "role": "user", "content": "Hi, I want to convert my DAI to naira and send it to my opay" }
+] }
+
+### Chat — follow-up with the amount (expects status: ready, targetFlow: bridge)
+POST {{baseUrl}}/api/chat
+Content-Type: application/json
+
+{ "messages": [
+  { "role": "user", "content": "Hi, I want to convert my DAI to naira and send it to my opay" },
+  { "role": "assistant", "content": "Your DAI needs a quick swap to USDC first, then we cash out to Opay. How much DAI?" },
+  { "role": "user", "content": "200" }
+] }
+
+### Chat — direct cash-out (expects status: ready, targetFlow: cashout)
+POST {{baseUrl}}/api/chat
+Content-Type: application/json
+
+{ "messages": [
+  { "role": "user", "content": "Cash out 500 USDC to GTBank" }
+] }
+
+###############################################################################
+# AI intent (legacy single-shot) — natural language → JSON
 ###############################################################################
 
 ### Intent — USDC bridge

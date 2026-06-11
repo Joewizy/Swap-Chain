@@ -33,17 +33,23 @@ import {
 } from "@/config/network";
 import { chainIdFromPaycrestSlug } from "@/rails/paycrest";
 import { formatFiat, titleCase } from "@/utils";
+import { resolveInstitutionHint } from "@/assistant/institutions";
+import type { AssistantHandoff } from "@/assistant/types";
 import {
+  clearAssistantPrefill,
+  clearChatState,
   clearFlowDraft,
   clearStoredIntent,
   loadStoredIntent,
   parseFlow,
   parseView,
+  storeAssistantPrefill,
   storeIntent,
   type SwapView,
 } from "./swapUrl";
 import { useSwapFlowNav } from "./useSwapFlowNav";
 import {
+  matchRecipient,
   storePendingRecipient,
   upsertRecipient,
   type Recipient,
@@ -183,6 +189,40 @@ export default function AppShell() {
     patchUrl({ view: "send", flow: id, status: null, step: null });
   };
 
+  const handoffFromChat = async (handoff: AssistantHandoff) => {
+    clearFlowDraft();
+    clearAssistantPrefill();
+
+    const currency = handoff.currency ?? "NGN";
+    const matched = handoff.recipientHint
+      ? matchRecipient(handoff.recipientHint, currency)
+      : null;
+    if (matched) storePendingRecipient(matched);
+
+    // Resolve the bank/mobile-money hint client-side (no PII to the LLM) so the
+    // cash-out form opens with the bank pre-selected. (Swaps don't need it.)
+    let institution: string | undefined;
+    let institutionName: string | undefined;
+    if (handoff.flow === "cashout" && handoff.institutionHint) {
+      const partial = await resolveInstitutionHint(
+        currency,
+        handoff.institutionHint
+      );
+      if (partial) {
+        institution = partial.institution;
+        institutionName = partial.institutionName;
+      }
+    }
+
+    storeAssistantPrefill({
+      ...handoff,
+      institution,
+      institutionName,
+    });
+    pickFlow(handoff.flow);
+    setDrawerOpen(false);
+  };
+
   const backToChooser = () => {
     clearFlowDraft();
     patchUrl({ flow: null, step: null });
@@ -191,6 +231,7 @@ export default function AppShell() {
   const finishStatus = () => {
     clearStoredIntent();
     clearFlowDraft();
+    clearChatState();
     setRecentIntent(null);
     patchUrl({ status: null, step: null });
   };
@@ -212,7 +253,7 @@ export default function AppShell() {
       case "describe":
         return (
           <WithBack onBack={backToChooser}>
-            <SendScreen onSubmit={submit} />
+            <SendScreen onHandoff={handoffFromChat} />
           </WithBack>
         );
       default:

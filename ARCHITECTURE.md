@@ -157,33 +157,14 @@ Centralise chain lists in something like `src/config/network.ts` instead of scat
 
 **Today (repo):**
 
-- `src/app/api/intent/route.js`
-- Loose prompt, fragile chain-name parsing
+- `src/app/api/chat/route.ts` — multi-turn conversational assistant with structured JSON turns (`clarifying` | `ready` | `unsupported`).
+- `src/assistant/productRules.ts` — product constraints (USDC/USDT settlement for Paycrest, swap-then-cashout for DAI, etc.) injected into the system prompt.
+- `src/app/components/arc/AssistantChat.tsx` — chat UI on the describe flow; hands off to guided flows (`cashout`, `buy`, `bridge`) via `AssistantPrefill` in sessionStorage.
+- `src/app/api/intent/route.ts` — legacy single-shot parser (dashboard still uses it).
 
-**Target:**
+**Handoff model:** Chat understands and routes; guided flows (`CashoutFlow`, `BuyFlow`, `RelaySwapPanel`) collect details, quote, and execute. Recipient names and institution hints are resolved client-side — never sent to the LLM.
 
-- `route.ts` + OpenAI Structured Outputs (`response_format: json_schema`)
-- Schema-shaped output, for example:
-
-  ```ts
-  {
-    action: 'bridge' | 'swap' | 'offramp' | 'onramp',
-    fromChain?: ChainId,
-    fromToken?: TokenSymbol,
-    fromAmount?: string,
-    toChain?: ChainId,
-    toToken?: TokenSymbol,
-    fiatCurrency?: 'NGN' | 'KES' | 'GHS' | 'UGX' | 'XOF' | ...,
-    recipient?: { type: 'address' | 'bank' | 'mobile_money'; value: string; ... },
-    needsClarification: boolean,
-    clarificationQuestion?: string,
-  }
-  ```
-
-- Chain/token aliases; mobile-number hints (`+254…`, `+234…`) → MoMo-oriented flows.
-- Low confidence → structured form instead of guessing.
-
-**Later — assistant scope:** recurring sends, quote-only comparisons across rails, spend summaries—Relay quote APIs matter for comparisons.
+**Later — assistant scope:** chained swap→cashout auto-continuation, recurring sends, quote-only comparisons across rails, spend summaries.
 
 ---
 
