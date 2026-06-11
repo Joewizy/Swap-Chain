@@ -7,7 +7,7 @@ import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import { RelayKitProvider } from "@relayprotocol/relay-kit-ui";
 import "@relayprotocol/relay-kit-ui/styles.css";
 import "@rainbow-me/rainbowkit/styles.css";
-import { RELAY_API, RELAY_CHAINS } from "@/config/relay";
+import { RELAY_API, RELAY_CHAINS, RELAY_THEME } from "@/config/relay";
 import config from "./rainbowKitConfig";
 import { rainbowKitTheme } from "./rainbowKitConfig";
 
@@ -18,6 +18,7 @@ export function Providers(props: { children: ReactNode }) {
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <RelayKitProvider
+          theme={RELAY_THEME}
           options={{
             appName: "Swap Chain",
             chains: RELAY_CHAINS,

@@ -14,6 +14,7 @@ import { adaptViemWallet } from "@relayprotocol/relay-sdk";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { useWalletClient } from "wagmi";
 import toast from "react-hot-toast";
+import { Icon } from "./icons";
 import {
   DEFAULT_SETTLEMENT_CHAIN_ID,
   getChain,
@@ -67,7 +68,16 @@ export function RelaySwapPanel() {
 
   return (
     <div style={{ display: "flex", justifyContent: "center", width: "100%" }}>
-      <div style={{ width: "100%", maxWidth: 420 }}>
+      <div className="col gap-4" style={{ width: "100%", maxWidth: 420 }}>
+        <header className="col gap-1">
+          <h1 style={{ fontSize: 28, lineHeight: 1.1, letterSpacing: "-0.02em", fontWeight: 500 }}>
+            Bridge &amp; Swap
+          </h1>
+          <span className="muted" style={{ fontSize: 14 }}>
+            Swap on one chain or bridge across — routed for the best price.
+          </span>
+        </header>
+
         <SwapWidget
           wallet={wallet}
           fromToken={fromToken}
@@ -84,6 +94,13 @@ export function RelaySwapPanel() {
             toast.error(message || "Swap failed");
           }}
         />
+
+        <span
+          className="row center gap-1"
+          style={{ fontSize: 11, color: "var(--fg-faint)", justifyContent: "center" }}
+        >
+          <Icon.Globe size={11} /> Powered by Relay
+        </span>
       </div>
     </div>
   );
