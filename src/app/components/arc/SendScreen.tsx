@@ -1834,6 +1834,7 @@ export function StatusScreen({
   const [copied, setCopied] = useState(false);
   const [confirmNav, setConfirmNav] = useState(false);
   const [exactWarn, setExactWarn] = useState(false);
+  const [showManual, setShowManual] = useState(false);
 
   // Kick off execution exactly once per intent. `runNonce` lets Retry /
   // "Get new rate" force a fresh run without changing the intent.
@@ -2357,22 +2358,26 @@ export function StatusScreen({
         {/* Off-ramp funding — branch on whether the wallet covers it. */}
         {showFunding && !isExpired && offrampOrder?.receiveAddress && !bootError && (
           <div className="col gap-4" style={{ marginTop: 18 }}>
-            {payoutName && (
-              <div className="col gap-1">
-                <span className="eyebrow" style={{ fontSize: 10 }}>
-                  Payout to
-                </span>
-                <span style={{ fontSize: 14, lineHeight: 1.4 }}>
-                  {payoutName}
-                  {(payoutBank || payoutAcct) && (
-                    <span className="muted" style={{ fontSize: 13 }}>
-                      {payoutBank ? ` · ${payoutBank}` : ""}
-                      {payoutAcct ? ` · ${payoutAcct}` : ""}
-                    </span>
-                  )}
-                </span>
-              </div>
-            )}
+            {/* Make the swap explicit: you send USDC, the recipient gets cash. */}
+            <div
+              className="col gap-1"
+              style={{
+                padding: 14,
+                background: "var(--accent-soft)",
+                border: "1px solid var(--line-2)",
+                borderRadius: 12,
+              }}
+            >
+              <strong style={{ fontSize: 15 }}>
+                Send {sendLabel} to pay out {fiatReceiveLabel ?? "the cash"}
+              </strong>
+              <span className="muted" style={{ fontSize: 13, lineHeight: 1.45 }}>
+                {payoutName ? `${payoutName} receives it` : "The recipient is paid"}
+                {payoutBank ? ` in their ${payoutBank} account` : ""}
+                {payoutAcct ? ` (${payoutAcct})` : ""} the moment your{" "}
+                {exec?.fromToken ?? "USDC"} arrives.
+              </span>
+            </div>
 
             {offrampPhaseValue === "partial" && (
               <div
@@ -2404,7 +2409,7 @@ export function StatusScreen({
             )}
 
             {hasBalance ? (
-              <>
+              <div className="col gap-3">
                 <button
                   className="btn btn-fat"
                   disabled={offrampFunding}
@@ -2421,31 +2426,53 @@ export function StatusScreen({
                     </>
                   ) : (
                     <>
-                      Send {sendLabel} from wallet <Icon.ArrowRight />
+                      Pay {sendLabel} from your wallet <Icon.ArrowRight />
                     </>
                   )}
                 </button>
-                <details style={{ fontSize: 12 }}>
-                  <summary
-                    style={{ cursor: "pointer", color: "var(--fg-mute)" }}
+
+                {/* Organized secondary method, not a raw <details> marker. */}
+                <button
+                  onClick={() => setShowManual((v) => !v)}
+                  className="row between center"
+                  style={{
+                    padding: "11px 14px",
+                    background: "var(--bg-soft)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 10,
+                    cursor: "pointer",
+                    color: "inherit",
+                    textAlign: "left",
+                  }}
+                >
+                  <span style={{ fontSize: 13 }}>
+                    Or send from another wallet or exchange
+                  </span>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      transform: showManual ? "rotate(180deg)" : "none",
+                      transition: "transform .15s var(--ease)",
+                      color: "var(--fg-mute)",
+                    }}
                   >
-                    Send from another wallet or exchange instead
-                  </summary>
-                  <div style={{ marginTop: 12 }}>
-                    <DepositAddress
-                      token={exec?.fromToken ?? ""}
-                      chainName={intent?.quote?.from?.chain ?? ""}
-                      address={offrampOrder.receiveAddress}
-                      sendLabel={sendLabel}
-                      refundAddress={address ?? null}
-                      copied={copied}
-                      onCopy={copyDepositAddress}
-                    />
-                  </div>
-                </details>
-              </>
+                    <Icon.ChevDown size={14} />
+                  </span>
+                </button>
+                {showManual && (
+                  <DepositAddress
+                    token={exec?.fromToken ?? ""}
+                    chainName={intent?.quote?.from?.chain ?? ""}
+                    address={offrampOrder.receiveAddress}
+                    sendLabel={sendLabel}
+                    refundAddress={address ?? null}
+                    copied={copied}
+                    onCopy={copyDepositAddress}
+                  />
+                )}
+              </div>
             ) : (
-              <>
+              <div className="col gap-2">
                 <DepositAddress
                   token={exec?.fromToken ?? ""}
                   chainName={intent?.quote?.from?.chain ?? ""}
@@ -2457,12 +2484,13 @@ export function StatusScreen({
                 />
                 {balance.formatted !== undefined && (
                   <span className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
-                    Wallet balance:{" "}
-                    {formatToken(balance.formatted, exec?.fromToken ?? "", 2)}.
-                    Top up here to pay from wallet, or use the address above.
+                    Your wallet holds{" "}
+                    {formatToken(balance.formatted, exec?.fromToken ?? "", 2)} — top
+                    it up to pay in one tap, or send to the address above from any
+                    wallet or exchange.
                   </span>
                 )}
-              </>
+              </div>
             )}
           </div>
         )}
