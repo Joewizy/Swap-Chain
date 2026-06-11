@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
-import { formatFiat } from "@/utils";
+import { formatFiat, titleCase } from "@/utils";
 import { Icon } from "./icons";
 
 /* ────────────────── HISTORY ────────────────── */
@@ -264,7 +264,7 @@ function OrderCard({ order }: { order: Order }) {
             }}
           >
             {order.recipientName
-              ? `${order.recipientName}${order.institution ? ` · ${order.institution}` : ""}`
+              ? `${titleCase(order.recipientName)}${order.institution ? ` · ${order.institution}` : ""}`
               : order.network}
             {order.accountIdentifier ? ` · ${order.accountIdentifier}` : ""}
           </span>

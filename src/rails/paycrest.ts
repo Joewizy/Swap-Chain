@@ -177,6 +177,18 @@ export interface PaycrestOrder {
   depositCurrency?: string;
   /** Deadline for funding (off-ramp crypto or on-ramp fiat). */
   validUntil?: string;
+  /** Amount of the deposit received so far (for partial-deposit progress). */
+  amountPaid?: string;
+  /** Amount returned to the refund address (refunds / overpayment). */
+  amountReturned?: string;
+  /** Settlement progress, 0–100. */
+  percentSettled?: string;
+  /** Sender (app) fee, if any. */
+  senderFee?: string;
+  /** Network / processing fee, if any. */
+  transactionFee?: string;
+  /** Settlement / on-chain tx hash, once available. */
+  txHash?: string;
   createdAt: string;
   raw?: unknown;
 }
@@ -266,6 +278,15 @@ export function normalizePaycrestOrder(
       typeof providerAccount?.validUntil === "string"
         ? providerAccount.validUntil
         : undefined,
+    amountPaid: asString(payload.amountPaid),
+    amountReturned: asString(payload.amountReturned),
+    percentSettled: asString(payload.percentSettled),
+    senderFee: asString(payload.senderFee),
+    transactionFee: asString(payload.transactionFee),
+    txHash:
+      typeof payload.txHash === "string" && payload.txHash
+        ? payload.txHash
+        : undefined,
     createdAt:
       typeof payload.createdAt === "string"
         ? payload.createdAt
@@ -274,4 +295,8 @@ export function normalizePaycrestOrder(
           : new Date().toISOString(),
     raw: raw ?? payload,
   };
+}
+
+function asString(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined;
 }

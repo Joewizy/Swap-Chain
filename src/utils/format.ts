@@ -35,6 +35,43 @@ export function fiatOptionLabel(code: string): string {
   return name ? `${code} — ${name}` : code;
 }
 
+/** ISO timestamp → "Mon, Jun 11, 8:41 PM" (empty for invalid input). */
+export function formatDeadline(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** Title-cases ALL-CAPS or lowercase names: "JOSEPH SHUNOM GIMBA" → "Joseph Shunom Gimba". */
+export function titleCase(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (_, c: string) => c.toUpperCase());
+}
+
+/** Milliseconds left → "48:32" (or "1:02:30" past an hour). Clamps at 0. */
+export function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/** Masks an account number to its last 4: "0123454020" → "····4020". */
+export function maskAccount(id: string): string {
+  const last4 = id.replace(/\s+/g, "").slice(-4);
+  return last4 ? `····${last4}` : id;
+}
+
 /** "10000" → "10,000". Accepts a number or numeric string. */
 export function formatNumber(
   value: number | string,

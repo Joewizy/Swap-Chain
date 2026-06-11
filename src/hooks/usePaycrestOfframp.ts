@@ -16,7 +16,7 @@
  * Pairs with src/rails/paycrest.ts and the /api/paycrest/* routes.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BaseError,
   UserRejectedRequestError,
@@ -251,6 +251,44 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
       throw err instanceof Error ? err : new Error(msg);
     }
   }, [config]);
+
+  // While awaiting funds, poll the order so a deposit from ANY source (the
+  // wallet button, another wallet, or an exchange) advances the screen.
+  // Read-only — no signing, no order creation.
+  useEffect(() => {
+    if (status !== "awaiting_funding" || !order?.id) return;
+    const orderId = order.id;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/paycrest/order/${orderId}`);
+        if (!res.ok || cancelled) return;
+        const o = (await res.json()) as PaycrestOrder;
+        if (cancelled) return;
+        setOrder(o);
+        if (o.status === SETTLED) {
+          setStatus("complete");
+          stop();
+        } else if (FAILED.has(o.status)) {
+          // Terminal (expired / refunded) — let the UI read order.status.
+          stop();
+        }
+      } catch {
+        // transient; keep polling
+      }
+    };
+    timer = setInterval(tick, SETTLE_POLL_INTERVAL_MS);
+    tick();
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [status, order?.id]);
 
   return {
     status,

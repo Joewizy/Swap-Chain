@@ -47,3 +47,6 @@ export type {
   RelaySwapParams,
   UseRelaySwapReturn,
 } from "./useRelaySwap";
+
+export { useTokenBalance } from "./useTokenBalance";
+export type { UseTokenBalanceReturn } from "./useTokenBalance";

@@ -18,6 +18,7 @@ import {
   usePaycrestOfframp,
   usePaycrestOnramp,
   useRelaySwap,
+  useTokenBalance,
   type CctpStatus,
   type PaycrestOfframpStatus,
   type PaycrestOnrampStatus,
@@ -25,8 +26,19 @@ import {
 } from "@/hooks";
 import type { ExecutionProgress } from "@/hooks/useRelayExecutor";
 import { getChain, type ChainId, type TokenSymbol } from "@/config/network";
-import type { PaycrestFiat, PaycrestToken } from "@/rails/paycrest";
-import { formatFiat, formatNumber } from "@/utils";
+import type {
+  PaycrestFiat,
+  PaycrestOrder,
+  PaycrestToken,
+} from "@/rails/paycrest";
+import {
+  formatCountdown,
+  formatFiat,
+  formatNumber,
+  formatToken,
+  maskAccount,
+  titleCase,
+} from "@/utils";
 
 /* ───────── types ───────── */
 export type RailKey = "cctp" | "chainrails" | "relay" | "paycrest";
@@ -1231,9 +1243,9 @@ export function ReviewScreen({
             ? "We need your wallet address as the USDC destination."
             : "We need a connected wallet to sign the source-chain transaction."
           : isOnramp
-            ? "You'll transfer fiat to the virtual account we show next; USDC arrives in your wallet once settled."
+            ? "You'll pay to the account we show next; your USDC arrives in your wallet once it clears."
             : isOfframp
-              ? "You'll send the stablecoin in your wallet; the provider then pays out the fiat."
+              ? "You'll send your USDC next — then the cash is paid out to the recipient."
               : "You'll approve the transactions in your wallet. Funds move only after that."}
       </span>
     </div>
@@ -1602,18 +1614,18 @@ function paycrestOnrampStages(
   const dstName = toChain ? (getChain(toChain)?.name ?? toChain) : "chain";
   const stages: StageRow[] = [
     {
-      l: "Create order",
-      d: "Locking a rate and reserving a virtual deposit account.",
+      l: "Rate locked",
+      d: "We've reserved an account for your deposit.",
       ref: orderId ? `order ${orderId.slice(0, 8)}…` : undefined,
     },
     {
-      l: "Deposit fiat",
-      d: "Transfer the exact fiat amount to the account shown below.",
+      l: "Send your payment",
+      d: "Transfer the exact amount to the account shown below.",
       ref: depositLabel ?? undefined,
     },
     {
-      l: "Provider settles",
-      d: "The provider confirms your deposit and releases stablecoin.",
+      l: "Confirming your payment",
+      d: `Once it lands, your ${token ?? "USDC"} is on the way.`,
     },
     {
       l: "Received",
@@ -1637,54 +1649,115 @@ function paycrestOnrampStages(
   };
 }
 
-function paycrestStages(
+/**
+ * A single, honest off-ramp phase derived from the hook status + live order.
+ * The UI's header, step list, and funding panel all read from this one value
+ * so they can never disagree.
+ */
+type OfframpPhase =
+  | "creating"
+  | "awaiting-funds"
+  | "partial"
+  | "sending"
+  | "confirming-deposit"
+  | "converting"
+  | "settled"
+  | "expired"
+  | "refunded";
+
+function offrampPhase(
   status: PaycrestOfframpStatus,
-  orderId: string | null,
-  transferTxHash: string | null,
-  fromChain: ChainId,
+  order: PaycrestOrder | null
+): OfframpPhase {
+  if (!order) return "creating";
+  if (order.status === "settled" || status === "complete") return "settled";
+  if (order.status === "refunded") return "refunded";
+  if (order.status === "expired") return "expired";
+  if (order.status === "processing") return "converting";
+  const paid = Number(order.amountPaid ?? 0);
+  const amt = Number(order.amount ?? 0);
+  if (paid > 0 && amt > 0 && paid < amt) return "partial";
+  if (paid > 0 || order.status === "pending") return "confirming-deposit";
+  if (status === "funding") return "sending";
+  return "awaiting-funds";
+}
+
+/** Honest, jargon-free headline per off-ramp phase. */
+function offrampHeadline(
+  phase: OfframpPhase,
+  sendLabel: string,
+  fiatLabel: string | null,
+  fiatCode: string,
+  recipient: string | null
+): string {
+  switch (phase) {
+    case "creating":
+      return "Getting your rate…";
+    case "awaiting-funds":
+      return `Waiting for your ${sendLabel}`;
+    case "sending":
+      return "Sending from your wallet…";
+    case "partial":
+      return "Waiting for the rest of your deposit";
+    case "confirming-deposit":
+      return "Confirming your deposit";
+    case "converting":
+      return `Converting to ${fiatCode}`;
+    case "settled":
+      return recipient
+        ? `${fiatLabel ?? fiatCode} sent to ${recipient}`
+        : `${fiatLabel ?? fiatCode} sent`;
+    case "expired":
+      return "Rate expired";
+    case "refunded":
+      return "Order refunded";
+  }
+}
+
+function paycrestStages(
+  phase: OfframpPhase,
   token: string,
-  currency: string | null,
-  accountName: string | null
+  fiatLabel: string | null,
+  fiatCode: string,
+  recipient: string | null,
+  bank: string | null,
+  acct: string | null
 ): { stages: StageRow[]; activeIndex: number; done: boolean } {
-  const srcName = getChain(fromChain)?.name ?? fromChain;
+  const depositSeen =
+    phase === "confirming-deposit" ||
+    phase === "converting" ||
+    phase === "settled";
+  const paidLine = `${fiatLabel ?? fiatCode} to ${recipient ?? "recipient"}${
+    bank ? ` · ${bank}` : ""
+  }${acct ? ` ${maskAccount(acct)}` : ""}`;
   const stages: StageRow[] = [
+    { l: "Rate locked", d: "Your rate is held for this transfer." },
     {
-      l: "Create order",
-      d: "Reserving the payout with a liquidity provider.",
-      ref: orderId ? `order ${orderId.slice(0, 8)}…` : undefined,
+      l: depositSeen ? `${token} received` : `Waiting for your ${token}`,
+      d: depositSeen
+        ? "We've got your funds."
+        : "Send the exact amount to continue.",
     },
-    {
-      l: `Send ${token} on ${srcName}`,
-      d: "Sending the stablecoin to the provider's address.",
-      ref: transferTxHash ? `tx ${short0x(transferTxHash)}` : undefined,
-      refHref: transferTxHash
-        ? explorerTxUrl(fromChain, transferTxHash) ?? undefined
-        : undefined,
-    },
-    {
-      l: "Provider settles",
-      d: "The provider is paying out the fiat to the recipient.",
-    },
-    {
-      l: "Paid out",
-      d: `${currency ?? "Fiat"} delivered${accountName ? ` to ${accountName}` : ""}.`,
-    },
+    { l: `Converting to ${fiatCode}`, d: "Almost there." },
+    { l: paidLine, d: "Delivered to the recipient." },
   ];
 
-  const indexFor: Record<PaycrestOfframpStatus, number> = {
-    idle: -1,
+  const indexFor: Record<OfframpPhase, number> = {
     creating: 0,
-    awaiting_funding: 1,
-    funding: 1,
-    settling: 2,
-    complete: 4,
-    error: -1,
+    "awaiting-funds": 1,
+    sending: 1,
+    partial: 1,
+    "confirming-deposit": 2,
+    converting: 2,
+    settled: 4,
+    expired: 1,
+    refunded: 1,
   };
 
   return {
     stages,
-    activeIndex: indexFor[status],
-    done: status === "complete",
+    activeIndex: indexFor[phase],
+    done: phase === "settled",
   };
 }
 
@@ -1755,14 +1828,18 @@ export function StatusScreen({
   // (no wallet, missing chain, etc.) — distinct from the rail's own error.
   const [bootError, setBootError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [confirmNav, setConfirmNav] = useState(false);
+  const [exactWarn, setExactWarn] = useState(false);
 
-  // Kick off execution exactly once per intent.
+  // Kick off execution exactly once per intent. `runNonce` lets Retry /
+  // "Get new rate" force a fresh run without changing the intent.
   const startedFor = useRef<string | null>(null);
+  const [runNonce, setRunNonce] = useState(0);
   useEffect(() => {
     if (!exec || !intent) return;
     // Identify a run by the intent text + rail; lets a "Send another"
     // round-trip start a fresh execution.
-    const runKey = `${intent.text}|${exec.rail}|${exec.fromChain}|${exec.toChain}|${exec.fromAmount}`;
+    const runKey = `${intent.text}|${exec.rail}|${exec.fromChain}|${exec.toChain}|${exec.fromAmount}|${runNonce}`;
     if (startedFor.current === runKey) return;
     startedFor.current = runKey;
 
@@ -1929,7 +2006,70 @@ export function StatusScreen({
         // The hook already exposes the error via cctp.error — no rethrow.
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intent, isConnected, address]);
+  }, [intent, isConnected, address, runNonce]);
+
+  const restart = () => {
+    startedFor.current = null;
+    cctp.reset();
+    paycrestOfframp.reset();
+    paycrestOnramp.reset();
+    relay.reset();
+    setBootError(null);
+    setRunNonce((n) => n + 1);
+  };
+
+  // ----- Off-ramp (cash-out) presentation state -----------------------------
+  const isOfframpRail = exec?.rail === "paycrest" && exec.action !== "onramp";
+  const offrampOrder = isOfframpRail ? paycrestOfframp.order : null;
+  const offrampPhaseValue: OfframpPhase | null = isOfframpRail
+    ? offrampPhase(paycrestOfframp.status, offrampOrder)
+    : null;
+  const offrampFunding = paycrestOfframp.status === "funding";
+
+  // Recipient (title-cased) + amounts, derived from the order/exec.
+  const payoutName = exec?.payout?.accountName
+    ? titleCase(exec.payout.accountName)
+    : null;
+  const payoutBank = exec?.payout?.institutionName ?? null;
+  const payoutAcct = exec?.payout?.accountIdentifier ?? null;
+  const sendLabel = offrampOrder
+    ? formatToken(offrampOrder.amount, exec?.fromToken ?? "")
+    : "";
+  const fiatReceive =
+    offrampOrder?.rate && offrampOrder.amount
+      ? Number(offrampOrder.amount) * Number(offrampOrder.rate)
+      : null;
+  const fiatReceiveLabel =
+    fiatReceive !== null && exec?.fiatCurrency
+      ? formatFiat(exec.fiatCurrency, fiatReceive)
+      : null;
+
+  // Wallet balance of the token being sent → drives the funding branch.
+  const balance = useTokenBalance(exec?.fromToken, exec?.fromChain);
+  const sendAmountNum = offrampOrder ? Number(offrampOrder.amount) : 0;
+  const hasBalance =
+    balance.formatted !== undefined &&
+    sendAmountNum > 0 &&
+    Number(balance.formatted) >= sendAmountNum;
+  const offrampPaid = Number(offrampOrder?.amountPaid ?? 0);
+
+  // Fee truth pulled from the order payload (senderFee + transactionFee).
+  const feeTotal =
+    Number(offrampOrder?.senderFee ?? 0) +
+    Number(offrampOrder?.transactionFee ?? 0);
+  const feeLine = offrampOrder?.rate
+    ? feeTotal > 0
+      ? `Rate ${offrampOrder.rate} · fee ${formatToken(feeTotal, exec?.fromToken ?? "", 2)}`
+      : `Rate ${offrampOrder.rate} · fee included in rate`
+    : null;
+
+  // Funding panel shows only while still waiting on the deposit.
+  const showFunding =
+    isOfframpRail &&
+    !!offrampOrder?.receiveAddress &&
+    (offrampPhaseValue === "awaiting-funds" ||
+      offrampPhaseValue === "sending" ||
+      offrampPhaseValue === "partial");
 
   // Resolve stage list + active index from the rail.
   const view =
@@ -1953,13 +2093,13 @@ export function StatusScreen({
           )
         : exec?.rail === "paycrest"
           ? paycrestStages(
-              paycrestOfframp.status,
-              paycrestOfframp.order?.id ?? null,
-              paycrestOfframp.transferTxHash,
-              exec.fromChain,
+              offrampPhaseValue ?? "creating",
               exec.fromToken,
-              exec.fiatCurrency,
-              exec.payout?.accountName ?? null
+              fiatReceiveLabel,
+              exec.fiatCurrency ?? "",
+              payoutName,
+              payoutBank,
+              payoutAcct
             )
           : exec?.rail === "relay" && exec.toChain
             ? relayStages(
@@ -1991,44 +2131,57 @@ export function StatusScreen({
       ? paycrestOnramp.order
       : null;
 
-  // Off-ramp invoice: shown after the order is created, before the user
-  // sends the stablecoin (no auto-firing the wallet).
-  const isOfframpRail =
-    exec?.rail === "paycrest" && exec.action !== "onramp";
-  const offrampOrder = isOfframpRail ? paycrestOfframp.order : null;
-  const offrampFunding =
-    isOfframpRail && paycrestOfframp.status === "funding";
-  // Keep the invoice on screen while the wallet prompt is open, so it
-  // doesn't collapse when the user taps Send.
-  const showInvoice =
-    isOfframpRail &&
-    (paycrestOfframp.status === "awaiting_funding" || offrampFunding) &&
-    !!offrampOrder?.receiveAddress;
-  const fiatReceive =
-    offrampOrder?.rate && offrampOrder.amount
-      ? Number(offrampOrder.amount) * Number(offrampOrder.rate)
-      : null;
-  const fiatReceiveLabel =
-    fiatReceive !== null && exec?.fiatCurrency
-      ? formatFiat(exec.fiatCurrency, fiatReceive)
-      : null;
-
-  // Wall-clock elapsed since this screen mounted.
+  // Countdown to the rate's expiry (off-ramp orders hold a rate ~60 min).
   const startedAt = useRef(Date.now()).current;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 250);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
   const elapsed = Math.floor((now - startedAt) / 1000);
 
-  const headline = done
-    ? "Sent."
-    : railError || bootError
+  const expiryMs = offrampOrder?.validUntil
+    ? new Date(offrampOrder.validUntil).getTime()
+    : null;
+  const remainingMs = expiryMs !== null ? expiryMs - now : null;
+  const countdown = remainingMs !== null ? formatCountdown(remainingMs) : null;
+  const expiringSoon =
+    remainingMs !== null && remainingMs > 0 && remainingMs < 5 * 60 * 1000;
+  const timedOut =
+    remainingMs !== null &&
+    remainingMs <= 0 &&
+    (offrampPhaseValue === "awaiting-funds" || offrampPhaseValue === "partial");
+  const isExpired = offrampPhaseValue === "expired" || timedOut;
+
+  const headline =
+    railError || bootError
       ? "Stalled."
-      : cctp.status === "idle"
-        ? "Starting…"
-        : "Sending…";
+      : isOfframpRail && offrampPhaseValue
+        ? offrampHeadline(
+            isExpired ? "expired" : offrampPhaseValue,
+            sendLabel,
+            fiatReceiveLabel,
+            exec?.fiatCurrency ?? "",
+            payoutName
+          )
+        : done
+          ? "Sent."
+          : cctp.status === "idle"
+            ? "Starting…"
+            : "Sending…";
+
+  const copyDepositAddress = () => {
+    const addr = offrampOrder?.receiveAddress;
+    if (!addr) return;
+    navigator.clipboard
+      ?.writeText(addr)
+      .then(() => {
+        setCopied(true);
+        setExactWarn(true);
+        setTimeout(() => setCopied(false), 1600);
+      })
+      .catch(() => {});
+  };
 
   return (
     <div className="col gap-6">
@@ -2051,10 +2204,22 @@ export function StatusScreen({
           </span>
         </div>
         <div className="row center gap-2">
-          <span className="chip">
-            <span className="font-mono tabular">{elapsed}s</span> elapsed
-          </span>
-          <button className="btn btn-ghost btn-sm" onClick={onDone}>
+          {isOfframpRail && isExpired ? (
+            <span className="chip chip-err">Rate expired</span>
+          ) : isOfframpRail && countdown ? (
+            <span className={"chip" + (expiringSoon ? " chip-pend" : "")}>
+              Rate locked ·{" "}
+              <span className="font-mono tabular">{countdown}</span>
+            </span>
+          ) : (
+            <span className="chip">
+              <span className="font-mono tabular">{elapsed}s</span> elapsed
+            </span>
+          )}
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => (showFunding ? setConfirmNav(true) : onDone())}
+          >
             New send
           </button>
         </div>
@@ -2078,7 +2243,7 @@ export function StatusScreen({
               {intent?.quote?.from?.token}
             </span>
           </div>
-          <Icon.ArrowRight />
+          {!isOfframpRail && <Icon.ArrowRight />}
           <div className="col" style={{ alignItems: "flex-end" }}>
             <span className="muted" style={{ fontSize: 12 }}>
               Recipient gets
@@ -2093,9 +2258,12 @@ export function StatusScreen({
             >
               {fiatReceiveLabel ?? intent?.quote?.to?.amount}
             </span>
-            {offrampOrder?.rate && (
-              <span className="muted font-mono" style={{ fontSize: 11, marginTop: 2 }}>
-                rate {offrampOrder.rate}/{intent?.quote?.from?.token}
+            {feeLine && (
+              <span
+                className="muted font-mono"
+                style={{ fontSize: 11, marginTop: 2 }}
+              >
+                {feeLine}
               </span>
             )}
           </div>
@@ -2169,8 +2337,16 @@ export function StatusScreen({
           </div>
         )}
 
-        {/* Off-ramp invoice — review, then send. No auto-firing the wallet. */}
-        {showInvoice && offrampOrder?.receiveAddress && !bootError && (
+        {/* Off-ramp terminal states */}
+        {isOfframpRail && isExpired && !bootError && (
+          <ExpiredCard onNewRate={restart} />
+        )}
+        {isOfframpRail &&
+          offrampPhaseValue === "refunded" &&
+          !bootError && <RefundedCard refundAddress={address ?? null} />}
+
+        {/* Off-ramp funding — branch on whether the wallet covers it. */}
+        {showFunding && !isExpired && offrampOrder?.receiveAddress && !bootError && (
           <div
             className="col gap-3"
             style={{
@@ -2181,108 +2357,123 @@ export function StatusScreen({
               borderRadius: 12,
             }}
           >
-            <strong style={{ fontSize: 14 }}>Confirm and send</strong>
-            <span style={{ fontSize: 13, color: "var(--fg-soft)" }}>
-              Send exactly{" "}
-              <strong className="font-mono">
-                {offrampOrder.amount} {intent?.quote?.from?.token}
-              </strong>{" "}
-              on {intent?.quote?.from?.chain} to fund this payout.
-            </span>
-
-            <div className="col gap-1">
-              <span className="eyebrow" style={{ fontSize: 10 }}>
-                Receive address
+            <strong style={{ fontSize: 14 }}>
+              {hasBalance ? "Confirm and send" : `Send ${sendLabel} to this address`}
+            </strong>
+            {payoutName && (
+              <span style={{ fontSize: 13, color: "var(--fg-soft)" }}>
+                {payoutName}
+                {payoutBank ? ` · ${payoutBank}` : ""}
+                {payoutAcct ? ` (${maskAccount(payoutAcct)})` : ""} gets{" "}
+                <strong style={{ color: "var(--fg)" }}>
+                  {fiatReceiveLabel ?? "—"}
+                </strong>
+                .
               </span>
-              <button
-                onClick={() => {
-                  navigator.clipboard
-                    ?.writeText(offrampOrder.receiveAddress ?? "")
-                    .then(() => {
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 1600);
-                    })
-                    .catch(() => {});
-                }}
-                className="row between center"
+            )}
+
+            {offrampPhaseValue === "partial" && (
+              <div
                 style={{
                   padding: "10px 12px",
                   background: "var(--bg-soft)",
                   border: "1px solid var(--line)",
                   borderRadius: 10,
-                  cursor: "pointer",
-                  textAlign: "left",
-                  color: "inherit",
+                  fontSize: 13,
                 }}
-                title="Copy address"
               >
-                <span
-                  className="font-mono"
-                  style={{ fontSize: 12, wordBreak: "break-all" }}
+                Received{" "}
+                <strong className="font-mono">
+                  {formatToken(offrampPaid, exec?.fromToken ?? "", 2)}
+                </strong>{" "}
+                of {sendLabel}. Send the remaining{" "}
+                <strong className="font-mono">
+                  {formatToken(
+                    Math.max(sendAmountNum - offrampPaid, 0),
+                    exec?.fromToken ?? "",
+                    2
+                  )}
+                </strong>{" "}
+                to the same address before the rate expires.
+              </div>
+            )}
+
+            {hasBalance ? (
+              <>
+                <button
+                  className="btn btn-fat"
+                  disabled={offrampFunding}
+                  style={{
+                    background: offrampFunding ? "var(--bg-sunk)" : "var(--btn-bg)",
+                    color: offrampFunding ? "var(--fg-faint)" : "var(--btn-fg)",
+                    cursor: offrampFunding ? "default" : "pointer",
+                  }}
+                  onClick={() => paycrestOfframp.fund().catch(() => {})}
                 >
-                  {offrampOrder.receiveAddress}
-                </span>
-                {copied ? (
-                  <span
-                    className="row center gap-1"
-                    style={{ flex: "0 0 auto", fontSize: 11, color: "var(--ok)" }}
-                  >
-                    <Icon.Check size={12} /> Copied
+                  {offrampFunding ? (
+                    <>
+                      <Icon.Spinner size={14} /> Confirm in your wallet…
+                    </>
+                  ) : (
+                    <>
+                      Confirm &amp; send {sendLabel} <Icon.ArrowRight />
+                    </>
+                  )}
+                </button>
+                <details style={{ fontSize: 12 }}>
+                  <summary style={{ cursor: "pointer", color: "var(--fg-soft)" }}>
+                    or fund from another wallet or exchange
+                  </summary>
+                  <div style={{ marginTop: 10 }}>
+                    <DepositAddress
+                      token={exec?.fromToken ?? ""}
+                      chainName={intent?.quote?.from?.chain ?? ""}
+                      address={offrampOrder.receiveAddress}
+                      sendLabel={sendLabel}
+                      refundAddress={address ?? null}
+                      copied={copied}
+                      onCopy={copyDepositAddress}
+                    />
+                  </div>
+                </details>
+              </>
+            ) : (
+              <>
+                <DepositAddress
+                  token={exec?.fromToken ?? ""}
+                  chainName={intent?.quote?.from?.chain ?? ""}
+                  address={offrampOrder.receiveAddress}
+                  sendLabel={sendLabel}
+                  refundAddress={address ?? null}
+                  copied={copied}
+                  onCopy={copyDepositAddress}
+                />
+                {balance.formatted !== undefined && (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    Your wallet holds{" "}
+                    {formatToken(balance.formatted, exec?.fromToken ?? "", 2)}. Top
+                    up this wallet and this updates automatically — or send from an
+                    exchange above.
                   </span>
-                ) : (
-                  <Icon.Copy size={13} />
                 )}
-              </button>
-            </div>
-
-            {(fiatReceiveLabel || offrampOrder.rate) && (
-              <span className="muted" style={{ fontSize: 12 }}>
-                {intent?.quote?.to?.sub ? `${intent.quote.to.sub} ` : ""}
-                receives{" "}
-                <strong style={{ color: "var(--fg)" }}>
-                  {fiatReceiveLabel ?? "—"}
-                </strong>
-                {offrampOrder.rate
-                  ? ` · rate ${offrampOrder.rate}/${intent?.quote?.from?.token}`
-                  : ""}
-              </span>
-            )}
-            {offrampOrder.validUntil && (
-              <span className="muted" style={{ fontSize: 12 }}>
-                Send before {new Date(offrampOrder.validUntil).toLocaleTimeString()}
-              </span>
+              </>
             )}
 
-            <button
-              className="btn btn-fat"
-              disabled={offrampFunding}
-              style={{
-                background: offrampFunding ? "var(--bg-sunk)" : "var(--btn-bg)",
-                color: offrampFunding ? "var(--fg-faint)" : "var(--btn-fg)",
-                cursor: offrampFunding ? "default" : "pointer",
-              }}
-              onClick={() => paycrestOfframp.fund().catch(() => {})}
-            >
-              {offrampFunding ? (
-                <>
-                  <Icon.Spinner size={14} /> Confirm in your wallet…
-                </>
-              ) : (
-                <>
-                  Send {offrampOrder.amount} {intent?.quote?.from?.token}{" "}
-                  <Icon.ArrowRight />
-                </>
-              )}
-            </button>
-            <span className="muted" style={{ fontSize: 11, textAlign: "center" }}>
-              You&apos;ll approve the transfer in your wallet. Or send the exact
-              amount to the address above yourself.
-            </span>
+            {countdown && (
+              <span
+                className="muted"
+                style={{ fontSize: 12, color: expiringSoon ? "var(--err)" : undefined }}
+              >
+                Send before the rate expires · {countdown} left
+              </span>
+            )}
           </div>
         )}
 
-        {/* Live timeline — only rendered when we actually have a rail to drive. */}
-        {!bootError && stages.length > 0 && (
+        {/* Live timeline — hidden on off-ramp terminal states (expired/refunded). */}
+        {!bootError &&
+          stages.length > 0 &&
+          !(isOfframpRail && (isExpired || offrampPhaseValue === "refunded")) && (
           <div className="col" style={{ marginTop: 18 }}>
             {stages.map((s, i) => {
               const isDone = done || activeIndex > i;
@@ -2406,16 +2597,7 @@ export function StatusScreen({
               {railError}
             </span>
             <div className="row gap-2" style={{ marginTop: 4 }}>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  startedFor.current = null;
-                  cctp.reset();
-                  paycrestOfframp.reset();
-                  paycrestOnramp.reset();
-                  relay.reset();
-                }}
-              >
+              <button className="btn btn-ghost btn-sm" onClick={restart}>
                 Retry
               </button>
               <button className="btn btn-quiet btn-sm" onClick={onDone}>
@@ -2464,6 +2646,250 @@ export function StatusScreen({
             </button>
           </div>
         )}
+
+        {/* Technical references, tucked away. */}
+        {isOfframpRail && offrampOrder && (
+          <details style={{ marginTop: 16 }}>
+            <summary
+              style={{ cursor: "pointer", color: "var(--fg-mute)", fontSize: 12 }}
+            >
+              Details
+            </summary>
+            <div className="col gap-1" style={{ marginTop: 8 }}>
+              <span className="font-mono muted" style={{ fontSize: 11 }}>
+                Order {offrampOrder.id}
+              </span>
+              {offrampOrder.txHash && exec && (
+                <a
+                  className="font-mono"
+                  style={{ fontSize: 11, color: "var(--accent)" }}
+                  href={explorerTxUrl(exec.fromChain, offrampOrder.txHash) ?? "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Payout tx {short0x(offrampOrder.txHash)}
+                </a>
+              )}
+            </div>
+          </details>
+        )}
+      </div>
+
+      {exactWarn && (
+        <StatusModal
+          title="Send the exact amount"
+          body={`Send exactly ${sendLabel} of ${exec?.fromToken ?? ""} on ${intent?.quote?.from?.chain ?? ""}. A different amount, asset, or network can delay or lose your transfer.`}
+          onClose={() => setExactWarn(false)}
+        />
+      )}
+      {confirmNav && (
+        <StatusModal
+          title="Active transfer waiting"
+          body="You have an active transfer waiting for funds. Start a new one? You can still find this order in History."
+          confirmLabel="Start new"
+          onConfirm={() => {
+            setConfirmNav(false);
+            onDone();
+          }}
+          onClose={() => setConfirmNav(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ───────── status sub-components ───────── */
+
+function DepositAddress({
+  token,
+  chainName,
+  address,
+  sendLabel,
+  refundAddress,
+  copied,
+  onCopy,
+}: {
+  token: string;
+  chainName: string;
+  address: string;
+  sendLabel: string;
+  refundAddress: string | null;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="col gap-2">
+      <div
+        className="row center gap-2"
+        style={{
+          padding: "8px 10px",
+          background: "var(--err-soft)",
+          border: "1px solid var(--err)",
+          borderRadius: 8,
+          fontSize: 12,
+          color: "var(--err)",
+        }}
+      >
+        <strong>
+          {token} on {chainName} only.
+        </strong>{" "}
+        Another asset or network loses the funds.
+      </div>
+      <button
+        onClick={onCopy}
+        className="row between center"
+        style={{
+          padding: "10px 12px",
+          background: "var(--bg-soft)",
+          border: "1px solid var(--line)",
+          borderRadius: 10,
+          cursor: "pointer",
+          textAlign: "left",
+          color: "inherit",
+        }}
+        title="Copy address"
+      >
+        <span
+          className="font-mono"
+          style={{ fontSize: 12, wordBreak: "break-all" }}
+        >
+          {address}
+        </span>
+        {copied ? (
+          <span
+            className="row center gap-1"
+            style={{ flex: "0 0 auto", fontSize: 11, color: "var(--ok)" }}
+          >
+            <Icon.Check size={12} /> Copied
+          </span>
+        ) : (
+          <Icon.Copy size={13} />
+        )}
+      </button>
+      <span className="muted" style={{ fontSize: 11 }}>
+        Exchanges deduct a withdrawal fee. Send enough that {sendLabel} arrives
+        after fees.
+      </span>
+      {refundAddress && (
+        <span className="muted" style={{ fontSize: 11 }}>
+          If the full amount doesn&apos;t arrive before the deadline, your deposit
+          is returned to your connected wallet ({short0x(refundAddress)}). Contact
+          support if you&apos;ve sent a partial amount.
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ExpiredCard({ onNewRate }: { onNewRate: () => void }) {
+  return (
+    <div
+      className="col gap-2"
+      style={{
+        marginTop: 18,
+        padding: 16,
+        background: "var(--bg-soft)",
+        border: "1px solid var(--line)",
+        borderRadius: 12,
+      }}
+    >
+      <strong style={{ fontSize: 14 }}>Rate expired</strong>
+      <span className="muted" style={{ fontSize: 13 }}>
+        This rate is no longer held. If you didn&apos;t send anything, nothing
+        was charged. Get a fresh rate to continue.
+      </span>
+      <button
+        className="btn btn-fat"
+        style={{
+          background: "var(--btn-bg)",
+          color: "var(--btn-fg)",
+          alignSelf: "flex-start",
+        }}
+        onClick={onNewRate}
+      >
+        Get new rate <Icon.ArrowRight />
+      </button>
+    </div>
+  );
+}
+
+function RefundedCard({ refundAddress }: { refundAddress: string | null }) {
+  return (
+    <div
+      className="col gap-2"
+      style={{
+        marginTop: 18,
+        padding: 16,
+        background: "var(--bg-soft)",
+        border: "1px solid var(--line)",
+        borderRadius: 12,
+      }}
+    >
+      <strong style={{ fontSize: 14 }}>Order refunded</strong>
+      <span className="muted" style={{ fontSize: 13 }}>
+        This order couldn&apos;t be completed, so your deposit was returned
+        {refundAddress
+          ? ` to your connected wallet (${short0x(refundAddress)})`
+          : ""}
+        .
+      </span>
+    </div>
+  );
+}
+
+function StatusModal({
+  title,
+  body,
+  confirmLabel,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  body: string;
+  confirmLabel?: string;
+  onConfirm?: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.5)",
+        zIndex: 60,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        animation: "fade-up .15s var(--ease) both",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="card"
+        style={{ maxWidth: 360, width: "100%", padding: 20 }}
+      >
+        <strong style={{ fontSize: 15 }}>{title}</strong>
+        <p
+          className="muted"
+          style={{ fontSize: 13.5, lineHeight: 1.5, marginTop: 8 }}
+        >
+          {body}
+        </p>
+        <div
+          className="row gap-2"
+          style={{ marginTop: 16, justifyContent: "flex-end" }}
+        >
+          <button className="btn btn-quiet btn-sm" onClick={onClose}>
+            {confirmLabel ? "Cancel" : "Got it"}
+          </button>
+          {confirmLabel && (
+            <button className="btn btn-primary btn-sm" onClick={onConfirm}>
+              {confirmLabel}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
