@@ -82,6 +82,14 @@ export function paycrestNetworkSlug(chainId: ChainId): string | null {
   return PAYCREST_NETWORK_SLUGS[chainId] ?? null;
 }
 
+/** Reverse of paycrestNetworkSlug: "base" → "base", "arbitrum-one" → "arbitrum". */
+export function chainIdFromPaycrestSlug(slug: string): ChainId | null {
+  const entry = Object.entries(PAYCREST_NETWORK_SLUGS).find(
+    ([, s]) => s === slug
+  );
+  return entry ? (entry[0] as ChainId) : null;
+}
+
 /** A payout institution (bank or mobile-money) from Paycrest's catalogue. */
 export interface PaycrestInstitution {
   name: string;

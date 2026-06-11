@@ -19,10 +19,73 @@ import { Home, type FlowId } from "./Home";
 import { SwapForm } from "./SwapForm";
 import { CashoutFlow } from "./flows/CashoutFlow";
 import { BuyFlow } from "./flows/BuyFlow";
-import { HistoryScreen, RecipientsScreen, SettingsScreen } from "./AppScreens";
-import { IS_TESTNET } from "@/config/network";
+import {
+  HistoryScreen,
+  RecipientsScreen,
+  SettingsScreen,
+  type Order,
+} from "./AppScreens";
+import {
+  DEFAULT_SETTLEMENT_CHAIN_ID,
+  IS_TESTNET,
+  getChain,
+  type TokenSymbol,
+} from "@/config/network";
+import { chainIdFromPaycrestSlug } from "@/rails/paycrest";
+import { formatFiat, titleCase } from "@/utils";
 
 type View = "send" | "history" | "recipients" | "settings";
+
+/** Reconstructs a minimal Intent from a History order so StatusScreen can
+ *  adopt and fund it (resumeOrderId tells StatusScreen not to recreate it). */
+function intentFromOrder(o: Order): Intent {
+  const chain = chainIdFromPaycrestSlug(o.network) ?? DEFAULT_SETTLEMENT_CHAIN_ID;
+  const chainName = getChain(chain)?.name ?? chain;
+  const fiat = o.currency ?? "";
+  const fiatGets =
+    o.fiatAmount !== null && fiat
+      ? formatFiat(fiat, o.fiatAmount)
+      : `Paid out in ${fiat}`;
+  const name = o.recipientName ? titleCase(o.recipientName) : "";
+  return {
+    text: `Cash out ${o.amount} ${o.token} to ${fiat}`,
+    resumeOrderId: o.id,
+    quote: {
+      from: { token: o.token, chain: chainName, amount: Number(o.amount) },
+      to: {
+        kind: "Bank account",
+        currency: fiat,
+        amount: fiatGets,
+        label: "Bank / mobile money",
+        sub: o.accountIdentifier ?? "—",
+      },
+      rate: null,
+      fee: { network: "—", rail: "—", spread: "—", total: "—" },
+      eta: "≈ 2 min",
+      rail: ["Deposit", "Settle", "Payout"],
+      kind: "fiat",
+      railName: "Paycrest",
+      railReason: "",
+      exec: {
+        rail: "paycrest",
+        action: "offramp",
+        fromChain: chain,
+        fromToken: o.token as TokenSymbol,
+        fromAmount: o.amount,
+        toChain: null,
+        toToken: null,
+        fiatCurrency: fiat,
+        recipient: o.accountIdentifier,
+        payout: {
+          institution: o.institution ?? "",
+          institutionName: o.institution ?? "",
+          accountIdentifier: o.accountIdentifier ?? "",
+          accountName: name,
+        },
+      },
+    },
+  };
+}
 
 const MOBILE_QUERY = "(max-width: 860px)";
 
@@ -62,6 +125,15 @@ export default function AppShell() {
   const submit = (intent: Intent) => {
     setRecentIntent(intent);
     setShowStatus(true);
+  };
+
+  // resume a still-fundable order from History into the status screen
+  const resumeOrder = (order: Order) => {
+    setRecentIntent(intentFromOrder(order));
+    setFlow(null);
+    setView("send");
+    setShowStatus(true);
+    setDrawerOpen(false);
   };
 
   const backToChooser = () => setFlow(null);
@@ -116,7 +188,7 @@ export default function AppShell() {
         style={{ animation: "fade-up .22s var(--ease) both" }}
       >
         {view === "send" && sendBody}
-        {view === "history" && <HistoryScreen />}
+        {view === "history" && <HistoryScreen onResume={resumeOrder} />}
         {view === "recipients" && <RecipientsScreen />}
         {view === "settings" && <SettingsScreen />}
       </div>

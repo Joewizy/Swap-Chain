@@ -36,7 +36,6 @@ import {
   formatFiat,
   formatNumber,
   formatToken,
-  maskAccount,
   titleCase,
 } from "@/utils";
 
@@ -93,7 +92,12 @@ export type Quote = {
 };
 export type ParseError = { error: string; reason: string; quote?: Quote };
 type ParseResult = Quote | ParseError | null;
-export type Intent = { text: string; quote: Quote };
+export type Intent = {
+  text: string;
+  quote: Quote;
+  /** When set, StatusScreen adopts this existing order instead of creating one. */
+  resumeOrderId?: string;
+};
 
 function isError(r: ParseResult): r is ParseError {
   return !!r && "error" in r;
@@ -1729,7 +1733,7 @@ function paycrestStages(
     phase === "settled";
   const paidLine = `${fiatLabel ?? fiatCode} to ${recipient ?? "recipient"}${
     bank ? ` · ${bank}` : ""
-  }${acct ? ` ${maskAccount(acct)}` : ""}`;
+  }${acct ? ` · ${acct}` : ""}`;
   const stages: StageRow[] = [
     { l: "Rate locked", d: "Your rate is held for this transfer." },
     {
@@ -1859,6 +1863,17 @@ export function StatusScreen({
     // --- Paycrest fiat legs ------------------------------------------------
     if (exec.rail === "paycrest") {
       if (exec.action === "offramp") {
+        // Resuming an existing order from History — adopt it, don't recreate.
+        if (intent.resumeOrderId) {
+          paycrestOfframp
+            .resume({
+              orderId: intent.resumeOrderId,
+              fromChain: exec.fromChain,
+              token: exec.fromToken as PaycrestToken,
+            })
+            .catch(() => {});
+          return;
+        }
         if (!exec.fiatCurrency) {
           setBootError(
             "We couldn't determine a payout currency — try rephrasing."
@@ -2341,32 +2356,27 @@ export function StatusScreen({
 
         {/* Off-ramp funding — branch on whether the wallet covers it. */}
         {showFunding && !isExpired && offrampOrder?.receiveAddress && !bootError && (
-          <div
-            className="col gap-3"
-            style={{
-              marginTop: 18,
-              padding: 16,
-              background: "var(--accent-soft)",
-              border: "1px solid var(--line-2)",
-              borderRadius: 12,
-            }}
-          >
-            <strong style={{ fontSize: 14 }}>
-              Send exactly {sendLabel} on {intent?.quote?.from?.chain}
-            </strong>
+          <div className="col gap-4" style={{ marginTop: 18 }}>
             {payoutName && (
-              <span style={{ fontSize: 13, color: "var(--fg-soft)" }}>
-                {payoutName} receives{" "}
-                <strong style={{ color: "var(--fg)" }}>
-                  {fiatReceiveLabel ?? "—"}
-                </strong>
-                {payoutBank ? ` in their ${payoutBank} account` : ""}
-                {payoutAcct ? ` (${maskAccount(payoutAcct)})` : ""}.
-              </span>
+              <div className="col gap-1">
+                <span className="eyebrow" style={{ fontSize: 10 }}>
+                  Payout to
+                </span>
+                <span style={{ fontSize: 14, lineHeight: 1.4 }}>
+                  {payoutName}
+                  {(payoutBank || payoutAcct) && (
+                    <span className="muted" style={{ fontSize: 13 }}>
+                      {payoutBank ? ` · ${payoutBank}` : ""}
+                      {payoutAcct ? ` · ${payoutAcct}` : ""}
+                    </span>
+                  )}
+                </span>
+              </div>
             )}
 
             {offrampPhaseValue === "partial" && (
               <div
+                className="row center gap-2"
                 style={{
                   padding: "10px 12px",
                   background: "var(--bg-soft)",
@@ -2375,19 +2385,21 @@ export function StatusScreen({
                   fontSize: 13,
                 }}
               >
-                Received{" "}
-                <strong className="font-mono">
-                  {formatToken(offrampPaid, exec?.fromToken ?? "", 2)}
-                </strong>{" "}
-                of {sendLabel}. Send the remaining{" "}
-                <strong className="font-mono">
-                  {formatToken(
-                    Math.max(sendAmountNum - offrampPaid, 0),
-                    exec?.fromToken ?? "",
-                    2
-                  )}
-                </strong>{" "}
-                to the same address before the rate expires.
+                <span>
+                  Received{" "}
+                  <strong className="font-mono tabular">
+                    {formatToken(offrampPaid, exec?.fromToken ?? "", 2)}
+                  </strong>{" "}
+                  of {sendLabel} — send{" "}
+                  <strong className="font-mono tabular">
+                    {formatToken(
+                      Math.max(sendAmountNum - offrampPaid, 0),
+                      exec?.fromToken ?? "",
+                      2
+                    )}
+                  </strong>{" "}
+                  more to the address below.
+                </span>
               </div>
             )}
 
@@ -2409,15 +2421,17 @@ export function StatusScreen({
                     </>
                   ) : (
                     <>
-                      Confirm &amp; send {sendLabel} <Icon.ArrowRight />
+                      Send {sendLabel} from wallet <Icon.ArrowRight />
                     </>
                   )}
                 </button>
                 <details style={{ fontSize: 12 }}>
-                  <summary style={{ cursor: "pointer", color: "var(--fg-soft)" }}>
-                    or fund from another wallet or exchange
+                  <summary
+                    style={{ cursor: "pointer", color: "var(--fg-mute)" }}
+                  >
+                    Send from another wallet or exchange instead
                   </summary>
-                  <div style={{ marginTop: 10 }}>
+                  <div style={{ marginTop: 12 }}>
                     <DepositAddress
                       token={exec?.fromToken ?? ""}
                       chainName={intent?.quote?.from?.chain ?? ""}
@@ -2442,23 +2456,13 @@ export function StatusScreen({
                   onCopy={copyDepositAddress}
                 />
                 {balance.formatted !== undefined && (
-                  <span className="muted" style={{ fontSize: 12 }}>
-                    Your wallet holds{" "}
-                    {formatToken(balance.formatted, exec?.fromToken ?? "", 2)}. Top
-                    up this wallet and this updates automatically — or send from an
-                    exchange above.
+                  <span className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
+                    Wallet balance:{" "}
+                    {formatToken(balance.formatted, exec?.fromToken ?? "", 2)}.
+                    Top up here to pay from wallet, or use the address above.
                   </span>
                 )}
               </>
-            )}
-
-            {countdown && (
-              <span
-                className="muted"
-                style={{ fontSize: 12, color: expiringSoon ? "var(--err)" : undefined }}
-              >
-                Send before the rate expires · {countdown} left
-              </span>
             )}
           </div>
         )}
@@ -2668,10 +2672,18 @@ export function StatusScreen({
         )}
       </div>
 
-      {exactWarn && (
+      {exactWarn && offrampOrder?.receiveAddress && (
         <StatusModal
-          title="Send the exact amount"
-          body={`Send exactly ${sendLabel} of ${exec?.fromToken ?? ""} on ${intent?.quote?.from?.chain ?? ""}. A different amount, asset, or network can delay or lose your transfer.`}
+          title="Address copied"
+          body={
+            <>
+              Send {sendLabel} to{" "}
+              <span className="font-mono" style={{ wordBreak: "break-all" }}>
+                {offrampOrder.receiveAddress}
+              </span>{" "}
+              on {intent?.quote?.from?.chain ?? "Base"}.
+            </>
+          }
           onClose={() => setExactWarn(false)}
         />
       )}
@@ -2711,40 +2723,42 @@ function DepositAddress({
   onCopy: () => void;
 }) {
   return (
-    <div className="col gap-2">
-      <div
-        className="row center gap-2"
-        style={{
-          padding: "8px 10px",
-          background: "var(--err-soft)",
-          border: "1px solid var(--err)",
-          borderRadius: 8,
-          fontSize: 12,
-          color: "var(--err)",
-        }}
-      >
-        <strong>
-          {token} on {chainName} only.
-        </strong>{" "}
-        Another asset or network loses the funds.
+    <div
+      className="col gap-3"
+      style={{
+        padding: 14,
+        background: "var(--bg-soft)",
+        border: "1px solid var(--line)",
+        borderRadius: 12,
+      }}
+    >
+      <div className="row between center wrap" style={{ gap: 8 }}>
+        <span className="eyebrow" style={{ fontSize: 10 }}>
+          Deposit address
+        </span>
+        <span className="chip chip-err" style={{ fontSize: 10 }}>
+          {token} on {chainName} only
+        </span>
       </div>
+
       <button
         onClick={onCopy}
-        className="row between center"
+        className="row between center gap-3"
         style={{
-          padding: "10px 12px",
-          background: "var(--bg-soft)",
-          border: "1px solid var(--line)",
+          padding: "12px 14px",
+          background: "var(--bg)",
+          border: "1px solid var(--line-2)",
           borderRadius: 10,
           cursor: "pointer",
           textAlign: "left",
           color: "inherit",
         }}
         title="Copy address"
+        aria-label="Copy deposit address"
       >
         <span
-          className="font-mono"
-          style={{ fontSize: 12, wordBreak: "break-all" }}
+          className="font-mono tabular"
+          style={{ fontSize: 13, wordBreak: "break-all", lineHeight: 1.4 }}
         >
           {address}
         </span>
@@ -2756,20 +2770,21 @@ function DepositAddress({
             <Icon.Check size={12} /> Copied
           </span>
         ) : (
-          <Icon.Copy size={13} />
+          <Icon.Copy size={14} />
         )}
       </button>
-      <span className="muted" style={{ fontSize: 11 }}>
-        Exchanges deduct a withdrawal fee. Send enough that {sendLabel} arrives
-        after fees.
+
+      <span className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
+        Send exactly {sendLabel}. Exchanges may deduct fees — send enough that the
+        full amount arrives.
+        {refundAddress && (
+          <>
+            {" "}
+            If the order can&apos;t complete, funds return to{" "}
+            {short0x(refundAddress)}.
+          </>
+        )}
       </span>
-      {refundAddress && (
-        <span className="muted" style={{ fontSize: 11 }}>
-          If the full amount doesn&apos;t arrive before the deadline, your deposit
-          is returned to your connected wallet ({short0x(refundAddress)}). Contact
-          support if you&apos;ve sent a partial amount.
-        </span>
-      )}
     </div>
   );
 }
@@ -2838,7 +2853,7 @@ function StatusModal({
   onClose,
 }: {
   title: string;
-  body: string;
+  body: React.ReactNode;
   confirmLabel?: string;
   onConfirm?: () => void;
   onClose: () => void;
@@ -2864,12 +2879,12 @@ function StatusModal({
         style={{ maxWidth: 360, width: "100%", padding: 20 }}
       >
         <strong style={{ fontSize: 15 }}>{title}</strong>
-        <p
+        <div
           className="muted"
           style={{ fontSize: 13.5, lineHeight: 1.5, marginTop: 8 }}
         >
           {body}
-        </p>
+        </div>
         <div
           className="row gap-2"
           style={{ marginTop: 16, justifyContent: "flex-end" }}

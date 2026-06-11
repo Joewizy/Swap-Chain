@@ -11,7 +11,7 @@ import { Icon } from "./icons";
 /* ────────────────── HISTORY ────────────────── */
 
 /** One order from /api/paycrest/orders. */
-type Order = {
+export type Order = {
   id: string;
   direction: "offramp" | "onramp";
   status: string;
@@ -24,9 +24,19 @@ type Order = {
   recipientName: string | null;
   institution: string | null;
   accountIdentifier: string | null;
+  receiveAddress: string | null;
   txHash: string | null;
   createdAt: string | null;
 };
+
+/** An off-ramp order still awaiting its deposit can be resumed to fund it. */
+export function isFundable(o: Order): boolean {
+  return (
+    o.direction === "offramp" &&
+    (o.status === "initiated" || o.status === "pending") &&
+    !!o.receiveAddress
+  );
+}
 
 /** Maps a Paycrest status to a chip tone + label. */
 function statusChip(status: string): { tone: "ok" | "pend" | "err"; label: string } {
@@ -146,7 +156,12 @@ const RECIPIENTS: Recipient[] = [
   },
 ];
 
-export function HistoryScreen() {
+export function HistoryScreen({
+  onResume,
+}: {
+  /** Called when the user taps a still-fundable order to complete it. */
+  onResume?: (order: Order) => void;
+}) {
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -233,7 +248,7 @@ export function HistoryScreen() {
       ) : (
         <div className="col gap-3">
           {orders.map((o) => (
-            <OrderCard key={o.id} order={o} />
+            <OrderCard key={o.id} order={o} onResume={onResume} />
           ))}
         </div>
       )}
@@ -241,11 +256,26 @@ export function HistoryScreen() {
   );
 }
 
-function OrderCard({ order }: { order: Order }) {
+function OrderCard({
+  order,
+  onResume,
+}: {
+  order: Order;
+  onResume?: (order: Order) => void;
+}) {
   const chip = statusChip(order.status);
   const isOfframp = order.direction === "offramp";
+  const fundable = isFundable(order) && !!onResume;
   return (
-    <article className="card" style={{ padding: 16 }}>
+    <article
+      className="card"
+      onClick={fundable ? () => onResume?.(order) : undefined}
+      style={{
+        padding: 16,
+        cursor: fundable ? "pointer" : "default",
+        ...(fundable ? { borderColor: "var(--accent)" } : null),
+      }}
+    >
       <div className="row between center" style={{ gap: 12 }}>
         <div className="col" style={{ gap: 2, minWidth: 0 }}>
           <span style={{ fontSize: 15, fontWeight: 500 }}>
@@ -298,6 +328,22 @@ function OrderCard({ order }: { order: Order }) {
           {timeAgo(order.createdAt)}
         </span>
       </div>
+
+      {fundable && (
+        <div
+          className="row center between"
+          style={{
+            marginTop: 12,
+            paddingTop: 12,
+            borderTop: "1px solid var(--line)",
+          }}
+        >
+          <span style={{ fontSize: 12.5, color: "var(--accent)", fontWeight: 500 }}>
+            Complete this transfer
+          </span>
+          <Icon.ArrowRight size={13} />
+        </div>
+      )}
     </article>
   );
 }

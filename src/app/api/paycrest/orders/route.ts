@@ -27,6 +27,8 @@ interface OrderSummary {
   recipientName: string | null;
   institution: string | null;
   accountIdentifier: string | null;
+  /** Off-ramp deposit address — present means the order can still be funded. */
+  receiveAddress: string | null;
   txHash: string | null;
   createdAt: string | null;
 }
@@ -122,6 +124,10 @@ export async function GET(req: NextRequest) {
         accountIdentifier:
           typeof recipient.accountIdentifier === "string"
             ? recipient.accountIdentifier
+            : null,
+        receiveAddress:
+          typeof o.receiveAddress === "string" && o.receiveAddress
+            ? o.receiveAddress
             : null,
         txHash: typeof o.txHash === "string" && o.txHash ? o.txHash : null,
         createdAt: typeof o.createdAt === "string" ? o.createdAt : null,

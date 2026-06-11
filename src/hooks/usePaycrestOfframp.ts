@@ -72,7 +72,15 @@ export interface UsePaycrestOfframpReturn {
   offramp: (params: PaycrestOfframpParams) => Promise<PaycrestOrder>;
   /** Step 2: send the stablecoin (wallet signature) once the user confirms. */
   fund: () => Promise<PaycrestOrder>;
+  /** Adopt an existing order (e.g. resumed from History) so it can be funded. */
+  resume: (params: ResumeParams) => Promise<PaycrestOrder>;
   reset: () => void;
+}
+
+export interface ResumeParams {
+  orderId: string;
+  fromChain: ChainId;
+  token: PaycrestToken;
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +260,66 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
     }
   }, [config]);
 
+  // Adopt an existing order (resumed from History) and stop at the funding
+  // step. Re-fetches the order so amount / address / status are fresh.
+  const resume = useCallback(
+    async ({ orderId, fromChain, token }: ResumeParams): Promise<PaycrestOrder> => {
+      try {
+        setError(null);
+        setTransferTxHash(null);
+        fundingRef.current = null;
+
+        if (!isConnected || !address) {
+          throw new Error("Connect a wallet first.");
+        }
+        const srcEntry = getChain(fromChain);
+        if (!srcEntry?.viemChain) {
+          throw new Error("Off-ramp requires an EVM chain.");
+        }
+        const srcChainId = srcEntry.viemChain.id;
+        const rawToken = getTokenAddress(token, fromChain);
+        const decimals = getToken(token)?.decimals;
+        if (!rawToken || decimals === undefined) {
+          throw new Error(`No ${token} address configured for "${fromChain}".`);
+        }
+        const tokenAddress = getAddress(rawToken.toLowerCase());
+
+        setStatus("creating");
+        const res = await fetch(`/api/paycrest/order/${orderId}`);
+        const fetched = (await res.json()) as PaycrestOrder;
+        if (!res.ok || !fetched?.id) {
+          throw new Error("Couldn't load this order.");
+        }
+        setOrder(fetched);
+
+        if (fetched.status === "settled") {
+          setStatus("complete");
+          return fetched;
+        }
+        if (!fetched.receiveAddress) {
+          throw new Error("This order has no deposit address.");
+        }
+        fundingRef.current = {
+          tokenAddress,
+          receiveAddress: getAddress(fetched.receiveAddress.toLowerCase()),
+          units: parseUnits(fetched.amount, decimals),
+          srcChainId,
+          orderId: fetched.id,
+        };
+        // awaiting_funding drives the funding panel; the poll picks up
+        // terminal states (expired/refunded) from the live order.
+        setStatus("awaiting_funding");
+        return fetched;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Couldn't resume order.";
+        setError(humanizePaycrestError(msg));
+        setStatus("error");
+        throw err instanceof Error ? err : new Error(msg);
+      }
+    },
+    [address, isConnected]
+  );
+
   // While awaiting funds, poll the order so a deposit from ANY source (the
   // wallet button, another wallet, or an exchange) advances the screen.
   // Read-only — no signing, no order creation.
@@ -299,6 +367,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
       status !== "idle" && status !== "complete" && status !== "error",
     offramp,
     fund,
+    resume,
     reset,
   };
 }
