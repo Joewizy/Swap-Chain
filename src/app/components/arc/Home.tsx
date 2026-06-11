@@ -4,7 +4,7 @@
  * Home.tsx — the "what do you want to do?" entry chooser.
  *
  * The single front door for the Send experience. Instead of dropping the
- * user into a crypto swap form, it frames four plain-language goals and a
+ * user into a crypto swap form, it frames three plain-language goals and a
  * natural-language box. Both paths converge on the same quote → confirm →
  * execute flow downstream (today: the existing SendScreen; the per-goal
  * guided flows replace its body in Phase 2).
@@ -15,7 +15,7 @@
 import React from "react";
 import { Icon } from "./icons";
 
-export type FlowId = "cashout" | "send" | "buy" | "convert";
+export type FlowId = "cashout" | "buy" | "bridge";
 
 type Goal = {
   id: FlowId;
@@ -42,25 +42,9 @@ const GOALS: Goal[] = [
     ),
   },
   {
-    id: "send",
-    title: "Send crypto",
-    sub: "To a wallet or another chain",
-    glyph: (
-      <svg viewBox="0 0 32 32" width="24" height="24" fill="none" aria-hidden>
-        <path
-          d="M28 4L14 18M28 4l-9 24-5-10-10-5 24-9z"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
-  {
     id: "buy",
     title: "Buy crypto",
-    sub: "With your local currency",
+    sub: "With your local currency (fiat)",
     glyph: (
       <svg viewBox="0 0 32 32" width="24" height="24" fill="none" aria-hidden>
         <circle cx="16" cy="16" r="11" stroke="currentColor" strokeWidth="1.5" />
@@ -75,9 +59,9 @@ const GOALS: Goal[] = [
     ),
   },
   {
-    id: "convert",
-    title: "Convert",
-    sub: "Swap one token for another",
+    id: "bridge",
+    title: "Bridge/Swap",
+    sub: "Swap tokens or move to another chain",
     glyph: (
       <svg viewBox="0 0 32 32" width="24" height="24" fill="none" aria-hidden>
         <path

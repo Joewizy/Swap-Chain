@@ -138,17 +138,15 @@ export default function AppShell() {
 
   const backToChooser = () => setFlow(null);
 
-  // "Send crypto" and "Convert" share the swap card; "describe" is the NL
-  // path; cash out / buy are guided fiat flows. All converge on the same
-  // Review → StatusScreen contract via onSubmit.
+  // Bridge/Swap uses the swap card; "describe" is the NL path; cash out /
+  // buy are guided fiat flows. All converge on Review → StatusScreen.
   const flowBody = () => {
     switch (flow) {
       case "cashout":
         return <CashoutFlow onSubmit={submit} onBack={backToChooser} />;
       case "buy":
         return <BuyFlow onSubmit={submit} onBack={backToChooser} />;
-      case "send":
-      case "convert":
+      case "bridge":
         return (
           <WithBack onBack={backToChooser}>
             <SwapForm onSubmit={submit} />
