@@ -1364,8 +1364,17 @@ function PayoutForm({
   return (
     <div className="card" style={{ padding: 20 }}>
       <div className="row between center" style={{ marginBottom: 14 }}>
-        <span className="eyebrow">
-          {mode === "refund" ? "Refund account" : "Payout details"}
+        <span className="row center gap-1">
+          <span className="eyebrow">
+            {mode === "refund" ? "Refund account" : "Payout details"}
+          </span>
+          <InfoHint
+            text={
+              mode === "refund"
+                ? `If this purchase can't be completed, your ${currency ?? "money"} is refunded to this account. Use a ${currency ?? "local"} account you control — ideally the one you're paying from.`
+                : `The bank or mobile-money account that receives the ${currency ?? "cash"} payout.`
+            }
+          />
         </span>
         <span className="font-mono" style={{ fontSize: 11, color: "var(--fg-mute)" }}>
           {currency
@@ -1439,6 +1448,64 @@ function PayoutForm({
         )}
       </div>
     </div>
+  );
+}
+
+/** Small clickable "(i)" with a popover — explains a field on tap/click. */
+function InfoHint({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        onBlur={() => setOpen(false)}
+        aria-label="What's this?"
+        style={{
+          width: 16,
+          height: 16,
+          padding: 0,
+          border: 0,
+          background: "transparent",
+          color: open ? "var(--accent)" : "var(--fg-mute)",
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 16v-4" strokeLinecap="round" />
+          <path d="M12 8h.01" strokeLinecap="round" />
+        </svg>
+      </button>
+      {open && (
+        <span
+          style={{
+            position: "absolute",
+            top: "150%",
+            left: 0,
+            zIndex: 30,
+            width: 230,
+            padding: "10px 12px",
+            background: "var(--bg-elev)",
+            border: "1px solid var(--line-2)",
+            borderRadius: 10,
+            boxShadow: "var(--shadow-2)",
+            fontSize: 12,
+            lineHeight: 1.5,
+            fontWeight: 400,
+            letterSpacing: 0,
+            textTransform: "none",
+            color: "var(--fg-soft)",
+            fontFamily: "inherit",
+          }}
+        >
+          {text}
+        </span>
+      )}
+    </span>
   );
 }
 
