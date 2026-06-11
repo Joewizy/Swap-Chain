@@ -2076,7 +2076,7 @@ export function StatusScreen({
   const feeLine = offrampOrder?.rate
     ? feeTotal > 0
       ? `Rate ${offrampOrder.rate} · fee ${formatToken(feeTotal, exec?.fromToken ?? "", 2)}`
-      : `Rate ${offrampOrder.rate} · fee included in rate`
+      : `Rate ${offrampOrder.rate}`
     : null;
 
   // Funding panel shows only while still waiting on the deposit.
@@ -2379,6 +2379,21 @@ export function StatusScreen({
               </span>
             </div>
 
+            {balance.formatted !== undefined && (
+              <div
+                className="row between center"
+                style={{ fontSize: 12.5, padding: "0 2px" }}
+              >
+                <span className="muted">Your wallet balance</span>
+                <span
+                  className="font-mono tabular"
+                  style={{ color: hasBalance ? "var(--fg)" : "var(--err)" }}
+                >
+                  {formatToken(balance.formatted, exec?.fromToken ?? "", 2)}
+                </span>
+              </div>
+            )}
+
             {offrampPhaseValue === "partial" && (
               <div
                 className="row center gap-2"
@@ -2482,14 +2497,10 @@ export function StatusScreen({
                   copied={copied}
                   onCopy={copyDepositAddress}
                 />
-                {balance.formatted !== undefined && (
-                  <span className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
-                    Your wallet holds{" "}
-                    {formatToken(balance.formatted, exec?.fromToken ?? "", 2)} — top
-                    it up to pay in one tap, or send to the address above from any
-                    wallet or exchange.
-                  </span>
-                )}
+                <span className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
+                  Top up this wallet to pay in one tap, or send to the address
+                  above from any wallet or exchange.
+                </span>
               </div>
             )}
           </div>
