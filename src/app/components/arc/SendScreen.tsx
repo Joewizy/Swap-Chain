@@ -1680,7 +1680,8 @@ function offrampPhase(
   sent: boolean
 ): OfframpPhase {
   if (!order) return "creating";
-  if (order.status === "settled" || status === "complete") return "settled";
+  if (order.status === "settled" || order.status === "fulfilled" || status === "complete")
+    return "settled";
   if (order.status === "refunded") return "refunded";
   if (order.status === "expired") return "expired";
   const paid = Number(order.amountPaid ?? 0);
@@ -2756,7 +2757,7 @@ export function StatusScreen({
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Payout tx {short0x(offrampOrder.txHash)}
+                  Settlement tx {short0x(offrampOrder.txHash)}
                 </a>
               )}
             </div>

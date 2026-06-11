@@ -32,25 +32,25 @@ export type Order = {
 /** An off-ramp order still awaiting its deposit can be resumed to fund it. */
 export function isFundable(o: Order): boolean {
   return (
-    o.direction === "offramp" &&
-    (o.status === "initiated" || o.status === "pending") &&
-    !!o.receiveAddress
+    o.direction === "offramp" && o.status === "initiated" && !!o.receiveAddress
   );
 }
 
 /** Maps a Paycrest status to a chip tone + label. */
 function statusChip(status: string): { tone: "ok" | "pend" | "err"; label: string } {
   switch (status) {
+    case "fulfilled":
     case "settled":
       return { tone: "ok", label: "Paid" };
     case "refunded":
       return { tone: "err", label: "Refunded" };
     case "expired":
       return { tone: "err", label: "Expired" };
+    case "validated":
     case "processing":
       return { tone: "pend", label: "Processing" };
     case "pending":
-      return { tone: "pend", label: "Pending" };
+      return { tone: "pend", label: "Confirming" };
     default:
       return { tone: "pend", label: "Awaiting funds" };
   }

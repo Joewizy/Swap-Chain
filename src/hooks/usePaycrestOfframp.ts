@@ -299,7 +299,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         const priorTx = recallDeposit(orderId);
         if (priorTx) setTransferTxHash(priorTx as `0x${string}`);
 
-        if (fetched.status === "settled") {
+        if (SUCCESS.has(fetched.status)) {
           setStatus("complete");
           return fetched;
         }
@@ -346,7 +346,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         const o = (await res.json()) as PaycrestOrder;
         if (cancelled) return;
         setOrder(o);
-        if (o.status === SETTLED) {
+        if (SUCCESS.has(o.status)) {
           setStatus("complete");
           stop();
         } else if (FAILED.has(o.status)) {
@@ -417,7 +417,7 @@ async function createOrder(body: CreateOrderBody): Promise<PaycrestOrder> {
 }
 
 /** Terminal order states — once reached, polling stops. */
-const SETTLED = "settled";
+const SUCCESS = new Set(["fulfilled", "settled"]);
 const FAILED = new Set(["refunded", "expired"]);
 
 /**
@@ -433,7 +433,7 @@ async function pollOrder(
     if (res.ok) {
       const order = (await res.json()) as PaycrestOrder;
       onUpdate(order);
-      if (order.status === SETTLED) return order;
+      if (SUCCESS.has(order.status)) return order;
       if (FAILED.has(order.status)) {
         throw new Error(
           `Order ${order.status} — funds are being returned to your refund address.`

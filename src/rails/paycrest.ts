@@ -159,6 +159,9 @@ export type PaycrestOrderStatus =
   | "initiated"
   | "pending"
   | "processing"
+  | "validated"
+  // Terminal success: provider has paid the recipient (and settled on-chain).
+  | "fulfilled"
   | "settled"
   | "refunded"
   | "expired";
