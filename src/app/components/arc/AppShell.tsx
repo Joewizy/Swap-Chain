@@ -43,6 +43,11 @@ import {
   type SwapView,
 } from "./swapUrl";
 import { useSwapFlowNav } from "./useSwapFlowNav";
+import {
+  storePendingRecipient,
+  upsertRecipient,
+  type Recipient,
+} from "./recipients";
 
 type View = SwapView;
 
@@ -147,9 +152,21 @@ export default function AppShell() {
 
   const submit = (intent: Intent) => {
     clearFlowDraft();
+    // Auto-capture the payout target as a recipient (deduped) so the address
+    // book fills itself from real off-ramps.
+    const { exec } = intent.quote;
+    if (exec.action === "offramp" && exec.payout) {
+      upsertRecipient(exec.payout, exec.fiatCurrency);
+    }
     storeIntent(intent);
     setRecentIntent(intent);
     patchUrl({ view: "send", flow: null, status: true, step: null });
+  };
+
+  const sendToRecipient = (r: Recipient) => {
+    storePendingRecipient(r);
+    pickFlow("cashout");
+    setDrawerOpen(false);
   };
 
   const resumeOrder = (order: Order) => {
@@ -227,7 +244,7 @@ export default function AppShell() {
       >
         {view === "send" && sendBody}
         {view === "history" && <HistoryScreen onResume={resumeOrder} />}
-        {view === "recipients" && <RecipientsScreen />}
+        {view === "recipients" && <RecipientsScreen onSend={sendToRecipient} />}
         {view === "settings" && <SettingsScreen />}
       </div>
     </main>

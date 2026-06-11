@@ -31,6 +31,11 @@ import {
   storeFlowDraft,
   type FlowDraft,
 } from "../swapUrl";
+import {
+  clearPendingRecipient,
+  loadPendingRecipient,
+  recipientToPayout,
+} from "../recipients";
 import { useSwapFlowNav } from "../useSwapFlowNav";
 
 const TOKENS = ["USDC", "USDT"] as const;
@@ -98,6 +103,15 @@ export function CashoutFlow({
     setStep("compose");
     setReady(true);
   }, [step, setStep]);
+
+  // Prefill from a recipient picked on the Recipients screen ("Send").
+  useEffect(() => {
+    const pending = loadPendingRecipient();
+    if (!pending) return;
+    setCurrency(pending.currency);
+    setPayoutDraft(recipientToPayout(pending));
+    clearPendingRecipient();
+  }, []);
 
   const refreshRate = async (draft: FlowDraft) => {
     const rate = await fetchCashoutRate(

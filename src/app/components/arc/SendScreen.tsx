@@ -8,10 +8,12 @@
 // compose card surfaces inline (insufficient / unsupported / missing / unavailable).
 
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { parseUnits } from "viem";
 import { Icon } from "./icons";
+import { matchRecipient, recipientToPayout } from "./recipients";
 import {
   useCctp,
   usePaycrestOfframp,
@@ -38,6 +40,24 @@ import {
   formatToken,
   titleCase,
 } from "@/utils";
+
+/* ───────── shared modal chrome ─────────
+ * Modals portal to <body> so `position: fixed` is viewport-relative (the
+ * app shell's fade-up animation creates a containing block that would
+ * otherwise trap and mis-center them). No backdrop dim — the elevation
+ * shadow alone separates the dialog from the page. */
+const MODAL_SHADOW =
+  "0 16px 48px rgba(20,18,14,0.28), 0 4px 12px rgba(20,18,14,0.16)";
+const MODAL_OVERLAY: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 60,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding:
+    "max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom))",
+};
 
 /* ───────── types ───────── */
 export type RailKey = "cctp" | "chainrails" | "relay" | "paycrest";
@@ -208,8 +228,18 @@ async function resolveIntent(text: string): Promise<ParseResult> {
     };
   }
 
+  // Resolve a named/numbered recipient against the local address book before
+  // we decide whether to ask for more detail — a saved match supplies the
+  // payout the model would otherwise have flagged as missing. Names never go
+  // to the model, so this is the only place "send to mum" can be filled in.
+  const matched =
+    intent.action === "offramp"
+      ? matchRecipient(intent.recipient, intent.fiatCurrency)
+      : null;
+  if (matched) intent.recipient = matched.accountIdentifier;
+
   // 2. greeting / vague / explicitly needs more detail
-  if (intent.action === "unclear" || intent.needsClarification) {
+  if (intent.action === "unclear" || (intent.needsClarification && !matched)) {
     return {
       error: "Need a bit more detail",
       reason:
@@ -242,7 +272,14 @@ async function resolveIntent(text: string): Promise<ParseResult> {
   }
 
   // 4. pick the rail + build the quote
-  return quoteFromIntent(intent);
+  const result = await quoteFromIntent(intent);
+  // Carry the matched recipient's verified payout into Review so it lands
+  // pre-filled and pre-verified instead of an empty form.
+  if (matched && result && !("error" in result)) {
+    result.exec.payout = recipientToPayout(matched);
+    result.exec.recipient = matched.accountIdentifier;
+  }
+  return result;
 }
 
 /**
@@ -455,6 +492,7 @@ export function SendScreen({
       <ReviewScreen
         quote={result as Quote}
         text={text}
+        initialPayout={(result as Quote).exec.payout ?? undefined}
         onBack={() => setStage("compose")}
         onConfirm={(payout) =>
           onSubmit({
@@ -1257,16 +1295,19 @@ export function ReviewScreen({
 }
 
 /* ───────── payout / refund account form (Paycrest fiat legs) ───────── */
-function PayoutForm({
+export function PayoutForm({
   currency,
   value,
   onChange,
   mode = "payout",
+  variant = "card",
 }: {
   currency: string | null;
   value: PayoutDetails;
   onChange: (next: PayoutDetails) => void;
   mode?: "payout" | "refund";
+  /** "embedded" drops the outer card + header for use inside another panel. */
+  variant?: "card" | "embedded";
 }) {
   const [institutions, setInstitutions] = useState<
     { name: string; code: string; type: string }[]
@@ -1361,6 +1402,74 @@ function PayoutForm({
     outline: "none",
   };
 
+  const fields = (
+    <div className="col gap-3">
+      <label className="col gap-1">
+        <span className="font-mono" style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}>
+          Bank name
+        </span>
+        <select
+          value={value.institution}
+          disabled={loading || !!loadError}
+          onChange={(e) => {
+            const code = e.target.value;
+            const inst = institutions.find((i) => i.code === code);
+            onChange({
+              ...value,
+              institution: code,
+              institutionName: inst?.name ?? "",
+            });
+          }}
+          style={{ ...inputStyle, cursor: loading ? "wait" : "pointer" }}
+        >
+          <option value="">
+            {loading
+              ? "Loading banks…"
+              : loadError
+                ? "Couldn't load banks"
+                : "Select your bank"}
+          </option>
+          {institutions.map((i) => (
+            <option key={i.code} value={i.code}>
+              {i.name}
+              {i.type === "mobile_money" ? " (mobile money)" : ""}
+            </option>
+          ))}
+        </select>
+        {loadError && (
+          <span style={{ fontSize: 12, color: "var(--err)" }}>{loadError}</span>
+        )}
+      </label>
+
+      <label className="col gap-1">
+        <span className="font-mono" style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}>
+          Account / phone number
+        </span>
+        <input
+          value={value.accountIdentifier}
+          onChange={(e) =>
+            onChange({ ...value, accountIdentifier: e.target.value })
+          }
+          placeholder="e.g. 8170106043"
+          inputMode="numeric"
+          style={inputStyle}
+        />
+      </label>
+
+      {/* Resolved account name — confirm, not type. */}
+      {value.institution && acct.length >= 6 && (
+        <AccountNameStatus
+          verifying={verifying}
+          error={verifyError}
+          name={value.accountName}
+        />
+      )}
+    </div>
+  );
+
+  // Embedded: the host panel supplies its own card + heading.
+  if (variant === "embedded") return fields;
+
   return (
     <div className="card" style={{ padding: 20 }}>
       <div className="row between center" style={{ marginBottom: 14 }}>
@@ -1385,68 +1494,7 @@ function PayoutForm({
         </span>
       </div>
 
-      <div className="col gap-3">
-        <label className="col gap-1">
-          <span className="font-mono" style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}>
-            Bank name
-          </span>
-          <select
-            value={value.institution}
-            disabled={loading || !!loadError}
-            onChange={(e) => {
-              const code = e.target.value;
-              const inst = institutions.find((i) => i.code === code);
-              onChange({
-                ...value,
-                institution: code,
-                institutionName: inst?.name ?? "",
-              });
-            }}
-            style={{ ...inputStyle, cursor: loading ? "wait" : "pointer" }}
-          >
-            <option value="">
-              {loading
-                ? "Loading banks…"
-                : loadError
-                  ? "Couldn't load banks"
-                  : "Select your bank"}
-            </option>
-            {institutions.map((i) => (
-              <option key={i.code} value={i.code}>
-                {i.name}
-                {i.type === "mobile_money" ? " (mobile money)" : ""}
-              </option>
-            ))}
-          </select>
-          {loadError && (
-            <span style={{ fontSize: 12, color: "var(--err)" }}>{loadError}</span>
-          )}
-        </label>
-
-        <label className="col gap-1">
-          <span className="font-mono" style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}>
-            Account / phone number
-          </span>
-          <input
-            value={value.accountIdentifier}
-            onChange={(e) =>
-              onChange({ ...value, accountIdentifier: e.target.value })
-            }
-            placeholder="e.g. 8170106043"
-            inputMode="numeric"
-            style={inputStyle}
-          />
-        </label>
-
-        {/* Resolved account name — confirm, not type. */}
-        {value.institution && acct.length >= 6 && (
-          <AccountNameStatus
-            verifying={verifying}
-            error={verifyError}
-            name={value.accountName}
-          />
-        )}
-      </div>
+      {fields}
     </div>
   );
 }
@@ -1578,7 +1626,7 @@ function AccountNameStatus({
           <Icon.Check size={11} />
         </span>
         <div className="col" style={{ gap: 1 }}>
-          <span style={{ fontSize: 14, fontWeight: 500 }}>{name}</span>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>{titleCase(name)}</span>
           <span className="muted" style={{ fontSize: 11 }}>
             Confirm this is the right recipient.
           </span>
@@ -2834,17 +2882,13 @@ export function StatusScreen({
       </div>
 
       {exactWarn && offrampOrder?.receiveAddress && (
-        <StatusModal
-          title="Address copied"
-          body={
-            <>
-              Send {sendLabel} to{" "}
-              <span className="font-mono" style={{ wordBreak: "break-all" }}>
-                {offrampOrder.receiveAddress}
-              </span>{" "}
-              on {intent?.quote?.from?.chain ?? "Base"}.
-            </>
-          }
+        <BeforeYouSendModal
+          sendLabel={sendLabel}
+          token={exec?.fromToken ?? ""}
+          chainName={intent?.quote?.from?.chain ?? "Base"}
+          address={offrampOrder.receiveAddress}
+          copied={copied}
+          onCopy={copyDepositAddress}
           onClose={() => setExactWarn(false)}
         />
       )}
@@ -3073,25 +3117,13 @@ function StatusModal({
   onConfirm?: () => void;
   onClose: () => void;
 }) {
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.5)",
-        zIndex: 60,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-        animation: "fade-up .15s var(--ease) both",
-      }}
-    >
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div onClick={onClose} style={MODAL_OVERLAY}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="card"
-        style={{ maxWidth: 360, width: "100%", padding: 20 }}
+        style={{ maxWidth: 360, width: "100%", padding: 20, boxShadow: MODAL_SHADOW }}
       >
         <strong style={{ fontSize: 15 }}>{title}</strong>
         <div
@@ -3114,7 +3146,109 @@ function StatusModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
+  );
+}
+
+/**
+ * Safety confirmation shown after copying the deposit address — this is the
+ * moment funds can be lost to the wrong network, so the amount, chain, and
+ * address are scannable in under two seconds, not buried in a paragraph.
+ */
+function BeforeYouSendModal({
+  sendLabel,
+  token,
+  chainName,
+  address,
+  copied,
+  onCopy,
+  onClose,
+}: {
+  sendLabel: string;
+  token: string;
+  chainName: string;
+  address: string;
+  copied: boolean;
+  onCopy: () => void;
+  onClose: () => void;
+}) {
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div onClick={onClose} style={MODAL_OVERLAY}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Before you send"
+        className="card col gap-4"
+        style={{ maxWidth: 380, width: "100%", padding: 20, boxShadow: MODAL_SHADOW }}
+      >
+        <strong style={{ fontSize: 15 }}>Before you send</strong>
+
+        <div className="col gap-2">
+          <span className="eyebrow" style={{ fontSize: 10 }}>
+            Send exactly
+          </span>
+          <span style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1 }}>
+            {sendLabel}
+          </span>
+          <span
+            className="chip chip-err"
+            style={{ alignSelf: "flex-start", fontSize: 11, marginTop: 2 }}
+          >
+            {token ? `${token} on ${chainName} only` : `${chainName} only`}
+          </span>
+        </div>
+
+        <button
+          onClick={onCopy}
+          className="row between center gap-3"
+          style={{
+            padding: "12px 14px",
+            background: "var(--bg-soft)",
+            border: "1px solid var(--line-2)",
+            borderRadius: 10,
+            cursor: "pointer",
+            textAlign: "left",
+            color: "inherit",
+          }}
+          title="Copy address"
+          aria-label="Copy deposit address"
+        >
+          <span
+            className="font-mono tabular"
+            style={{ fontSize: 13, wordBreak: "break-all", lineHeight: 1.4 }}
+          >
+            {address}
+          </span>
+          {copied ? (
+            <span
+              className="row center gap-1"
+              style={{ flex: "0 0 auto", fontSize: 11, color: "var(--ok)" }}
+            >
+              <Icon.Check size={12} /> Copied
+            </span>
+          ) : (
+            <span style={{ flex: "0 0 auto", color: "var(--fg-mute)" }}>
+              <Icon.Copy size={14} />
+            </span>
+          )}
+        </button>
+
+        <span className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
+          Sending on any other network will lose the funds. Double-check the
+          chain in your wallet before you confirm.
+        </span>
+
+        <div className="row" style={{ justifyContent: "flex-end" }}>
+          <button className="btn btn-primary btn-sm" onClick={onClose}>
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 

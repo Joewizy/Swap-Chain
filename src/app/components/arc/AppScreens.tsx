@@ -2,11 +2,15 @@
 
 // AppScreens.tsx — History, Recipients, Settings screens
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
-import { formatFiat, titleCase } from "@/utils";
+import { fiatOptionLabel, formatFiat, titleCase } from "@/utils";
+import { PAYCREST_FIAT } from "@/rails/paycrest";
 import { Icon } from "./icons";
+import { PayoutForm, type PayoutDetails } from "./SendScreen";
+import { upsertRecipient, useRecipients, type Recipient } from "./recipients";
 
 /* ────────────────── HISTORY ────────────────── */
 
@@ -71,90 +75,6 @@ function timeAgo(iso: string | null): string {
   if (hrs < 24) return `${hrs}h ago`;
   return new Date(iso).toLocaleDateString();
 }
-
-type Recipient = {
-  name: string;
-  initials: string;
-  method: string;
-  sub: string;
-  last: string;
-  currency: string;
-};
-
-const RECIPIENTS: Recipient[] = [
-  {
-    name: "Tunde Adebayo",
-    initials: "TA",
-    method: "GTBank",
-    sub: "0124 4429",
-    last: "Today",
-    currency: "NGN",
-  },
-  {
-    name: "Tunde Adebayo",
-    initials: "TA",
-    method: "Opay",
-    sub: "080-1234-4429",
-    last: "Yesterday",
-    currency: "NGN",
-  },
-  {
-    name: "Amaka Eze",
-    initials: "AE",
-    method: "Kuda",
-    sub: "9920 1144",
-    last: "Sat",
-    currency: "NGN",
-  },
-  {
-    name: "Lukas Müller",
-    initials: "LM",
-    method: "SEPA",
-    sub: "DE89 3704 0044 0532 0130",
-    last: "Yesterday",
-    currency: "EUR",
-  },
-  {
-    name: "Aisha Mohamed",
-    initials: "AM",
-    method: "M-Pesa",
-    sub: "254 700 ** 5572",
-    last: "Last week",
-    currency: "KES",
-  },
-  {
-    name: "Sarah Chen",
-    initials: "SC",
-    method: "ACH",
-    sub: "*****4429",
-    last: "Mon",
-    currency: "USD",
-  },
-  {
-    name: "James Whitfield",
-    initials: "JW",
-    method: "Faster Pay",
-    sub: "12-34-56 · 87654321",
-    last: "Apr 29",
-    currency: "GBP",
-  },
-  {
-    name: "Your wallet · ARB",
-    initials: "0x",
-    method: "Wallet",
-    sub: "0xA2…91Bc · Arbitrum",
-    last: "Today",
-    currency: "USDC",
-  },
-  {
-    name: "Your wallet · SOL",
-    initials: "0x",
-    method: "Wallet",
-    sub: "G7sX…dQ4n · Solana",
-    last: "Sun",
-    currency: "USDC",
-  },
-];
 
 export function HistoryScreen({
   onResume,
@@ -381,7 +301,36 @@ function EmptyState({
 }
 
 /* ────────────────── RECIPIENTS ────────────────── */
-export function RecipientsScreen() {
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function maskAccount(s: string): string {
+  const t = s.trim();
+  return t.length <= 4 ? t : `••${t.slice(-4)}`;
+}
+
+export function RecipientsScreen({
+  onSend,
+}: {
+  onSend: (r: Recipient) => void;
+}) {
+  const { recipients, remove } = useRecipients();
+  const [query, setQuery] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? recipients.filter((r) =>
+        [r.name, r.institutionName, r.accountIdentifier, r.currency].some((f) =>
+          f.toLowerCase().includes(q)
+        )
+      )
+    : recipients;
+
   return (
     <div className="col gap-6">
       <header className="row between center wrap" style={{ gap: 16 }}>
@@ -399,111 +348,414 @@ export function RecipientsScreen() {
             Recipients
           </h1>
           <span className="muted" style={{ fontSize: 14 }}>
-            Banks, wallets, and mobile money you&apos;ve sent to before.
+            Banks and mobile money you&apos;ve sent to before.
           </span>
         </div>
-        <button className="btn btn-primary btn-sm">
+        <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>
           <Icon.Plus /> Add recipient
         </button>
       </header>
 
-      <div
-        className="row center"
-        style={{
-          padding: "10px 14px",
-          border: "1px solid var(--line-2)",
-          borderRadius: 10,
-          background: "var(--bg-elev)",
-          gap: 10,
-        }}
-      >
-        <Icon.Search />
-        <input
-          placeholder="Search by name, number, or address"
+      {recipients.length > 0 && (
+        <div
+          className="row center"
           style={{
-            flex: 1,
-            border: 0,
-            outline: "none",
-            background: "transparent",
-            fontSize: 14,
-            color: "var(--fg)",
+            padding: "10px 14px",
+            border: "1px solid var(--line-2)",
+            borderRadius: 10,
+            background: "var(--bg-elev)",
+            gap: 10,
           }}
-        />
-      </div>
+        >
+          <Icon.Search />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name, number, or bank"
+            style={{
+              flex: 1,
+              border: 0,
+              outline: "none",
+              background: "transparent",
+              fontSize: 14,
+              color: "var(--fg)",
+            }}
+          />
+        </div>
+      )}
 
-      <div
+      {recipients.length === 0 ? (
+        <EmptyRecipients onAdd={() => setAdding(true)} />
+      ) : filtered.length === 0 ? (
+        <p className="muted" style={{ fontSize: 14 }}>
+          No recipients match “{query}”.
+        </p>
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+            gap: 12,
+          }}
+        >
+          {filtered.map((r) => (
+            <RecipientCard
+              key={r.id}
+              r={r}
+              onSend={() => onSend(r)}
+              onRemove={() => remove(r.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {adding && <AddRecipientModal onClose={() => setAdding(false)} />}
+    </div>
+  );
+}
+
+function RecipientCard({
+  r,
+  onSend,
+  onRemove,
+}: {
+  r: Recipient;
+  onSend: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <article className="card" style={{ padding: 16 }}>
+      <div className="row center gap-3">
+        <span
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 12,
+            background: "var(--accent-soft)",
+            color: "var(--accent)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontFamily: "Geist Mono, monospace",
+            fontSize: 13,
+            fontWeight: 600,
+            flex: "0 0 auto",
+          }}
+        >
+          {initialsOf(r.name)}
+        </span>
+        <div className="col grow" style={{ minWidth: 0 }}>
+          <div className="row between center">
+            <span
+              style={{
+                fontSize: 14,
+                fontWeight: 500,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {titleCase(r.name)}
+            </span>
+            <span
+              className="font-mono"
+              style={{ fontSize: 10.5, color: "var(--fg-mute)" }}
+            >
+              {r.currency}
+            </span>
+          </div>
+          <span
+            className="font-mono"
+            style={{ fontSize: 11.5, color: "var(--fg-mute)" }}
+          >
+            {r.institutionName} · {maskAccount(r.accountIdentifier)}
+          </span>
+        </div>
+      </div>
+      <div className="hr" style={{ margin: "12px 0" }} />
+      <div className="row between center">
+        <span
+          className="font-mono"
+          style={{ fontSize: 11, color: "var(--fg-mute)" }}
+        >
+          Last sent {timeAgo(new Date(r.lastUsed).toISOString())}
+        </span>
+        <div className="row center gap-1">
+          <button
+            onClick={onRemove}
+            title="Remove recipient"
+            aria-label="Remove recipient"
+            style={{
+              background: "transparent",
+              border: 0,
+              padding: 6,
+              cursor: "pointer",
+              color: "var(--fg-mute)",
+              display: "inline-flex",
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path
+                d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={onSend}>
+            Send
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function EmptyRecipients({ onAdd }: { onAdd: () => void }) {
+  return (
+    <div
+      className="card col center gap-3"
+      style={{ padding: "40px 24px", textAlign: "center" }}
+    >
+      <span
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-          gap: 12,
+          width: 44,
+          height: 44,
+          borderRadius: 14,
+          background: "var(--accent-soft)",
+          color: "var(--accent)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
       >
-        {RECIPIENTS.map((r, i) => (
-          <article key={i} className="card" style={{ padding: 16 }}>
-            <div className="row center gap-3">
-              <span
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 12,
-                  background:
-                    r.method === "Wallet"
-                      ? "var(--bg-sunk)"
-                      : "var(--accent-soft)",
-                  color:
-                    r.method === "Wallet" ? "var(--fg-soft)" : "var(--accent)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontFamily: "Geist Mono, monospace",
-                  fontSize: 13,
-                  fontWeight: 600,
-                }}
-              >
-                {r.initials}
-              </span>
-              <div className="col grow" style={{ minWidth: 0 }}>
-                <div className="row between center">
-                  <span
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 500,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {r.name}
-                  </span>
-                  <span
-                    className="font-mono"
-                    style={{ fontSize: 10.5, color: "var(--fg-mute)" }}
-                  >
-                    {r.currency}
-                  </span>
-                </div>
-                <span
-                  className="font-mono"
-                  style={{ fontSize: 11.5, color: "var(--fg-mute)" }}
-                >
-                  {r.method} · {r.sub}
-                </span>
-              </div>
-            </div>
-            <div className="hr" style={{ margin: "12px 0" }} />
-            <div className="row between center">
-              <span
-                className="font-mono"
-                style={{ fontSize: 11, color: "var(--fg-mute)" }}
-              >
-                Last sent {r.last}
-              </span>
-              <button className="btn btn-ghost btn-sm">Send</button>
-            </div>
-          </article>
-        ))}
+        <Icon.Book />
+      </span>
+      <div className="col gap-1">
+        <span style={{ fontSize: 15, fontWeight: 500 }}>No recipients yet</span>
+        <span className="muted" style={{ fontSize: 13 }}>
+          Accounts you cash out to are saved here automatically — or add one now.
+        </span>
       </div>
+      <button className="btn btn-primary btn-sm" onClick={onAdd}>
+        <Icon.Plus /> Add recipient
+      </button>
     </div>
+  );
+}
+
+const REC_INPUT: React.CSSProperties = {
+  width: "100%",
+  padding: "11px 12px",
+  background: "var(--bg-soft)",
+  border: "1px solid var(--line)",
+  borderRadius: 10,
+  color: "var(--fg)",
+  fontSize: 14,
+  outline: "none",
+};
+
+const EMPTY_PAYOUT: PayoutDetails = {
+  institution: "",
+  institutionName: "",
+  accountIdentifier: "",
+  accountName: "",
+};
+
+const MONO_LABEL: React.CSSProperties = {
+  fontSize: 10,
+  letterSpacing: 0.06,
+  color: "var(--fg-mute)",
+  textTransform: "uppercase",
+};
+
+function AddRecipientModal({ onClose }: { onClose: () => void }) {
+  const [currency, setCurrency] = useState<string>("NGN");
+  const [payout, setPayout] = useState<PayoutDetails>(EMPTY_PAYOUT);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  const ready =
+    !!payout.institution &&
+    !!payout.accountIdentifier.trim() &&
+    !!payout.accountName.trim();
+
+  const save = () => {
+    if (!ready) return;
+    upsertRecipient(payout, currency);
+    onClose();
+  };
+
+  // Esc to close, focus the first field on open, and trap Tab inside the modal.
+  useEffect(() => {
+    const node = cardRef.current;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab" || !node) return;
+      const f = node.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (!f.length) return;
+      const first = f[0];
+      const last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    node?.querySelector<HTMLElement>("select, input, button")?.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 60,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding:
+          "max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom))",
+      }}
+    >
+      <div
+        ref={cardRef}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add recipient"
+        className="card col"
+        style={{
+          width: "100%",
+          maxWidth: 440,
+          maxHeight: "calc(100dvh - 32px)",
+          padding: 0,
+          boxShadow:
+            "0 16px 48px rgba(20,18,14,0.28), 0 4px 12px rgba(20,18,14,0.16)",
+        }}
+      >
+        {/* sticky header */}
+        <div
+          className="col gap-1"
+          style={{
+            padding: "18px 20px 14px",
+            borderBottom: "1px solid var(--line)",
+            flex: "0 0 auto",
+          }}
+        >
+          <div className="row between center">
+            <h2 style={{ fontSize: 18, fontWeight: 500 }}>Add recipient</h2>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              style={{
+                background: "transparent",
+                border: 0,
+                color: "var(--fg-soft)",
+                cursor: "pointer",
+                padding: 4,
+                display: "inline-flex",
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+          <span className="muted" style={{ fontSize: 13 }}>
+            A bank or mobile money account you can cash out to.
+          </span>
+        </div>
+
+        {/* scrollable body */}
+        <div
+          className="col gap-5"
+          style={{ padding: 20, overflowY: "auto", flex: "1 1 auto" }}
+        >
+          <label className="col gap-2">
+            <span className="font-mono" style={MONO_LABEL}>
+              Currency
+            </span>
+            <select
+              value={currency}
+              onChange={(e) => {
+                setCurrency(e.target.value);
+                setPayout(EMPTY_PAYOUT); // institution codes are currency-specific
+              }}
+              style={{ ...REC_INPUT, cursor: "pointer" }}
+            >
+              {PAYCREST_FIAT.map((c) => (
+                <option key={c} value={c}>
+                  {fiatOptionLabel(c)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="col gap-2">
+            <span className="font-mono" style={MONO_LABEL}>
+              Account details
+            </span>
+            <PayoutForm
+              currency={currency}
+              value={payout}
+              onChange={setPayout}
+              mode="payout"
+              variant="embedded"
+            />
+          </div>
+        </div>
+
+        {/* sticky footer */}
+        <div
+          className="col gap-2"
+          style={{
+            padding: 20,
+            borderTop: "1px solid var(--line)",
+            flex: "0 0 auto",
+          }}
+        >
+          <button
+            className="btn btn-fat"
+            disabled={!ready}
+            onClick={save}
+            style={{
+              background: ready ? "var(--btn-bg)" : "var(--bg-sunk)",
+              color: ready ? "var(--btn-fg)" : "var(--fg-faint)",
+              cursor: ready ? "pointer" : "default",
+            }}
+          >
+            Save recipient
+          </button>
+          {!ready && (
+            <span
+              className="muted"
+              style={{ fontSize: 12, textAlign: "center" }}
+            >
+              Select a bank and enter the account number to save.
+            </span>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 
