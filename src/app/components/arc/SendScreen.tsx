@@ -2132,13 +2132,11 @@ export function StatusScreen({
       : null;
 
   // Countdown to the rate's expiry (off-ramp orders hold a rate ~60 min).
-  const startedAt = useRef(Date.now()).current;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
-  const elapsed = Math.floor((now - startedAt) / 1000);
 
   const expiryMs = offrampOrder?.validUntil
     ? new Date(offrampOrder.validUntil).getTime()
@@ -2211,11 +2209,7 @@ export function StatusScreen({
               Rate locked ·{" "}
               <span className="font-mono tabular">{countdown}</span>
             </span>
-          ) : (
-            <span className="chip">
-              <span className="font-mono tabular">{elapsed}s</span> elapsed
-            </span>
-          )}
+          ) : null}
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => (showFunding ? setConfirmNav(true) : onDone())}
@@ -2358,17 +2352,16 @@ export function StatusScreen({
             }}
           >
             <strong style={{ fontSize: 14 }}>
-              {hasBalance ? "Confirm and send" : `Send ${sendLabel} to this address`}
+              Send exactly {sendLabel} on {intent?.quote?.from?.chain}
             </strong>
             {payoutName && (
               <span style={{ fontSize: 13, color: "var(--fg-soft)" }}>
-                {payoutName}
-                {payoutBank ? ` · ${payoutBank}` : ""}
-                {payoutAcct ? ` (${maskAccount(payoutAcct)})` : ""} gets{" "}
+                {payoutName} receives{" "}
                 <strong style={{ color: "var(--fg)" }}>
                   {fiatReceiveLabel ?? "—"}
                 </strong>
-                .
+                {payoutBank ? ` in their ${payoutBank} account` : ""}
+                {payoutAcct ? ` (${maskAccount(payoutAcct)})` : ""}.
               </span>
             )}
 
@@ -2634,7 +2627,7 @@ export function StatusScreen({
             </span>
             <div className="col">
               <span style={{ fontSize: 14, fontWeight: 500 }}>
-                Sent {intent?.quote?.to?.amount} in {elapsed}s
+                Sent {intent?.quote?.to?.amount}
               </span>
               <span className="muted" style={{ fontSize: 12 }}>
                 {intent?.quote?.to?.label} · {intent?.quote?.to?.sub}
