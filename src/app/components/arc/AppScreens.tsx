@@ -265,14 +265,17 @@ function OrderCard({
 }) {
   const chip = statusChip(order.status);
   const isOfframp = order.direction === "offramp";
-  const fundable = isFundable(order) && !!onResume;
+  const fundable = isFundable(order);
+  // Off-ramp orders open in the status screen — fundable ones to complete,
+  // the rest to view. (On-ramp resume isn't wired yet.)
+  const openable = isOfframp && !!onResume;
   return (
     <article
       className="card"
-      onClick={fundable ? () => onResume?.(order) : undefined}
+      onClick={openable ? () => onResume?.(order) : undefined}
       style={{
         padding: 16,
-        cursor: fundable ? "pointer" : "default",
+        cursor: openable ? "pointer" : "default",
         ...(fundable ? { borderColor: "var(--accent)" } : null),
       }}
     >
@@ -329,7 +332,7 @@ function OrderCard({
         </span>
       </div>
 
-      {fundable && (
+      {openable && (
         <div
           className="row center between"
           style={{
@@ -338,8 +341,14 @@ function OrderCard({
             borderTop: "1px solid var(--line)",
           }}
         >
-          <span style={{ fontSize: 12.5, color: "var(--accent)", fontWeight: 500 }}>
-            Complete this transfer
+          <span
+            style={{
+              fontSize: 12.5,
+              fontWeight: 500,
+              color: fundable ? "var(--accent)" : "var(--fg-soft)",
+            }}
+          >
+            {fundable ? "Complete this transfer" : "View order"}
           </span>
           <Icon.ArrowRight size={13} />
         </div>
