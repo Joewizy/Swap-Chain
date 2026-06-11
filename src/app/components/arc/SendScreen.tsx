@@ -32,6 +32,7 @@ import type {
 import {
   currencyLabel,
   formatCountdown,
+  formatDeadline,
   formatFiat,
   formatNumber,
   formatToken,
@@ -1220,7 +1221,8 @@ function paycrestStages(
   fiatCode: string,
   recipient: string | null,
   bank: string | null,
-  acct: string | null
+  acct: string | null,
+  validUntil?: string | null
 ): { stages: StageRow[]; activeIndex: number; done: boolean } {
   const received = phase === "converting" || phase === "settled";
   const confirming = phase === "confirming";
@@ -1237,8 +1239,11 @@ function paycrestStages(
   const paidLine = `${fiatLabel ?? fiatCode} to ${recipient ?? "recipient"}${
     bank ? ` · ${bank}` : ""
   }${acct ? ` · ${acct}` : ""}`;
+  const rateLockedDesc = validUntil
+    ? `Send your ${token} before ${formatDeadline(validUntil)}.`
+    : "Your rate is held for this transfer.";
   const stages: StageRow[] = [
-    { l: "Rate locked", d: "Your rate is held for this transfer." },
+    { l: "Rate locked", d: rateLockedDesc },
     { l: step2Label, d: step2Desc },
     { l: `Converting to ${fiatCode}`, d: "Almost there." },
     { l: paidLine, d: "Delivered to the recipient." },
@@ -1619,7 +1624,8 @@ export function StatusScreen({
               exec.fiatCurrency ?? "",
               payoutName,
               payoutBank,
-              payoutAcct
+              payoutAcct,
+              offrampOrder?.validUntil
             )
           : exec?.rail === "relay" && exec.toChain
             ? relayStages(
@@ -1902,6 +1908,11 @@ export function StatusScreen({
                 {payoutAcct ? ` (${payoutAcct})` : ""} the moment your{" "}
                 {exec?.fromToken ?? "USDC"} arrives.
               </span>
+              {offrampOrder.validUntil && !depositSent && (
+                <span className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  Send before {formatDeadline(offrampOrder.validUntil)}
+                </span>
+              )}
             </div>
 
             {balance.formatted !== undefined && (
