@@ -201,6 +201,8 @@ export interface PaycrestOrder {
   /** Settlement / on-chain tx hash, once available. */
   txHash?: string;
   createdAt: string;
+  /** Last update — settlement time once fulfilled. */
+  updatedAt?: string;
   raw?: unknown;
 }
 
@@ -304,6 +306,8 @@ export function normalizePaycrestOrder(
         : typeof payload.timestamp === "string"
           ? payload.timestamp
           : new Date().toISOString(),
+    updatedAt:
+      typeof payload.updatedAt === "string" ? payload.updatedAt : undefined,
     raw: raw ?? payload,
   };
 }
