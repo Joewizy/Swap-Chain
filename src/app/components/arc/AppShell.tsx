@@ -32,7 +32,7 @@ import {
   type TokenSymbol,
 } from "@/config/network";
 import { chainIdFromPaycrestSlug } from "@/rails/paycrest";
-import { formatFiat, titleCase } from "@/utils";
+import { formatFiat, formatToken, titleCase } from "@/utils";
 import { resolveInstitutionHint } from "@/assistant/institutions";
 import type { FlowLaunch } from "@/assistant/types";
 import {
@@ -63,13 +63,65 @@ function intentFromOrder(o: Order): Intent {
   const chain = chainIdFromPaycrestSlug(o.network) ?? DEFAULT_SETTLEMENT_CHAIN_ID;
   const chainName = getChain(chain)?.name ?? chain;
   const fiat = o.currency ?? "";
+  const cryptoAmt = formatToken(o.amount, o.token, 2);
+
+  if (o.direction === "onramp") {
+    const fiatLabel =
+      o.fiatAmount !== null && fiat
+        ? formatFiat(fiat, o.fiatAmount)
+        : fiat;
+    const refundName = o.refundAccountName ? titleCase(o.refundAccountName) : "";
+    return {
+      text: `Buy ${cryptoAmt} ${o.token} with ${fiatLabel}`,
+      resumeOrderId: o.id,
+      quote: {
+        from: {
+          token: fiat,
+          chain: chainName,
+          amount: o.fiatAmount ?? 0,
+        },
+        to: {
+          kind: "Wallet",
+          currency: o.token,
+          amount: `${cryptoAmt} ${o.token}`,
+          label: chainName,
+          sub: o.recipientAddress ?? "—",
+        },
+        rate: o.rate,
+        fee: { network: "—", rail: "—", spread: "—", total: "—" },
+        eta: "≈ 2 min",
+        rail: ["Deposit", "Confirm", "Receive"],
+        kind: "fiat",
+        railName: "Paycrest",
+        railReason: "",
+        exec: {
+          rail: "paycrest",
+          action: "onramp",
+          fromChain: chain,
+          fromToken: fiat as TokenSymbol,
+          fromAmount: o.fiatAmount !== null ? String(o.fiatAmount) : o.amount,
+          toChain: chain,
+          toToken: o.token as TokenSymbol,
+          fiatCurrency: fiat,
+          recipient: o.recipientAddress,
+          payout: {
+            institution: o.refundInstitution ?? "",
+            institutionName: o.refundInstitutionName ?? o.refundInstitution ?? "",
+            accountIdentifier: o.refundAccountIdentifier ?? "",
+            accountName: refundName,
+          },
+        },
+      },
+    };
+  }
+
   const fiatGets =
     o.fiatAmount !== null && fiat
       ? formatFiat(fiat, o.fiatAmount)
       : `Paid out in ${fiat}`;
   const name = o.recipientName ? titleCase(o.recipientName) : "";
   return {
-    text: `Cash out ${o.amount} ${o.token} to ${fiat}`,
+    text: `Cash out ${cryptoAmt} ${o.token} to ${fiat}`,
     resumeOrderId: o.id,
     quote: {
       from: { token: o.token, chain: chainName, amount: Number(o.amount) },
@@ -80,7 +132,7 @@ function intentFromOrder(o: Order): Intent {
         label: "Bank / mobile money",
         sub: o.accountIdentifier ?? "—",
       },
-      rate: null,
+      rate: o.rate,
       fee: { network: "—", rail: "—", spread: "—", total: "—" },
       eta: "≈ 2 min",
       rail: ["Deposit", "Settle", "Payout"],
