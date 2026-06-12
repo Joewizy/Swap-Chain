@@ -304,18 +304,17 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
                     The deposit window has closed.
                   </p>
                   <p className="mt-1 text-sm text-[var(--fg-soft)] leading-relaxed">
-                    This order&apos;s rate and deposit address are no longer
-                    valid. If you didn&apos;t send anything, nothing was
-                    charged. We&apos;ll create a new Paycrest order with the same
-                    amount and recipient — you&apos;ll get a new order ID,
-                    deposit address, and rate.
+                    This rate and deposit address are no longer valid. If you
+                    didn&apos;t send anything, nothing was charged. Start a new
+                    transfer with the same amount and recipient — you&apos;ll
+                    get a fresh rate and deposit address.
                   </p>
                   <button
                     type="button"
                     className="btn btn-primary btn-big w-full mt-4"
                     onClick={onNewRate}
                   >
-                    Create new order <Icon.ArrowRight size={14} />
+                    Start new transfer <Icon.ArrowRight size={14} />
                   </button>
                 </ActionCard>
               )

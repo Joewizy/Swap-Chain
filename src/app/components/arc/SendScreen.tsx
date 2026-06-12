@@ -2459,10 +2459,11 @@ function ExpiredCard({ onNewRate }: { onNewRate: () => void }) {
         borderRadius: 12,
       }}
     >
-      <strong style={{ fontSize: 14 }}>Rate expired</strong>
+      <strong style={{ fontSize: 14 }}>The deposit window has closed</strong>
       <span className="muted" style={{ fontSize: 13 }}>
-        This rate is no longer held. If you didn&apos;t send anything, nothing
-        was charged. Get a fresh rate to continue.
+        This rate and deposit address are no longer valid. If you didn&apos;t
+        send anything, nothing was charged. Start a new transfer to get a fresh
+        rate and deposit address.
       </span>
       <button
         className="btn btn-fat"
@@ -2473,7 +2474,7 @@ function ExpiredCard({ onNewRate }: { onNewRate: () => void }) {
         }}
         onClick={onNewRate}
       >
-        Get new rate <Icon.ArrowRight />
+        Start new transfer <Icon.ArrowRight />
       </button>
     </div>
   );
