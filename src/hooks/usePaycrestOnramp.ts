@@ -10,7 +10,7 @@
  * No wallet signature is required — the user transfers fiat externally.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   humanizePaycrestError,
   isPaycrestFiat,
@@ -48,12 +48,15 @@ export interface UsePaycrestOnrampReturn {
   order: PaycrestOrder | null;
   isRunning: boolean;
   onramp: (params: PaycrestOnrampParams) => Promise<PaycrestOrder>;
+  /** Adopt an existing order from History (view settled or finish in-flight). */
+  resume: (params: { orderId: string }) => Promise<PaycrestOrder>;
   reset: () => void;
 }
 
 const SETTLE_POLL_INTERVAL_MS = 5_000;
 const SETTLE_POLL_ATTEMPTS = 120;
 const SETTLED = "settled";
+const SUCCESS = new Set(["settled", "fulfilled"]);
 const FAILED = new Set(["refunded", "expired"]);
 
 export function usePaycrestOnramp(): UsePaycrestOnrampReturn {
@@ -143,6 +146,86 @@ export function usePaycrestOnramp(): UsePaycrestOnrampReturn {
     []
   );
 
+  const resume = useCallback(async ({ orderId }: { orderId: string }) => {
+    try {
+      setError(null);
+      setStatus("creating");
+      const res = await fetch(`/api/paycrest/order/${orderId}`);
+      const fetched = (await res.json()) as PaycrestOrder;
+      if (!res.ok || !fetched?.id) {
+        throw new Error("Couldn't load this order.");
+      }
+      setOrder(fetched);
+
+      if (SUCCESS.has(fetched.status)) {
+        setStatus("complete");
+        return fetched;
+      }
+      if (FAILED.has(fetched.status)) {
+        throw new Error(
+          fetched.status === "expired"
+            ? "This order expired before your payment arrived."
+            : "This order was refunded."
+        );
+      }
+      if (fetched.status === "pending" || fetched.status === "processing") {
+        setStatus("settling");
+      } else {
+        setStatus("awaiting_deposit");
+      }
+      return fetched;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Couldn't resume order.";
+      setError(humanizePaycrestError(msg));
+      setStatus("error");
+      throw err instanceof Error ? err : new Error(msg);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (status !== "awaiting_deposit" && status !== "settling") return;
+    if (!order?.id) return;
+    const orderId = order.id;
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/paycrest/order/${orderId}`);
+        if (!res.ok || cancelled) return;
+        const next = (await res.json()) as PaycrestOrder;
+        if (cancelled) return;
+        setOrder(next);
+        if (SUCCESS.has(next.status)) {
+          setStatus("complete");
+          return;
+        }
+        if (FAILED.has(next.status)) {
+          setError(
+            humanizePaycrestError(
+              next.status === "expired"
+                ? "This order expired before your payment arrived."
+                : "This order was refunded."
+            )
+          );
+          setStatus("error");
+          return;
+        }
+        if (next.status === "pending" || next.status === "processing") {
+          setStatus("settling");
+        }
+      } catch {
+        // Transient poll failure — next tick retries.
+      }
+    };
+
+    const timer = setInterval(tick, SETTLE_POLL_INTERVAL_MS);
+    tick();
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [status, order?.id]);
+
   return {
     status,
     error,
@@ -150,6 +233,7 @@ export function usePaycrestOnramp(): UsePaycrestOnrampReturn {
     isRunning:
       status !== "idle" && status !== "complete" && status !== "error",
     onramp,
+    resume,
     reset,
   };
 }
