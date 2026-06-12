@@ -130,34 +130,49 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
   } = props;
 
   const isOfframp = direction === "offramp";
+  const activeOrder = isOfframp ? offrampOrder : onrampOrder;
   const depositAddress = offrampOrder?.receiveAddress ?? null;
   const showTimeline =
     !bootError &&
     stages.length > 0 &&
     !(isOfframp && (isExpired || phase === "refunded"));
 
-  // Settlement proof for the success state: prefer the settlement tx, fall back
-  // to the user's funding tx. Both live on the source chain.
-  const receiptTx = offrampOrder?.txHash ?? transferTxHash;
+  const settlementChainId = isOfframp ? exec?.fromChain : exec?.toChain ?? null;
+  const settlementChainLabel = isOfframp
+    ? fromChainLabel
+    : exec?.toChain
+      ? (getChain(exec.toChain)?.name ?? fromChainLabel)
+      : fromChainLabel;
+
+  // Off-ramp: settlement or user funding tx on source chain.
+  // On-ramp: provider's stablecoin delivery tx on destination chain.
+  const receiptTx = isOfframp
+    ? offrampOrder?.txHash ?? transferTxHash
+    : onrampOrder?.txHash ?? null;
   const receiptHref =
-    receiptTx && exec ? explorerTxUrl(exec.fromChain, receiptTx) : null;
+    receiptTx && settlementChainId
+      ? explorerTxUrl(settlementChainId, receiptTx)
+      : null;
+
+  const cryptoRecipient =
+    onrampOrder?.recipientAddress ?? walletAddress ?? null;
 
   // Lifecycle from Paycrest's transactionLogs — the honest source for timing.
-  const lifecycle = extractLifecycle(offrampOrder?.raw);
+  const lifecycle = extractLifecycle(activeOrder?.raw);
   // Prefer processing time (USDC received → delivered); that's what users mean
   // by "how long did it take." Fall back to total time, then a timestamp.
   const completedLabel = (() => {
     if (lifecycle?.processingMs) {
       return `Completed in ${formatDuration(Math.round(lifecycle.processingMs / 1000))}`;
     }
-    const created = offrampOrder?.createdAt ? Date.parse(offrampOrder.createdAt) : NaN;
-    const updated = offrampOrder?.updatedAt ? Date.parse(offrampOrder.updatedAt) : NaN;
+    const created = activeOrder?.createdAt ? Date.parse(activeOrder.createdAt) : NaN;
+    const updated = activeOrder?.updatedAt ? Date.parse(activeOrder.updatedAt) : NaN;
     if (Number.isFinite(created) && Number.isFinite(updated) && updated > created) {
       const secs = Math.round((updated - created) / 1000);
       if (secs > 0 && secs < 600) return `Delivered in ${formatDuration(secs)}`;
     }
-    if (offrampOrder?.updatedAt && Number.isFinite(updated)) {
-      return `Completed ${formatDeadline(offrampOrder.updatedAt)}`;
+    if (activeOrder?.updatedAt && Number.isFinite(updated)) {
+      return `Completed ${formatDeadline(activeOrder.updatedAt)}`;
     }
     return null;
   })();
@@ -276,7 +291,7 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
                   sub={
                     isOfframp
                       ? [payoutBank, payoutAcct].filter(Boolean).join(" · ") || fiatCode
-                      : `${fromToken} on ${fromChainLabel}`
+                      : `${fromToken} on ${settlementChainLabel}`
                   }
                   accent={!done}
                   align="end"
@@ -431,21 +446,44 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
                 <p className="mt-1 font-mono text-[clamp(1.875rem,6vw,2.5rem)] font-semibold tabular-nums tracking-[-0.02em] leading-none text-[var(--fg)]">
                   {receiveLabel}
                 </p>
-                {payoutName && (
-                  <p className="mt-2.5 text-[15px] text-[var(--fg-soft)]">
-                    delivered to{" "}
-                    <span className="font-semibold text-[var(--fg)]">{payoutName}</span>
-                  </p>
+                {isOfframp ? (
+                  <>
+                    {payoutName && (
+                      <p className="mt-2.5 text-[15px] text-[var(--fg-soft)]">
+                        delivered to{" "}
+                        <span className="font-semibold text-[var(--fg)]">
+                          {payoutName}
+                        </span>
+                      </p>
+                    )}
+                    {(payoutBank || payoutAcct) && (
+                      <p className="mt-0.5 font-mono text-xs text-[var(--fg-mute)] tabular-nums">
+                        {[payoutBank, payoutAcct].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  cryptoRecipient && (
+                    <div className="mt-3 text-left rounded-xl border border-[var(--line)] bg-[var(--bg-elev)] px-4 py-3">
+                      <p className="eyebrow text-[10px]">Received at</p>
+                      <p className="mt-1 font-mono text-[13px] leading-relaxed break-all text-[var(--fg)]">
+                        {cryptoRecipient}
+                      </p>
+                      <p className="mt-1 text-xs text-[var(--fg-mute)]">
+                        {fromToken} on {settlementChainLabel}
+                      </p>
+                    </div>
+                  )
                 )}
-                {(payoutBank || payoutAcct) && (
-                  <p className="mt-0.5 font-mono text-xs text-[var(--fg-mute)] tabular-nums">
-                    {[payoutBank, payoutAcct].filter(Boolean).join(" · ")}
+                {receiptTx && (
+                  <p className="mt-2 font-mono text-xs text-[var(--fg-mute)] tabular-nums">
+                    Tx {short0x(receiptTx)}
                   </p>
                 )}
                 {completedLabel && (
                   <p className="mt-2 text-xs text-[var(--fg-mute)]">{completedLabel}</p>
                 )}
-                <div className="mt-5 flex items-center justify-center gap-2">
+                <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
                   {receiptHref && (
                     <a
                       className="btn btn-ghost btn-sm"
@@ -453,7 +491,7 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      View on {fromChainLabel} ↗
+                      View transaction on {settlementChainLabel} ↗
                     </a>
                   )}
                   <button type="button" className="btn btn-primary btn-sm" onClick={onDone}>
@@ -464,6 +502,35 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
             )}
 
             {/* Technical refs */}
+            {!isOfframp && onrampOrder && done && (
+              <details className="group text-xs text-[var(--fg-mute)]" open>
+                <summary className="cursor-pointer list-none flex items-center gap-1.5 py-1 hover:text-[var(--fg-soft)] transition-colors [&::-webkit-details-marker]:hidden">
+                  <span className="transition-transform group-open:rotate-90">›</span>
+                  Order details
+                </summary>
+                <div className="mt-2 pl-3 flex flex-col gap-1.5 font-mono text-[11px]">
+                  <span className="flex items-center gap-1.5">
+                    Order {onrampOrder.id}
+                    <CopyInline text={onrampOrder.id} />
+                  </span>
+                  {cryptoRecipient && (
+                    <span className="text-[var(--fg-mute)] break-all">
+                      Wallet {cryptoRecipient}
+                    </span>
+                  )}
+                  {receiptTx && settlementChainId && (
+                    <a
+                      className="inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline"
+                      href={explorerTxUrl(settlementChainId, receiptTx) ?? "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Transaction {short0x(receiptTx)} ↗
+                    </a>
+                  )}
+                </div>
+              </details>
+            )}
             {isOfframp && offrampOrder && (
               <details className="group text-xs text-[var(--fg-mute)]">
                 <summary className="cursor-pointer list-none flex items-center gap-1.5 py-1 hover:text-[var(--fg-soft)] transition-colors [&::-webkit-details-marker]:hidden">
