@@ -25,10 +25,13 @@ import {
 } from "@/hooks";
 import type { ExecutionProgress } from "@/hooks/useRelayExecutor";
 import { getChain, type ChainId, type TokenSymbol } from "@/config/network";
-import type {
-  PaycrestFiat,
-  PaycrestOrder,
-  PaycrestToken,
+import {
+  paycrestDepositCredited,
+  paycrestFundingWindowClosed,
+  paycrestPayoutInFlight,
+  type PaycrestFiat,
+  type PaycrestOrder,
+  type PaycrestToken,
 } from "@/rails/paycrest";
 import {
   currencyLabel,
@@ -153,7 +156,7 @@ const RAIL_LABEL: Record<RouterResponse["rail"], string> = {
   cctp: "CCTP",
   chainrails: "Chainrails",
   relay: "Relay",
-  paycrest: "Paycrest",
+  paycrest: "Fiat",
 };
 
 /** Rough arrival estimates per rail — refined once the rail is quoted. */
@@ -1156,30 +1159,39 @@ type OfframpPhase =
   | "refunded";
 
 /**
- * `sent` = we know the deposit went out on-chain (this session or a remembered
- * one). It lets us say "Confirming your deposit" instead of "Waiting…" even
- * while Paycrest's order still reads `initiated` (its indexer lags the chain).
+ * Phase from Paycrest API first. `localTxHash` is only for the pre-credit
+ * "submitted on-chain, waiting for provider" state — never for payout in flight.
  */
 function offrampPhase(
   status: PaycrestOfframpStatus,
   order: PaycrestOrder | null,
-  sent: boolean
+  localTxHash: string | null
 ): OfframpPhase {
   if (!order) return "creating";
-  if (order.status === "settled" || order.status === "fulfilled" || status === "complete")
+  if (
+    order.status === "settled" ||
+    order.status === "fulfilled" ||
+    status === "complete"
+  ) {
     return "settled";
+  }
   if (order.status === "refunded") return "refunded";
-  if (order.status === "expired") return "expired";
+
+  const credited = paycrestDepositCredited(order);
+  const windowClosed = paycrestFundingWindowClosed(order);
+
+  if (order.status === "expired" || (windowClosed && !credited)) {
+    return "expired";
+  }
+
   const paid = Number(order.amountPaid ?? 0);
   const amt = Number(order.amount ?? 0);
   if (paid > 0 && amt > 0 && paid < amt) return "partial";
-  // Paycrest has actually credited / is processing the deposit.
-  if (order.status === "processing" || order.status === "pending" || paid > 0) {
-    return "converting";
-  }
+
+  if (paycrestPayoutInFlight(order)) return "converting";
+
   if (status === "funding") return "sending";
-  // We sent it, but Paycrest hasn't credited yet — honestly "confirming".
-  if (sent || status === "settling") return "confirming";
+  if (localTxHash || status === "settling") return "confirming";
   return "awaiting-funds";
 }
 
@@ -1189,7 +1201,8 @@ function offrampHeadline(
   sendLabel: string,
   fiatLabel: string | null,
   fiatCode: string,
-  recipient: string | null
+  recipient: string | null,
+  token: string
 ): string {
   switch (phase) {
     case "creating":
@@ -1199,11 +1212,11 @@ function offrampHeadline(
     case "sending":
       return "Sending from your wallet…";
     case "confirming":
-      return "Confirming your deposit";
+      return `Confirming your ${token}`;
+    case "converting":
+      return `${token} received`;
     case "partial":
       return "Waiting for the rest of your deposit";
-    case "converting":
-      return `Converting to ${fiatCode}`;
     case "settled":
       return recipient
         ? `${fiatLabel ?? fiatCode} delivered to ${recipient}`
@@ -1233,7 +1246,7 @@ function paycrestStages(
       ? `Confirming your ${token}`
       : `Waiting for your ${token}`;
   const step2Desc = received
-    ? "We've got your funds."
+    ? "Your funds will be credited to your bank account shortly."
     : confirming
       ? "Sent on-chain — finalizing with the provider."
       : "Send the exact amount to continue.";
@@ -1246,7 +1259,7 @@ function paycrestStages(
   const stages: StageRow[] = [
     { l: "Rate locked", d: rateLockedDesc },
     { l: step2Label, d: step2Desc },
-    { l: `Converting to ${fiatCode}`, d: "Almost there." },
+    { l: `Sending to your account`, d: "Processing your payout." },
     { l: paidLine, d: "Delivered to the recipient." },
   ];
 
@@ -1468,7 +1481,7 @@ export function StatusScreen({
         return;
       }
 
-      setBootError("This Paycrest action isn't supported yet.");
+      setBootError("This action isn't supported yet.");
       return;
     }
 
@@ -1559,14 +1572,16 @@ export function StatusScreen({
   // ----- Off-ramp (cash-out) presentation state -----------------------------
   const isOfframpRail = exec?.rail === "paycrest" && exec.action !== "onramp";
   const offrampOrder = isOfframpRail ? paycrestOfframp.order : null;
-  // We know the deposit was sent if we have its tx (this session or a
-  // remembered/resumed one) or Paycrest already shows some credited.
-  const depositSent =
-    !!paycrestOfframp.transferTxHash ||
-    (offrampOrder ? Number(offrampOrder.amountPaid ?? 0) > 0 : false);
+  const localTxHash = paycrestOfframp.transferTxHash ?? null;
+  const paycrestCredited = offrampOrder
+    ? paycrestDepositCredited(offrampOrder)
+    : false;
+  const submittedOnChain = !!localTxHash;
   const offrampPhaseValue: OfframpPhase | null = isOfframpRail
-    ? offrampPhase(paycrestOfframp.status, offrampOrder, depositSent)
+    ? offrampPhase(paycrestOfframp.status, offrampOrder, localTxHash)
     : null;
+  // Tx link / countdown — local submit or Paycrest credit
+  const depositSent = submittedOnChain || paycrestCredited;
   const offrampFunding = paycrestOfframp.status === "funding";
 
   // Recipient (title-cased) + amounts, derived from the order/exec.
@@ -1706,7 +1721,8 @@ export function StatusScreen({
   const isExpired = apiExpired || timedOut;
   // Paycrest reports expired but we know it was paid → don't offer "Get new
   // rate" (double-send risk); the deposit is on-chain. Point to support.
-  const stuckAfterPaid = apiExpired && depositSent;
+  const stuckAfterPaid =
+    apiExpired && submittedOnChain && !paycrestCredited;
 
   const headline =
     railError || bootError
@@ -1717,7 +1733,8 @@ export function StatusScreen({
             sendLabel,
             fiatReceiveLabel,
             exec?.fiatCurrency ?? "",
-            payoutName
+            payoutName,
+            exec?.fromToken ?? "USDC"
           )
         : done
           ? "Sent."

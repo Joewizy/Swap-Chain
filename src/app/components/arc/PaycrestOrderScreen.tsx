@@ -182,6 +182,26 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
     setExactWarn(true);
   };
 
+  const summary = resolveTransferSummary({
+    isOfframp,
+    done,
+    phase,
+    depositSent,
+    activeIndex,
+    fromChainLabel,
+    fromToken,
+  });
+  const paymentTxHref =
+    transferTxHash && exec?.fromChain
+      ? explorerTxUrl(exec.fromChain, transferTxHash)
+      : null;
+  const showPaymentReceipt =
+    !!paymentTxHref &&
+    (phase === "confirming" ||
+      phase === "converting" ||
+      phase === "partial" ||
+      done);
+
   const primaryAction = resolvePrimaryAction({
     bootError,
     railError,
@@ -223,7 +243,7 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
           <h1 className="mt-1.5 text-[clamp(1.625rem,4vw,1.875rem)] font-medium tracking-[-0.02em] leading-[1.1] text-[var(--fg)]">
             {headline}
           </h1>
-          {intentText && (
+          {intentText && summary.mode !== "progress" && (
             <p className="mt-1.5 text-sm text-[var(--fg-mute)] truncate">
               {intentText}
             </p>
@@ -238,6 +258,7 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
             countdown={countdown}
             expiringSoon={expiringSoon}
             depositSent={depositSent}
+            showProcessing={summary.mode === "progress"}
           />
           <button
             type="button"
@@ -268,41 +289,44 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
         >
           {/* ── Main column: only the information the user acts on ── */}
           <div className="flex flex-col gap-5 min-w-0">
-            {/* Summary */}
-            <section
-              aria-label="Transfer summary"
-              className="rounded-[var(--r-card-lg)] border border-[var(--line)] bg-[var(--bg-elev)] p-5 shadow-[var(--shadow-1)]"
-            >
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 sm:gap-5">
-                <AmountBlock
-                  label={done ? "You sent" : "You send"}
-                  amount={sendLabel || `— ${fromToken}`}
-                  sub={isOfframp ? `${fromChainLabel} · ${fromToken}` : fiatCode}
-                />
-                <div
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--line-2)] bg-[var(--bg-soft)] text-[var(--fg-mute)]"
-                  aria-hidden
-                >
-                  <Icon.ArrowRight size={14} />
-                </div>
-                <AmountBlock
-                  label="They receive"
-                  amount={receiveLabel}
-                  sub={
+            {/* Summary — phase-aware so in-flight transfers feel alive */}
+            {!done && !isExpired && phase !== "refunded" && (
+              <>
+                <TransferSummary
+                  mode={summary.mode}
+                  sendAmount={sendLabel || `— ${fromToken}`}
+                  sendSub={
+                    summary.sendConfirmedSub ??
+                    (isOfframp
+                      ? `${fromChainLabel} · ${fromToken}`
+                      : fiatCode)
+                  }
+                  sendState={summary.send.state}
+                  receiveAmount={receiveLabel}
+                  receiveSub={
                     isOfframp
-                      ? [payoutBank, payoutAcct].filter(Boolean).join(" · ") || fiatCode
+                      ? [payoutBank, payoutAcct].filter(Boolean).join(" · ") ||
+                        fiatCode
                       : `${fromToken} on ${settlementChainLabel}`
                   }
-                  accent={!done}
-                  align="end"
+                  receiveState={summary.receive.state}
+                  progressStatus={summary.progressStatus}
+                  progressEta={summary.progressEta}
+                  quoteReceiveHint={summary.quoteReceiveHint}
+                  feeLine={feeLine}
                 />
-              </div>
-              {feeLine && (
-                <p className="mt-3 pt-3 border-t border-[var(--line)] font-mono text-[11px] text-[var(--fg-mute)] tabular-nums">
-                  {feeLine}
-                </p>
-              )}
-            </section>
+                {showPaymentReceipt && paymentTxHref && (
+                  <a
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--accent)] underline-offset-2 hover:underline -mt-2"
+                    href={paymentTxHref}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View payment on {fromChainLabel} ↗
+                  </a>
+                )}
+              </>
+            )}
 
             {/* Terminal states */}
             {isOfframp && isExpired && (
@@ -503,7 +527,7 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
 
             {/* Technical refs */}
             {!isOfframp && onrampOrder && done && (
-              <details className="group text-xs text-[var(--fg-mute)]" open>
+              <details className="group text-xs text-[var(--fg-mute)]">
                 <summary className="cursor-pointer list-none flex items-center gap-1.5 py-1 hover:text-[var(--fg-soft)] transition-colors [&::-webkit-details-marker]:hidden">
                   <span className="transition-transform group-open:rotate-90">›</span>
                   Order details
@@ -579,14 +603,19 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
                     </span>
                   )}
                   {transferTxHash && exec && (
-                    <a
-                      className="inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline"
-                      href={explorerTxUrl(exec.fromChain, transferTxHash) ?? "#"}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Your payment {short0x(transferTxHash)} ↗
-                    </a>
+                    <>
+                      <a
+                        className="inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline"
+                        href={explorerTxUrl(exec.fromChain, transferTxHash) ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        View payment on {getChain(exec.fromChain)?.name ?? "chain"} ↗
+                      </a>
+                      <span className="text-[var(--fg-faint)]">
+                        {short0x(transferTxHash)}
+                      </span>
+                    </>
                   )}
                   {offrampOrder.txHash && exec && (
                     <a
@@ -771,6 +800,222 @@ function resolvePrimaryAction(ctx: {
   };
 }
 
+/* ───────── transfer summary ───────── */
+
+type LegVisualState = "idle" | "active" | "done";
+
+type SummaryLegConfig = {
+  state: LegVisualState;
+};
+
+type TransferSummaryView = {
+  mode: "quote" | "progress";
+  send: SummaryLegConfig;
+  receive: SummaryLegConfig;
+  sendConfirmedSub?: string;
+  progressStatus?: string;
+  progressEta?: string;
+  quoteReceiveHint?: string;
+};
+
+function resolveTransferSummary({
+  isOfframp,
+  done,
+  phase,
+  depositSent,
+  activeIndex,
+  fromChainLabel,
+  fromToken,
+}: {
+  isOfframp: boolean;
+  done: boolean;
+  phase: OfframpPhase | null;
+  depositSent: boolean;
+  activeIndex: number;
+  fromChainLabel: string;
+  fromToken: string;
+}): TransferSummaryView {
+  if (done) {
+    return {
+      mode: "progress",
+      send: { state: "done" },
+      receive: { state: "done" },
+    };
+  }
+
+  if (isOfframp) {
+    if (phase === "confirming") {
+      return {
+        mode: "progress",
+        send: { state: "done" },
+        receive: { state: "idle" },
+        sendConfirmedSub: `Submitted on ${fromChainLabel}`,
+        progressStatus: "Waiting for provider confirmation",
+      };
+    }
+
+    if (phase === "converting" || (phase === "partial" && depositSent)) {
+      return {
+        mode: "progress",
+        send: { state: "done" },
+        receive: { state: "done" },
+        sendConfirmedSub: `${fromToken} received`,
+        progressStatus:
+          "Your funds will be credited to your bank account shortly.",
+      };
+    }
+
+    const sendActive =
+      phase === "awaiting-funds" || phase === "sending" || phase === "creating";
+
+    return {
+      mode: "quote",
+      send: { state: sendActive ? "active" : "idle" },
+      receive: { state: "idle" },
+      quoteReceiveHint: "Locked at this rate",
+    };
+  }
+
+  const fiatProcessing = activeIndex >= 2;
+
+  if (fiatProcessing) {
+    return {
+      mode: "progress",
+      send: { state: "done" },
+      receive: { state: "done" },
+      sendConfirmedSub: "Payment received",
+      progressStatus: "Sending to your wallet",
+    };
+  }
+
+  return {
+    mode: "quote",
+    send: { state: activeIndex === 1 ? "active" : "idle" },
+    receive: { state: "idle" },
+    quoteReceiveHint: "Locked at this rate",
+  };
+}
+
+function TransferSummary({
+  mode,
+  sendAmount,
+  sendSub,
+  sendState,
+  receiveAmount,
+  receiveSub,
+  receiveState,
+  progressStatus,
+  progressEta,
+  quoteReceiveHint,
+  feeLine,
+}: {
+  mode: "quote" | "progress";
+  sendAmount: string;
+  sendSub: string;
+  sendState: LegVisualState;
+  receiveAmount: string;
+  receiveSub: string;
+  receiveState: LegVisualState;
+  progressStatus?: string;
+  progressEta?: string;
+  quoteReceiveHint?: string;
+  feeLine: string | null;
+}) {
+  if (mode === "progress") {
+    return (
+      <section
+        aria-label="Transfer summary"
+        aria-busy
+        className="rounded-[var(--r-card-lg)] border border-[var(--line)] bg-[var(--bg-elev)] p-5 shadow-[var(--shadow-1)]"
+      >
+        <div className="flex items-start gap-2">
+          <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--ok-soft)] text-[var(--ok)]">
+            <Icon.Check size={12} />
+          </span>
+          <div className="min-w-0">
+            <p className="font-mono text-[clamp(1.375rem,3.5vw,1.75rem)] font-medium tabular-nums tracking-[-0.02em] leading-none text-[var(--fg)]">
+              {sendAmount}
+            </p>
+            <p className="mt-1.5 text-sm text-[var(--fg-soft)]">{sendSub}</p>
+          </div>
+        </div>
+
+        <div
+          className="my-4 flex justify-center text-[var(--fg-mute)]"
+          aria-hidden
+        >
+          <Icon.ChevDown size={16} />
+        </div>
+
+        <div className="text-center">
+          <p className="font-mono text-[clamp(1.5rem,4vw,2rem)] font-medium tabular-nums tracking-[-0.02em] leading-none text-[var(--accent)]">
+            {receiveAmount}
+          </p>
+          {receiveSub && (
+            <p className="mt-2 text-sm text-[var(--fg-soft)]">{receiveSub}</p>
+          )}
+        </div>
+
+        {(progressStatus || progressEta) && (
+          <div className="mt-5 pt-4 border-t border-[var(--line)] text-center">
+            {progressStatus && (
+              <p className="text-sm font-medium text-[var(--fg)]">
+                {progressStatus}
+              </p>
+            )}
+            {progressEta && (
+              <p className="mt-1 text-sm text-[var(--fg-soft)]">
+                {progressEta}
+              </p>
+            )}
+          </div>
+        )}
+
+        {feeLine && (
+          <p className="mt-3 pt-3 border-t border-[var(--line)] font-mono text-[11px] text-[var(--fg-mute)] tabular-nums text-center">
+            {feeLine}
+          </p>
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section
+      aria-label="Transfer summary"
+      className="rounded-[var(--r-card-lg)] border border-[var(--line)] bg-[var(--bg-elev)] p-5 shadow-[var(--shadow-1)]"
+    >
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 sm:gap-5">
+        <AmountBlock
+          label="You send"
+          amount={sendAmount}
+          sub={sendSub}
+          state={sendState}
+        />
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--line-2)] bg-[var(--bg-soft)] text-[var(--fg-mute)]"
+          aria-hidden
+        >
+          <Icon.ArrowRight size={14} />
+        </div>
+        <AmountBlock
+          label="They receive"
+          amount={receiveAmount}
+          sub={receiveSub}
+          state={receiveState}
+          hint={quoteReceiveHint}
+          align="end"
+        />
+      </div>
+      {feeLine && (
+        <p className="mt-3 pt-3 border-t border-[var(--line)] font-mono text-[11px] text-[var(--fg-mute)] tabular-nums">
+          {feeLine}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /* ───────── sub-components ───────── */
 
 function StatusPill({
@@ -781,6 +1026,7 @@ function StatusPill({
   countdown,
   expiringSoon,
   depositSent,
+  showProcessing,
 }: {
   done: boolean;
   error: boolean;
@@ -789,6 +1035,7 @@ function StatusPill({
   countdown: string | null;
   expiringSoon: boolean;
   depositSent: boolean;
+  showProcessing?: boolean;
 }) {
   if (error) {
     return <span className="chip chip-err">Needs attention</span>;
@@ -807,28 +1054,42 @@ function StatusPill({
       </span>
     );
   }
-  if (phase === "converting" || phase === "confirming") {
+  if (
+    showProcessing ||
+    phase === "converting" ||
+    phase === "confirming"
+  ) {
     return <span className="chip chip-accent">Processing</span>;
   }
-  if (phase === "awaiting-funds" || phase === "partial") {
+  if (phase === "awaiting-funds" || (phase === "partial" && !depositSent)) {
     return <span className="chip chip-pend">Awaiting payment</span>;
   }
-  return <span className="chip">In progress</span>;
+  return null;
 }
 
 function AmountBlock({
   label,
   amount,
   sub,
-  accent,
+  state = "idle",
+  hint,
   align = "start",
 }: {
   label: string;
   amount: string;
   sub?: string;
+  /** @deprecated use state */
   accent?: boolean;
+  state?: LegVisualState;
+  hint?: string;
   align?: "start" | "end";
 }) {
+  const amountTone: Record<LegVisualState, string> = {
+    idle: "text-[var(--fg-mute)]",
+    active: "text-[var(--fg)]",
+    done: "text-[var(--fg)]",
+  };
+
   return (
     <div className={align === "end" ? "text-right" : "text-left"}>
       <p className="text-[11px] uppercase tracking-[0.08em] text-[var(--fg-mute)] font-mono">
@@ -836,18 +1097,29 @@ function AmountBlock({
       </p>
       <p
         className={`mt-1 font-mono text-[clamp(1.25rem,3.5vw,1.625rem)] font-medium tabular-nums tracking-[-0.02em] leading-none ${
-          accent ? "text-[var(--accent)]" : "text-[var(--fg)]"
+          align === "end" && state !== "idle"
+            ? "text-[var(--accent)]"
+            : amountTone[state]
         }`}
       >
         {amount}
       </p>
       {sub && (
         <p
-          className={`mt-1.5 text-xs text-[var(--fg-mute)] truncate max-w-[140px] sm:max-w-none ${
-            align === "end" ? "ml-auto" : ""
-          }`}
+          className={`mt-1.5 text-xs truncate max-w-[140px] sm:max-w-none ${
+            state === "idle" ? "text-[var(--fg-mute)]" : "text-[var(--fg-soft)]"
+          } ${align === "end" ? "ml-auto" : ""}`}
         >
           {sub}
+        </p>
+      )}
+      {hint && (
+        <p
+          className={`mt-1 text-[11px] leading-snug text-[var(--fg-mute)] ${
+            align === "end" ? "ml-auto max-w-[160px]" : "max-w-[180px]"
+          }`}
+        >
+          {hint}
         </p>
       )}
     </div>
