@@ -7,7 +7,8 @@ import { createPortal } from "react-dom";
 import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { fiatOptionLabel, formatFiat, titleCase } from "@/utils";
-import { PAYCREST_FIAT } from "@/rails/paycrest";
+import { PAYCREST_FIAT, type PaycrestHistoryOrder } from "@/rails/paycrest";
+import { formatToken } from "@/utils/format";
 import { Icon } from "./icons";
 import { PayoutForm, type PayoutDetails } from "./SendScreen";
 import { upsertRecipient, useRecipients, type Recipient } from "./recipients";
@@ -15,29 +16,18 @@ import { upsertRecipient, useRecipients, type Recipient } from "./recipients";
 /* ────────────────── HISTORY ────────────────── */
 
 /** One order from /api/paycrest/orders. */
-export type Order = {
-  id: string;
-  direction: "offramp" | "onramp";
-  status: string;
-  amount: string;
-  token: string;
-  network: string;
-  rate: string | null;
-  currency: string | null;
-  fiatAmount: number | null;
-  recipientName: string | null;
-  institution: string | null;
-  accountIdentifier: string | null;
-  receiveAddress: string | null;
-  txHash: string | null;
-  createdAt: string | null;
-};
+export type Order = PaycrestHistoryOrder;
 
-/** An off-ramp order still awaiting its deposit can be resumed to fund it. */
+/** An order still awaiting its deposit can be resumed to fund or view it. */
 export function isFundable(o: Order): boolean {
-  return (
-    o.direction === "offramp" && o.status === "initiated" && !!o.receiveAddress
-  );
+  if (o.direction === "offramp") {
+    return o.status === "initiated" && !!o.receiveAddress;
+  }
+  return o.status === "initiated" && !!o.depositAccountIdentifier;
+}
+
+function shortAddress(addr: string): string {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
 /** Maps a Paycrest status to a chip tone + label. */
@@ -186,9 +176,8 @@ function OrderCard({
   const chip = statusChip(order.status);
   const isOfframp = order.direction === "offramp";
   const fundable = isFundable(order);
-  // Off-ramp orders open in the status screen — fundable ones to complete,
-  // the rest to view. (On-ramp resume isn't wired yet.)
-  const openable = isOfframp && !!onResume;
+  const openable = !!onResume;
+  const cryptoAmount = formatToken(order.amount, order.token, 2);
   return (
     <article
       className="card"
@@ -204,7 +193,7 @@ function OrderCard({
           <span style={{ fontSize: 15, fontWeight: 500 }}>
             {isOfframp ? "Cash out" : "Buy crypto"} ·{" "}
             <span className="font-mono">
-              {order.amount} {order.token}
+              {cryptoAmount} {order.token}
             </span>
           </span>
           <span
@@ -216,10 +205,13 @@ function OrderCard({
               whiteSpace: "nowrap",
             }}
           >
-            {order.recipientName
-              ? `${titleCase(order.recipientName)}${order.institution ? ` · ${order.institution}` : ""}`
-              : order.network}
-            {order.accountIdentifier ? ` · ${order.accountIdentifier}` : ""}
+            {isOfframp
+              ? order.recipientName
+                ? `${titleCase(order.recipientName)}${order.institution ? ` · ${order.institution}` : ""}${order.accountIdentifier ? ` · ${order.accountIdentifier}` : ""}`
+                : order.network
+              : order.recipientAddress
+                ? `${titleCase(order.network)} · ${shortAddress(order.recipientAddress)}`
+                : titleCase(order.network)}
           </span>
         </div>
         <span
@@ -240,11 +232,12 @@ function OrderCard({
 
       <div className="row between center" style={{ fontSize: 12.5 }}>
         <span className="font-mono" style={{ color: "var(--accent)" }}>
-          {isOfframp
-            ? fiatLabel(order.currency, order.fiatAmount)
-            : `${order.amount} ${order.token}`}
+          {fiatLabel(order.currency, order.fiatAmount)}
           {order.rate ? (
-            <span className="muted"> · {order.rate}/{order.token}</span>
+            <span className="muted">
+              {" "}
+              · {order.rate}/{order.token}
+            </span>
           ) : null}
         </span>
         <span className="muted font-mono" style={{ fontSize: 11 }}>
@@ -268,7 +261,11 @@ function OrderCard({
               color: fundable ? "var(--accent)" : "var(--fg-soft)",
             }}
           >
-            {fundable ? "Complete this transfer" : "View order"}
+            {fundable
+              ? isOfframp
+                ? "Complete this transfer"
+                : "Complete this purchase"
+              : "View order"}
           </span>
           <Icon.ArrowRight size={13} />
         </div>
