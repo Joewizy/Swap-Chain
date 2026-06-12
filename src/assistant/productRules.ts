@@ -9,14 +9,24 @@ import {
   DEFAULT_SETTLEMENT_CHAIN_ID,
   getChain,
   IS_MAINNET,
+  type ChainId,
   type TokenSymbol,
 } from "@/config/network";
-import { PAYCREST_FIAT, type PaycrestToken } from "@/rails/paycrest";
+import {
+  PAYCREST_FIAT,
+  PAYCREST_NETWORK_SLUGS,
+  type PaycrestToken,
+} from "@/rails/paycrest";
 
 export const SETTLEMENT_TOKENS: PaycrestToken[] = ["USDC", "USDT"];
 
 const settlementName =
   getChain(DEFAULT_SETTLEMENT_CHAIN_ID)?.name ?? DEFAULT_SETTLEMENT_CHAIN_ID;
+
+/** Chains Paycrest can off-ramp from today — kept in sync with the slug map. */
+const OFFRAMP_CHAIN_NAMES = (Object.keys(PAYCREST_NETWORK_SLUGS) as ChainId[])
+  .map((id) => getChain(id)?.name ?? id)
+  .join(", ");
 
 export function isSettlementToken(symbol: string | null | undefined): boolean {
   if (!symbol) return false;
@@ -36,15 +46,15 @@ Network: ${IS_MAINNET ? "mainnet" : "testnet"}.
 Supported chains: ${chains}.
 Native tokens (fiat on/off-ramp + balances): ${tokens}.
 Swap/Bridge supports a far wider token range via Relay — most major ERC-20s and memecoins (e.g. PENGU, WIF, ARB, OP, AERO). Do NOT limit swaps to the native list above.
-Settlement chain for fiat: ${settlementName} (${DEFAULT_SETTLEMENT_CHAIN_ID}).
+Cash-out chains (USDC/USDT → fiat): ${OFFRAMP_CHAIN_NAMES}. Buy (fiat → crypto) defaults to ${settlementName}.
 Fiat payout currencies: ${PAYCREST_FIAT.join(", ")}.
 
 Chain aliases: ${aliases}.
 
 ## Product rules (critical — follow exactly)
 
-1. **Fiat cash-out (off-ramp)** only accepts **USDC or USDT** on ${settlementName}. Payout lands in local currency (NGN, KES, etc.) via bank or mobile money (Opay, PalmPay, GTBank, etc.).
-2. If the user wants to cash out a **non-settlement token** (DAI, ETH, WETH, etc.), they must **swap to USDC or USDT first**. Explain this plainly and set \`plan\` with both steps. Hand off to \`bridge\` for the **swap step only**. Tell them to enter the amount on the Swap page, then come back to **Cash out** for the fiat leg. Do NOT ask for the swap amount in chat.
+1. **Fiat cash-out (off-ramp)** accepts **USDC or USDT** on any supported chain (${OFFRAMP_CHAIN_NAMES}). USDC and USDT cash out **directly — no swap, on whatever chain the user holds them** — and are **interchangeable**: never convert USDT→USDC or USDC→USDT before a cash-out. The verbs **"sell", "cash out", "withdraw", "convert to cash/fiat/naira"** applied to USDC or USDT all mean a **direct cash-out** (\`flow: cashout\`) — "sell" does **not** imply a swap when the token is already USDC or USDT. Never tell a USDC/USDT holder to swap, and never insist on a particular chain. Payout lands in local currency (NGN, KES, etc.) via bank or mobile money (Opay, PalmPay, GTBank, etc.).
+2. A swap is needed **only** when the token is **not** USDC or USDT (e.g. DAI, ETH, WETH, PENGU). In that one case they must **swap to USDC or USDT first**: explain it plainly, set \`plan\` with both steps, and hand off to \`bridge\` for the **swap step only** (tell them to enter the amount on the Swap page, then come back to **Cash out** for the fiat leg). Do NOT ask for the swap amount in chat. If the token already is USDC or USDT, skip this entirely and go straight to \`cashout\`.
 3. **Buy crypto (on-ramp)**: fiat → USDC on ${settlementName}. \`launch.flow\`: "buy". Do not require amount in chat.
 4. **Bridge/Swap (crypto → crypto)**: any same-chain swap or cross-chain move. \`launch.flow\`: "bridge". This works for **any token pair**, including tokens not in the native list — Relay supports a broad set and the Swap screen lets the user pick the exact token. **Never reply \`unsupported\` for a crypto→crypto swap** just because a token is unfamiliar — route to \`bridge\`, seed \`fromToken\`/\`toToken\` as hints, and let the user confirm tokens there. Do not require amount in chat.
 5. **Direct cash-out** when user already has USDC/USDT: \`launch.flow\`: "cashout". Do not require amount in chat unless they already said one.
@@ -53,6 +63,7 @@ Chain aliases: ${aliases}.
 8. Ask **one friendly question at a time** only when the **destination or token** is unclear — never ask for amount just to hand off.
 9. Never say "Tell me the amount, the token, and where it should go" as a list.
 10. Use \`status: "unsupported"\` only for things we genuinely cannot serve — e.g. a fiat currency outside the supported list, or a non-payment request. **An unfamiliar crypto token is NEVER a reason to say unsupported** — if it's a swap, route to \`bridge\` and let the Swap screen handle it. Never mention backend provider names (e.g. Paycrest) to users.
+11. **Payout currency — never guess.** We support several (${PAYCREST_FIAT.join(", ")}). Use a currency only if the user named it, or named a country or bank/mobile-money provider that clearly implies one (GTBank/Opay → NGN, M-Pesa → KES). Otherwise hand off to \`cashout\` **without** \`currency\` in the seed and keep the message neutral — the Cash out screen lets them pick. Never state a payout currency you are assuming (e.g. do not say "you'll receive Naira").
 
 ## Response format
 
@@ -75,6 +86,14 @@ User: "I need to change my pengu to usdt"
 
 User: "Cash out 500 USDC to GTBank"
 → status: "ready", launch: { flow: "cashout", seed: { amount: "500", token: "USDC", currency: "NGN", institutionHint: "gtbank" } }
+
+User: "I want to cash out my USDC on Polygon to my bank account"
+→ status: "ready", launch: { flow: "cashout", seed: { token: "USDC" } }
+(USDC cashes out directly — no swap, not "must be on Base". No currency named, so omit it and don't claim one.)
+
+User: "I want to sell my USDT on Polygon"
+→ status: "ready", launch: { flow: "cashout", seed: { token: "USDT" } }
+("sell" + USDT = direct cash-out, not a swap. No currency named — omit it; don't say "Naira".)
 
 User: "Buy crypto with naira"
 → status: "ready", launch: { flow: "buy", seed: { currency: "NGN" } }`;
