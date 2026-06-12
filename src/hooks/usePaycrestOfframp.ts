@@ -29,10 +29,10 @@ import { switchChain, waitForTransactionReceipt, writeContract } from "wagmi/act
 import {
   clearOrderSendTx,
   getOrderSendTxHash,
-  isOrderFundingWindowClosed,
   saveOrderSendTx,
 } from "@/lib/offrampSendCache";
 import {
+  classifyPaycrestOrder,
   humanizePaycrestError,
   isPaycrestFiat,
   paycrestNetworkSlug,
@@ -41,6 +41,7 @@ import {
   type PaycrestRecipient,
   type PaycrestToken,
 } from "@/rails/paycrest";
+import { pollPaycrestOrder } from "@/lib/paycrestPoll";
 import { getChain, getToken, getTokenAddress, type ChainId } from "@/config/network";
 
 // ---------------------------------------------------------------------------
@@ -76,8 +77,11 @@ export interface UsePaycrestOfframpReturn {
   isRunning: boolean;
   /** Step 1: create the order. Stops at `awaiting_funding` for user review. */
   offramp: (params: PaycrestOfframpParams) => Promise<PaycrestOrder>;
-  /** Step 2: send the stablecoin (wallet signature) once the user confirms. */
-  fund: () => Promise<PaycrestOrder>;
+  /**
+   * Step 2: send the stablecoin (wallet signature) once the user confirms.
+   * Resolves when the transfer is mined; the poll effect then settles it.
+   */
+  fund: () => Promise<void>;
   /** Adopt an existing order (e.g. resumed from History) so it can be funded. */
   resume: (params: ResumeParams) => Promise<PaycrestOrder>;
   reset: () => void;
@@ -88,13 +92,6 @@ export interface ResumeParams {
   fromChain: ChainId;
   token: PaycrestToken;
 }
-
-// ---------------------------------------------------------------------------
-// Polling config
-// ---------------------------------------------------------------------------
-
-const SETTLE_POLL_INTERVAL_MS = 5_000;
-const SETTLE_POLL_ATTEMPTS = 120; // 120 × 5s = 10 min
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -222,7 +219,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
   );
 
   // --- Step 2: send the stablecoin once the user confirms the invoice ----
-  const fund = useCallback(async (): Promise<PaycrestOrder> => {
+  const fund = useCallback(async (): Promise<void> => {
     const ctx = fundingRef.current;
     if (!ctx) {
       throw new Error("No order to fund — create the order first.");
@@ -249,12 +246,9 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         chainId: ctx.srcChainId,
       });
 
-      // Poll until the provider settles fiat to the recipient.
+      // Stablecoin is on its way — hand off to the poll effect, which is
+      // already running and will carry us to complete.
       setStatus("settling");
-      const settled = await pollOrder(ctx.orderId, setOrder);
-
-      setStatus("complete");
-      return settled;
     } catch (err) {
       // User backed out in the wallet — not an error. Return them to the
       // invoice so they can send when ready; show nothing scary.
@@ -300,14 +294,16 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
           throw new Error("Couldn't load this order.");
         }
         setOrder(fetched);
-        // Restore funding tx hash for explorer link only — phase comes from Paycrest.
+        // Restore funding tx hash for the explorer link only — phase comes
+        // from Paycrest, not from whether we have a cached send.
         const priorTx = getOrderSendTxHash(orderId);
         if (priorTx) setTransferTxHash(priorTx as `0x${string}`);
-        if (fetched.status === "expired" || fetched.status === "refunded") {
+
+        const outcome = classifyPaycrestOrder(fetched, "offramp");
+        if (outcome === "failed" || outcome === "expired") {
           clearOrderSendTx(orderId);
         }
-
-        if (SUCCESS.has(fetched.status)) {
+        if (outcome === "success") {
           setStatus("complete");
           return fetched;
         }
@@ -321,8 +317,8 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
           srcChainId,
           orderId: fetched.id,
         };
-        // awaiting_funding drives the funding panel; the poll picks up
-        // terminal states (expired/refunded) from the live order.
+        // awaiting_funding drives the funding panel; the poll effect picks
+        // up terminal states (expired/refunded) from the live order.
         setStatus("awaiting_funding");
         return fetched;
       } catch (err) {
@@ -335,47 +331,44 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
     [address, isConnected]
   );
 
-  // While awaiting funds, poll the order so a deposit from ANY source (the
-  // wallet button, another wallet, or an exchange) advances the screen.
-  // Read-only — no signing, no order creation.
+  // One shared poller covers the whole funding → settling lifecycle, so a
+  // deposit from ANY source (the wallet button, another wallet, an exchange)
+  // advances the screen. It pauses while the tab is hidden and stops on a
+  // terminal state. Read-only — no signing, no order creation.
+  const isPolling =
+    status === "awaiting_funding" ||
+    status === "funding" ||
+    status === "settling";
   useEffect(() => {
-    if (status !== "awaiting_funding" || !order?.id) return;
+    if (!isPolling || !order?.id) return;
     const orderId = order.id;
-    let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const stop = () => {
-      if (timer) clearInterval(timer);
-      timer = null;
-    };
-    const tick = async () => {
-      try {
-        const res = await fetch(`/api/paycrest/order/${orderId}`);
-        if (!res.ok || cancelled) return;
-        const o = (await res.json()) as PaycrestOrder;
-        if (cancelled) return;
-        setOrder(o);
-        if (SUCCESS.has(o.status)) {
+    const handle = pollPaycrestOrder(orderId, {
+      direction: "offramp",
+      onUpdate: (o) => setOrder(o),
+      onSettled: (settled, outcome) => {
+        if (settled) setOrder(settled);
+        if (outcome === "success") {
           setStatus("complete");
-          stop();
-        } else if (FAILED.has(o.status)) {
-          clearOrderSendTx(orderId);
-          stop();
-        } else if (isOrderFundingWindowClosed(o)) {
-          // Paycrest often still reports `initiated` for minutes after
-          // validUntil — stop polling; StatusScreen treats this as expired.
-          stop();
+          return;
         }
-      } catch {
-        // transient; keep polling
-      }
-    };
-    timer = setInterval(tick, SETTLE_POLL_INTERVAL_MS);
-    tick();
-    return () => {
-      cancelled = true;
-      stop();
-    };
-  }, [status, order?.id]);
+        if (outcome === "failed") clearOrderSendTx(orderId);
+        // If the user already sent funds, surface the failure. Otherwise the
+        // window simply closed — leave the screen up; StatusScreen renders
+        // the expired/refunded phase from the order itself.
+        if (getOrderSendTxHash(orderId)) {
+          setError(
+            humanizePaycrestError(
+              outcome === "failed"
+                ? "This order was refunded — funds are returning to your refund address."
+                : "Payout is taking longer than expected. Check this order in History."
+            )
+          );
+          setStatus("error");
+        }
+      },
+    });
+    return () => handle.stop();
+  }, [isPolling, order?.id]);
 
   return {
     status,
@@ -428,39 +421,4 @@ async function createOrder(body: CreateOrderBody): Promise<PaycrestOrder> {
   return data as PaycrestOrder;
 }
 
-/** Terminal order states — once reached, polling stops. */
-const SUCCESS = new Set(["fulfilled", "settled"]);
-const FAILED = new Set(["refunded", "expired"]);
-
-/**
- * Polls /api/paycrest/order/:id until the order settles. Surfaces each
- * fetched order via `onUpdate` so the UI can reflect intermediate states.
- */
-async function pollOrder(
-  id: string,
-  onUpdate: (order: PaycrestOrder) => void
-): Promise<PaycrestOrder> {
-  for (let attempt = 0; attempt < SETTLE_POLL_ATTEMPTS; attempt++) {
-    const res = await fetch(`/api/paycrest/order/${id}`);
-    if (res.ok) {
-      const order = (await res.json()) as PaycrestOrder;
-      onUpdate(order);
-      if (SUCCESS.has(order.status)) return order;
-      if (FAILED.has(order.status)) {
-        throw new Error(
-          `Order ${order.status} — funds are being returned to your refund address.`
-        );
-      }
-    }
-    await sleep(SETTLE_POLL_INTERVAL_MS);
-  }
-  throw new Error(
-    "Payout is taking longer than expected. Your transfer went through — " +
-      `check this order in History (order ${id.slice(0, 8)}…) — it will complete once the provider pays out.`
-  );
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 

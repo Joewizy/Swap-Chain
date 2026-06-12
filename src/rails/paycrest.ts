@@ -160,9 +160,17 @@ export type PaycrestOrderRequest =
   | PaycrestOfframpRequest
   | PaycrestOnrampRequest;
 
-/** Paycrest order lifecycle. Mirrors the status field Paycrest returns. */
+/**
+ * Paycrest order lifecycle. Mirrors the status field Paycrest returns:
+ * initiated → deposited → pending → validated → settling → settled, with
+ * refunding → refunded and expired as off-paths. `processing`/`fulfilled`
+ * aren't in the documented list but the API has returned them, so we
+ * tolerate them rather than mislabel an order.
+ */
 export type PaycrestOrderStatus =
   | "initiated"
+  // Off-ramp: the stablecoin deposit has been detected on-chain.
+  | "deposited"
   | "pending"
   | "processing"
   | "validated"
@@ -170,6 +178,8 @@ export type PaycrestOrderStatus =
   // Terminal success: provider has paid the recipient (and settled on-chain).
   | "fulfilled"
   | "settled"
+  // Refund in progress (funds not yet back with the sender).
+  | "refunding"
   | "refunded"
   | "expired";
 
@@ -349,6 +359,7 @@ function extractCryptoRecipientNetwork(
 }
 
 const PAYCREST_CREDITED_STATUSES = new Set<PaycrestOrderStatus>([
+  "deposited",
   "pending",
   "processing",
   "validated",
@@ -402,6 +413,31 @@ export function paycrestFundingWindowClosed(order: PaycrestOrder): boolean {
   if (paycrestDepositCredited(order)) return false;
   if (!order.validUntil) return false;
   return Date.now() > new Date(order.validUntil).getTime();
+}
+
+/** What the client poller should do with an order on each tick. */
+export type PaycrestOutcome = "success" | "failed" | "expired" | "pending";
+
+/**
+ * Direction-aware terminal check for the client poller.
+ *
+ * On-ramp is only "done" once USDC has settled on-chain (`settled`); off-ramp
+ * also accepts `fulfilled`, the point at which the provider has paid the
+ * recipient. Anything else is a failure, an expiry, or still in flight
+ * ("pending" — keep polling).
+ */
+export function classifyPaycrestOrder(
+  order: PaycrestOrder,
+  direction: PaycrestDirection
+): PaycrestOutcome {
+  if (order.status === "settled") return "success";
+  if (direction === "offramp" && order.status === "fulfilled") return "success";
+  if (order.status === "refunded") return "failed";
+  if (order.status === "expired") return "expired";
+  if (paycrestFundingWindowClosed(order) && !paycrestDepositCredited(order)) {
+    return "expired";
+  }
+  return "pending";
 }
 
 /** Compact row for History — derived from a v2 list/detail order payload. */

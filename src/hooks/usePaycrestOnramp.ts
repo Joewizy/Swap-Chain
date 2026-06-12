@@ -12,14 +12,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  classifyPaycrestOrder,
   humanizePaycrestError,
   isPaycrestFiat,
   paycrestNetworkSlug,
+  paycrestPayoutInFlight,
   type PaycrestFiat,
   type PaycrestOrder,
   type PaycrestRefundAccount,
   type PaycrestToken,
 } from "@/rails/paycrest";
+import { pollPaycrestOrder } from "@/lib/paycrestPoll";
 import { getChain, type ChainId } from "@/config/network";
 
 export type PaycrestOnrampStatus =
@@ -52,11 +55,6 @@ export interface UsePaycrestOnrampReturn {
   resume: (params: { orderId: string }) => Promise<PaycrestOrder>;
   reset: () => void;
 }
-
-const SETTLE_POLL_INTERVAL_MS = 5_000;
-const SETTLE_POLL_ATTEMPTS = 120;
-const SUCCESS = new Set(["settled", "fulfilled"]);
-const FAILED = new Set(["refunded", "expired"]);
 
 export function usePaycrestOnramp(): UsePaycrestOnrampReturn {
   const [status, setStatus] = useState<PaycrestOnrampStatus>("idle");
@@ -128,13 +126,9 @@ export function usePaycrestOnramp(): UsePaycrestOnrampReturn {
           );
         }
 
+        // The poll effect drives awaiting_deposit → settling → complete.
         setStatus("awaiting_deposit");
-        const settled = await pollOrder(created.id, setOrder, () =>
-          setStatus("settling")
-        );
-
-        setStatus("complete");
-        return settled;
+        return created;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "On-ramp failed.";
         setError(humanizePaycrestError(msg));
@@ -156,22 +150,18 @@ export function usePaycrestOnramp(): UsePaycrestOnrampReturn {
       }
       setOrder(fetched);
 
-      if (SUCCESS.has(fetched.status)) {
+      const outcome = classifyPaycrestOrder(fetched, "onramp");
+      if (outcome === "success") {
         setStatus("complete");
         return fetched;
       }
-      if (FAILED.has(fetched.status)) {
-        throw new Error(
-          fetched.status === "expired"
-            ? "This order expired before your payment arrived."
-            : "This order was refunded."
-        );
+      if (outcome === "failed") {
+        throw new Error("This order was refunded.");
       }
-      if (fetched.status === "pending" || fetched.status === "processing") {
-        setStatus("settling");
-      } else {
-        setStatus("awaiting_deposit");
+      if (outcome === "expired") {
+        throw new Error("This order expired before your payment arrived.");
       }
+      setStatus(paycrestPayoutInFlight(fetched) ? "settling" : "awaiting_deposit");
       return fetched;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Couldn't resume order.";
@@ -181,49 +171,32 @@ export function usePaycrestOnramp(): UsePaycrestOnrampReturn {
     }
   }, []);
 
+  // One shared poller drives the screen from awaiting_deposit to complete.
+  // It pauses while the tab is hidden and stops on any terminal state.
+  const isPolling = status === "awaiting_deposit" || status === "settling";
   useEffect(() => {
-    if (status !== "awaiting_deposit" && status !== "settling") return;
-    if (!order?.id) return;
-    const orderId = order.id;
-    let cancelled = false;
-
-    const tick = async () => {
-      try {
-        const res = await fetch(`/api/paycrest/order/${orderId}`);
-        if (!res.ok || cancelled) return;
-        const next = (await res.json()) as PaycrestOrder;
-        if (cancelled) return;
+    if (!isPolling || !order?.id) return;
+    const handle = pollPaycrestOrder(order.id, {
+      direction: "onramp",
+      onUpdate: (next) => {
         setOrder(next);
-        if (SUCCESS.has(next.status)) {
+        // First sign the provider is moving flips the timeline to settling.
+        if (paycrestPayoutInFlight(next)) {
+          setStatus((s) => (s === "awaiting_deposit" ? "settling" : s));
+        }
+      },
+      onSettled: (settled, outcome) => {
+        if (settled) setOrder(settled);
+        if (outcome === "success") {
           setStatus("complete");
           return;
         }
-        if (FAILED.has(next.status)) {
-          setError(
-            humanizePaycrestError(
-              next.status === "expired"
-                ? "This order expired before your payment arrived."
-                : "This order was refunded."
-            )
-          );
-          setStatus("error");
-          return;
-        }
-        if (next.status === "pending" || next.status === "processing") {
-          setStatus("settling");
-        }
-      } catch {
-        // Transient poll failure — next tick retries.
-      }
-    };
-
-    const timer = setInterval(tick, SETTLE_POLL_INTERVAL_MS);
-    tick();
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [status, order?.id]);
+        setError(humanizePaycrestError(onrampFailureMessage(outcome)));
+        setStatus("error");
+      },
+    });
+    return () => handle.stop();
+  }, [isPolling, order?.id]);
 
   return {
     status,
@@ -262,34 +235,16 @@ async function createOrder(body: CreateOnrampBody): Promise<PaycrestOrder> {
   return data as PaycrestOrder;
 }
 
-async function pollOrder(
-  id: string,
-  onUpdate: (order: PaycrestOrder) => void,
-  onSettling?: () => void
-): Promise<PaycrestOrder> {
-  for (let attempt = 0; attempt < SETTLE_POLL_ATTEMPTS; attempt++) {
-    const res = await fetch(`/api/paycrest/order/${id}`);
-    if (res.ok) {
-      const next = (await res.json()) as PaycrestOrder;
-      onUpdate(next);
-      if (next.status === "pending" || next.status === "processing") {
-        onSettling?.();
-      }
-      if (SUCCESS.has(next.status)) return next;
-      if (FAILED.has(next.status)) {
-        throw new Error(
-          `Order ${next.status} — any eligible fiat refund goes to your refund account.`
-        );
-      }
-    }
-    await sleep(SETTLE_POLL_INTERVAL_MS);
+/** Maps a non-success poll outcome to a message the user can act on. */
+function onrampFailureMessage(
+  outcome: "failed" | "expired" | "timeout"
+): string {
+  if (outcome === "failed") return "This order was refunded.";
+  if (outcome === "expired") {
+    return "This order expired before your payment arrived.";
   }
-  throw new Error(
+  return (
     "On-ramp is taking longer than expected. If you already deposited, " +
-      `check this order in History (order ${id.slice(0, 8)}…).`
+    "check this order in History."
   );
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
