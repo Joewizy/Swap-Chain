@@ -10,6 +10,7 @@ import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { parseUnits } from "viem";
 import { Icon } from "./icons";
 import { AssistantChat } from "./AssistantChat";
+import { PaycrestOrderScreen } from "./PaycrestOrderScreen";
 import type { FlowLaunch } from "@/assistant/types";
 import {
   useCctp,
@@ -1194,7 +1195,7 @@ function offrampHeadline(
     case "creating":
       return "Getting your rate…";
     case "awaiting-funds":
-      return `Waiting for your ${sendLabel}`;
+      return `Send ${sendLabel}`;
     case "sending":
       return "Sending from your wallet…";
     case "confirming":
@@ -1205,8 +1206,8 @@ function offrampHeadline(
       return `Converting to ${fiatCode}`;
     case "settled":
       return recipient
-        ? `${fiatLabel ?? fiatCode} sent to ${recipient}`
-        : `${fiatLabel ?? fiatCode} sent`;
+        ? `${fiatLabel ?? fiatCode} delivered to ${recipient}`
+        : `${fiatLabel ?? fiatCode} delivered`;
     case "expired":
       return "Rate expired";
     case "refunded":
@@ -1342,6 +1343,9 @@ export function StatusScreen({
   // Kick off execution exactly once per intent. `runNonce` lets Retry /
   // "Get new rate" force a fresh run without changing the intent.
   const startedFor = useRef<string | null>(null);
+  // Set by "Get new rate" so a resumed (History) order re-creates with a fresh
+  // rate/address instead of re-adopting the expired one via resumeOrderId.
+  const forceNewRef = useRef(false);
   const [runNonce, setRunNonce] = useState(0);
   useEffect(() => {
     if (!exec || !intent) return;
@@ -1350,6 +1354,8 @@ export function StatusScreen({
     const runKey = `${intent.text}|${exec.rail}|${exec.fromChain}|${exec.toChain}|${exec.fromAmount}|${runNonce}`;
     if (startedFor.current === runKey) return;
     startedFor.current = runKey;
+    const forceNew = forceNewRef.current;
+    forceNewRef.current = false;
 
     setBootError(null);
     cctp.reset();
@@ -1368,7 +1374,9 @@ export function StatusScreen({
     if (exec.rail === "paycrest") {
       if (exec.action === "offramp") {
         // Resuming an existing order from History — adopt it, don't recreate.
-        if (intent.resumeOrderId) {
+        // "Get new rate" (forceNew) skips this so an expired order is replaced
+        // with a fresh one built from the same payout details.
+        if (intent.resumeOrderId && !forceNew) {
           paycrestOfframp
             .resume({
               orderId: intent.resumeOrderId,
@@ -1527,7 +1535,8 @@ export function StatusScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intent, isConnected, address, runNonce]);
 
-  const restart = () => {
+  const rerun = (forceNew: boolean) => {
+    forceNewRef.current = forceNew;
     startedFor.current = null;
     cctp.reset();
     paycrestOfframp.reset();
@@ -1536,6 +1545,10 @@ export function StatusScreen({
     setBootError(null);
     setRunNonce((n) => n + 1);
   };
+  // Retry re-runs as-is (re-adopts a resumed order); Get-new-rate forces a
+  // fresh order so an expired deadline can actually be replaced.
+  const restart = () => rerun(false);
+  const getNewRate = () => rerun(true);
 
   // ----- Off-ramp (cash-out) presentation state -----------------------------
   const isOfframpRail = exec?.rail === "paycrest" && exec.action !== "onramp";
@@ -1713,11 +1726,71 @@ export function StatusScreen({
       ?.writeText(addr)
       .then(() => {
         setCopied(true);
-        setExactWarn(true);
         setTimeout(() => setCopied(false), 1600);
       })
       .catch(() => {});
   };
+
+  const isPaycrestRail = exec?.rail === "paycrest";
+  const paycrestDirection =
+    exec?.action === "onramp" ? ("onramp" as const) : ("offramp" as const);
+
+  if (isPaycrestRail && exec) {
+    const receiveLabel =
+      isOfframpRail && fiatReceiveLabel
+        ? fiatReceiveLabel
+        : (intent?.quote?.to?.amount ?? "—");
+
+    return (
+      <PaycrestOrderScreen
+        direction={paycrestDirection}
+        headline={headline}
+        intentText={intent?.text}
+        bootError={bootError}
+        railError={railError}
+        done={done}
+        onDone={onDone}
+        onRestart={restart}
+        onNewRate={getNewRate}
+        onFund={() => paycrestOfframp.fund().catch(() => {})}
+        funding={offrampFunding}
+        showFunding={showFunding}
+        isExpired={isExpired}
+        stuckAfterPaid={stuckAfterPaid}
+        countdown={countdown}
+        expiringSoon={expiringSoon}
+        sendLabel={
+          sendLabel ||
+          `${formatNumber(intent?.quote?.from?.amount ?? 0)} ${intent?.quote?.from?.token ?? ""}`
+        }
+        receiveLabel={receiveLabel}
+        fromToken={exec.fromToken}
+        fromChainLabel={intent?.quote?.from?.chain ?? getChain(exec.fromChain)?.name ?? ""}
+        fiatCode={exec.fiatCurrency ?? ""}
+        feeLine={feeLine}
+        payoutName={payoutName}
+        payoutBank={payoutBank}
+        payoutAcct={payoutAcct}
+        offrampOrder={offrampOrder}
+        onrampOrder={onrampOrder}
+        balanceFormatted={balance.formatted}
+        hasBalance={hasBalance}
+        offrampPaid={offrampPaid}
+        sendAmountNum={sendAmountNum}
+        phase={offrampPhaseValue}
+        stages={stages}
+        activeIndex={activeIndex}
+        timelineDone={done}
+        depositSent={depositSent}
+        transferTxHash={paycrestOfframp.transferTxHash}
+        walletAddress={address ?? null}
+        exec={exec}
+        onCopyAddress={copyDepositAddress}
+        copied={copied}
+        validUntil={offrampOrder?.validUntil ?? null}
+      />
+    );
+  }
 
   return (
     <div className="col gap-6">
