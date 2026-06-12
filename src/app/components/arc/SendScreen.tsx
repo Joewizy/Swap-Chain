@@ -1351,7 +1351,7 @@ export function StatusScreen({
     if (!exec || !intent) return;
     // Identify a run by the intent text + rail; lets a "Send another"
     // round-trip start a fresh execution.
-    const runKey = `${intent.text}|${exec.rail}|${exec.fromChain}|${exec.toChain}|${exec.fromAmount}|${runNonce}`;
+    const runKey = `${intent.text}|${exec.rail}|${exec.fromChain}|${exec.toChain}|${exec.fromAmount}|${intent.resumeOrderId ?? ""}|${runNonce}`;
     if (startedFor.current === runKey) return;
     startedFor.current = runKey;
     const forceNew = forceNewRef.current;
@@ -1419,6 +1419,12 @@ export function StatusScreen({
       }
 
       if (exec.action === "onramp") {
+        if (intent.resumeOrderId && !forceNew) {
+          paycrestOnramp
+            .resume({ orderId: intent.resumeOrderId })
+            .catch(() => {});
+          return;
+        }
         if (!exec.fiatCurrency) {
           setBootError(
             "We couldn't determine the fiat currency — try rephrasing."
@@ -1739,7 +1745,21 @@ export function StatusScreen({
     const receiveLabel =
       isOfframpRail && fiatReceiveLabel
         ? fiatReceiveLabel
-        : (intent?.quote?.to?.amount ?? "—");
+        : onrampOrder?.amount && onrampOrder.currency
+          ? `${onrampOrder.amount} ${onrampOrder.currency}`
+          : (intent?.quote?.to?.amount ?? "—");
+
+    const onrampSendLabel =
+      onrampOrder?.amountToTransfer && onrampOrder.depositCurrency
+        ? `${onrampOrder.amountToTransfer} ${onrampOrder.depositCurrency}`
+        : exec.fiatCurrency && intent?.quote?.from?.amount
+          ? formatFiat(exec.fiatCurrency, Number(intent.quote.from.amount))
+          : null;
+
+    const paycrestChainLabel =
+      exec.action === "onramp" && exec.toChain
+        ? (getChain(exec.toChain)?.name ?? "")
+        : (intent?.quote?.from?.chain ?? getChain(exec.fromChain)?.name ?? "");
 
     return (
       <PaycrestOrderScreen
@@ -1760,12 +1780,15 @@ export function StatusScreen({
         countdown={countdown}
         expiringSoon={expiringSoon}
         sendLabel={
-          sendLabel ||
-          `${formatNumber(intent?.quote?.from?.amount ?? 0)} ${intent?.quote?.from?.token ?? ""}`
+          isOfframpRail
+            ? sendLabel ||
+              `${formatNumber(intent?.quote?.from?.amount ?? 0)} ${intent?.quote?.from?.token ?? ""}`
+            : onrampSendLabel ??
+              `${formatNumber(intent?.quote?.from?.amount ?? 0)} ${exec.fiatCurrency ?? ""}`
         }
         receiveLabel={receiveLabel}
-        fromToken={exec.fromToken}
-        fromChainLabel={intent?.quote?.from?.chain ?? getChain(exec.fromChain)?.name ?? ""}
+        fromToken={exec.toToken ?? exec.fromToken ?? "USDC"}
+        fromChainLabel={paycrestChainLabel}
         fiatCode={exec.fiatCurrency ?? ""}
         feeLine={feeLine}
         payoutName={payoutName}
