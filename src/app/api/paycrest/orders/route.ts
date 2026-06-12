@@ -1,37 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PAYCREST_BASE_URL, isPaycrestConfigured } from "@/rails/paycrest";
+import {
+  PAYCREST_BASE_URL,
+  isPaycrestConfigured,
+  orderMatchesWallet,
+  summarizePaycrestOrderForHistory,
+  type PaycrestHistoryOrder,
+} from "@/rails/paycrest";
 
 /**
  * GET /api/paycrest/orders?address=0x...
  *
  * Lists the connected wallet's Paycrest orders so History can show live
- * status. Proxies Paycrest's sender orders list (server-only API key) and
- * filters to the orders that belong to this wallet (its refund / return /
- * recipient address), normalising each to a compact display shape.
+ * status. Proxies Paycrest's v2 sender orders list (server-only API key) and
+ * filters to orders tied to this wallet (refund address on off-ramp, crypto
+ * recipient on on-ramp).
  */
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
-
-interface OrderSummary {
-  id: string;
-  direction: "offramp" | "onramp";
-  status: string;
-  amount: string;
-  token: string;
-  network: string;
-  rate: string | null;
-  /** Fiat currency for the leg, when known. */
-  currency: string | null;
-  /** Fiat amount the recipient gets (off-ramp), computed from rate. */
-  fiatAmount: number | null;
-  recipientName: string | null;
-  institution: string | null;
-  accountIdentifier: string | null;
-  /** Off-ramp deposit address — present means the order can still be funded. */
-  receiveAddress: string | null;
-  txHash: string | null;
-  createdAt: string | null;
-}
 
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get("address");
@@ -53,7 +38,7 @@ export async function GET(req: NextRequest) {
   let res: Response;
   try {
     res = await fetch(
-      `${PAYCREST_BASE_URL}/v1/sender/orders?page=1&pageSize=100`,
+      `${PAYCREST_BASE_URL}/v2/sender/orders?page=1&pageSize=100`,
       { headers: { "API-Key": apiKey, Accept: "application/json" } }
     );
   } catch (error) {
@@ -77,61 +62,19 @@ export async function GET(req: NextRequest) {
   const data =
     raw && typeof raw === "object" ? (raw as Record<string, unknown>).data : null;
   const list =
-    data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).orders)
+    data &&
+    typeof data === "object" &&
+    Array.isArray((data as Record<string, unknown>).orders)
       ? ((data as Record<string, unknown>).orders as Record<string, unknown>[])
       : [];
 
-  const want = address.toLowerCase();
-  const orders: OrderSummary[] = list
-    .filter((o) => {
-      const recipient = (o.recipient as Record<string, unknown>) ?? {};
-      const candidates = [
-        o.refundAddress,
-        o.returnAddress,
-        o.fromAddress,
-        recipient.address,
-      ];
-      return candidates.some(
-        (c) => typeof c === "string" && c.toLowerCase() === want
-      );
-    })
-    .map((o) => {
-      const recipient = (o.recipient as Record<string, unknown>) ?? {};
-      const institution =
-        typeof recipient.institution === "string" ? recipient.institution : null;
-      const amount = typeof o.amount === "string" ? o.amount : String(o.amount ?? "");
-      const rate = typeof o.rate === "string" ? o.rate : null;
-      const currency =
-        typeof recipient.currency === "string" ? recipient.currency : null;
-      const fiatAmount =
-        rate && amount ? Number(amount) * Number(rate) : null;
-      return {
-        id: String(o.id ?? ""),
-        // Bank/mobile-money recipient → off-ramp; otherwise treat as on-ramp.
-        direction: institution ? "offramp" : "onramp",
-        status: typeof o.status === "string" ? o.status : "unknown",
-        amount,
-        token: typeof o.token === "string" ? o.token : "USDC",
-        network: typeof o.network === "string" ? o.network : "",
-        rate,
-        currency,
-        fiatAmount: Number.isFinite(fiatAmount as number) ? fiatAmount : null,
-        recipientName:
-          typeof recipient.accountName === "string"
-            ? recipient.accountName
-            : null,
-        institution,
-        accountIdentifier:
-          typeof recipient.accountIdentifier === "string"
-            ? recipient.accountIdentifier
-            : null,
-        receiveAddress:
-          typeof o.receiveAddress === "string" && o.receiveAddress
-            ? o.receiveAddress
-            : null,
-        txHash: typeof o.txHash === "string" && o.txHash ? o.txHash : null,
-        createdAt: typeof o.createdAt === "string" ? o.createdAt : null,
-      };
+  const orders: PaycrestHistoryOrder[] = list
+    .filter((o) => orderMatchesWallet(o, address))
+    .map((o) => summarizePaycrestOrderForHistory(o))
+    .sort((a, b) => {
+      const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return tb - ta;
     });
 
   return NextResponse.json({ orders });
