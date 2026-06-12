@@ -200,6 +200,10 @@ export interface PaycrestOrder {
   transactionFee?: string;
   /** Settlement / on-chain tx hash, once available. */
   txHash?: string;
+  /** On-ramp: wallet that receives stablecoin. */
+  recipientAddress?: string;
+  /** On-ramp: destination network slug, e.g. "base". */
+  recipientNetwork?: string;
   createdAt: string;
   /** Last update — settlement time once fulfilled. */
   updatedAt?: string;
@@ -296,9 +300,14 @@ export function normalizePaycrestOrder(
     percentSettled: asString(payload.percentSettled),
     senderFee: asString(payload.senderFee),
     transactionFee: asString(payload.transactionFee),
-    txHash:
-      typeof payload.txHash === "string" && payload.txHash
-        ? payload.txHash
+    txHash: extractSettlementTxHash(payload),
+    recipientAddress:
+      direction === "onramp"
+        ? extractCryptoRecipientAddress(destination)
+        : undefined,
+    recipientNetwork:
+      direction === "onramp"
+        ? extractCryptoRecipientNetwork(destination)
         : undefined,
     createdAt:
       typeof payload.createdAt === "string"
@@ -314,4 +323,204 @@ export function normalizePaycrestOrder(
 
 function asString(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
+}
+
+function extractCryptoRecipientAddress(
+  destination: { type?: string; recipient?: unknown } | undefined
+): string | undefined {
+  if (!destination || destination.type !== "crypto") return undefined;
+  const recipient = destination.recipient as { address?: string } | undefined;
+  return typeof recipient?.address === "string" ? recipient.address : undefined;
+}
+
+function extractCryptoRecipientNetwork(
+  destination: { type?: string; recipient?: unknown } | undefined
+): string | undefined {
+  if (!destination || destination.type !== "crypto") return undefined;
+  const recipient = destination.recipient as { network?: string } | undefined;
+  return typeof recipient?.network === "string" ? recipient.network : undefined;
+}
+
+/** Compact row for History — derived from a v2 list/detail order payload. */
+export interface PaycrestHistoryOrder {
+  id: string;
+  direction: PaycrestDirection;
+  status: string;
+  /** Crypto amount (off-ramp: sent; on-ramp: received). */
+  amount: string;
+  token: string;
+  network: string;
+  rate: string | null;
+  /** Fiat currency code (NGN, etc.). */
+  currency: string | null;
+  /** Fiat the recipient gets (off-ramp) or the user deposited (on-ramp). */
+  fiatAmount: number | null;
+  recipientName: string | null;
+  institution: string | null;
+  accountIdentifier: string | null;
+  /** On-ramp: wallet that receives stablecoin. */
+  recipientAddress: string | null;
+  /** Off-ramp: on-chain deposit address. */
+  receiveAddress: string | null;
+  /** On-ramp: virtual account to fund while order is open. */
+  depositAccountIdentifier: string | null;
+  refundInstitution: string | null;
+  refundInstitutionName: string | null;
+  refundAccountIdentifier: string | null;
+  refundAccountName: string | null;
+  txHash: string | null;
+  createdAt: string | null;
+}
+
+/** True when the connected wallet is the refund (off-ramp) or recipient (on-ramp) address. */
+export function orderMatchesWallet(
+  payload: Record<string, unknown>,
+  address: string
+): boolean {
+  const want = address.toLowerCase();
+  const source = payload.source as Record<string, unknown> | undefined;
+  const destination = payload.destination as Record<string, unknown> | undefined;
+
+  if (source?.type === "crypto") {
+    const refund = source.refundAddress;
+    if (typeof refund === "string" && refund.toLowerCase() === want) {
+      return true;
+    }
+  }
+  if (destination?.type === "crypto") {
+    const recipient = destination.recipient as { address?: string } | undefined;
+    if (
+      typeof recipient?.address === "string" &&
+      recipient.address.toLowerCase() === want
+    ) {
+      return true;
+    }
+  }
+
+  // Legacy v1 list shape (kept for safety).
+  const recipient = (payload.recipient as Record<string, unknown>) ?? {};
+  const legacy = [
+    payload.refundAddress,
+    payload.returnAddress,
+    payload.fromAddress,
+    recipient.address,
+  ];
+  return legacy.some(
+    (c) => typeof c === "string" && c.toLowerCase() === want
+  );
+}
+
+/** Normalises a v2 order payload into the History list shape. */
+export function summarizePaycrestOrderForHistory(
+  payload: Record<string, unknown>
+): PaycrestHistoryOrder {
+  const order = normalizePaycrestOrder(payload);
+  const source = payload.source as Record<string, unknown> | undefined;
+  const destination = payload.destination as Record<string, unknown> | undefined;
+  const providerAccount = payload.providerAccount as
+    | Record<string, unknown>
+    | undefined;
+  const fiatRecipient =
+    destination?.type === "fiat"
+      ? (destination.recipient as Record<string, unknown> | undefined)
+      : undefined;
+  const refundAccount =
+    source?.type === "fiat"
+      ? (source.refundAccount as Record<string, unknown> | undefined)
+      : undefined;
+
+  const network =
+    order.direction === "onramp"
+      ? (extractCryptoRecipientNetwork(
+          destination as { type?: string; recipient?: unknown }
+        ) ?? "")
+      : String(
+          (source as { network?: string } | undefined)?.network ??
+            providerAccount?.network ??
+            payload.network ??
+            ""
+        );
+
+  const token =
+    order.direction === "onramp"
+      ? order.currency || "USDC"
+      : String(
+          (source as { currency?: string } | undefined)?.currency ?? "USDC"
+        );
+
+  const fiatCurrency =
+    order.direction === "onramp"
+      ? (order.depositCurrency ??
+        String((source as { currency?: string } | undefined)?.currency ?? ""))
+      : String(
+          (destination as { currency?: string } | undefined)?.currency ?? ""
+        );
+
+  const fiatAmount =
+    order.direction === "onramp" && order.amountToTransfer
+      ? Number(order.amountToTransfer)
+      : order.rate && order.amount
+        ? Number(order.amount) * Number(order.rate)
+        : null;
+
+  return {
+    id: order.id,
+    direction: order.direction,
+    status: order.status,
+    amount: order.amount,
+    token,
+    network,
+    rate: order.rate ?? null,
+    currency: fiatCurrency || null,
+    fiatAmount: Number.isFinite(fiatAmount as number) ? fiatAmount : null,
+    recipientName:
+      typeof fiatRecipient?.accountName === "string"
+        ? fiatRecipient.accountName
+        : null,
+    institution:
+      typeof fiatRecipient?.institutionName === "string"
+        ? fiatRecipient.institutionName
+        : typeof fiatRecipient?.institution === "string"
+          ? fiatRecipient.institution
+          : null,
+    accountIdentifier:
+      typeof fiatRecipient?.accountIdentifier === "string"
+        ? fiatRecipient.accountIdentifier
+        : null,
+    recipientAddress: order.recipientAddress ?? null,
+    receiveAddress: order.receiveAddress ?? null,
+    depositAccountIdentifier: order.depositAccountIdentifier ?? null,
+    refundInstitution:
+      typeof refundAccount?.institution === "string"
+        ? refundAccount.institution
+        : null,
+    refundInstitutionName:
+      typeof refundAccount?.institutionName === "string"
+        ? refundAccount.institutionName
+        : null,
+    refundAccountIdentifier:
+      typeof refundAccount?.accountIdentifier === "string"
+        ? refundAccount.accountIdentifier
+        : null,
+    refundAccountName:
+      typeof refundAccount?.accountName === "string"
+        ? refundAccount.accountName
+        : null,
+    txHash: order.txHash ?? null,
+    createdAt: order.createdAt ?? null,
+  };
+}
+
+/** Top-level txHash, or the latest non-empty hash from transactionLogs. */
+function extractSettlementTxHash(payload: Record<string, unknown>): string | undefined {
+  if (typeof payload.txHash === "string" && payload.txHash) {
+    return payload.txHash;
+  }
+  const logs = payload.transactionLogs;
+  if (!Array.isArray(logs)) return undefined;
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const tx = (logs[i] as { tx_hash?: string })?.tx_hash;
+    if (typeof tx === "string" && tx) return tx;
+  }
+  return undefined;
 }
