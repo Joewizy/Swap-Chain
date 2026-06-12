@@ -160,13 +160,6 @@ export function RelaySwapPanel() {
             <Icon.Spinner size={18} />
           </div>
         )}
-
-        <span
-          className="row center gap-1"
-          style={{ fontSize: 11, color: "var(--fg-faint)", justifyContent: "center" }}
-        >
-          <Icon.Globe size={11} /> Powered by Relay
-        </span>
       </div>
     </div>
   );
