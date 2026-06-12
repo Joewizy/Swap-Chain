@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   const apiKey = process.env.PAYCREST_API_KEY;
   if (!isPaycrestConfigured() || !apiKey) {
     return NextResponse.json(
-      { error: "Paycrest is not configured." },
+      { error: "Order history isn't available right now." },
       { status: 501 }
     );
   }
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Paycrest request failed",
+          error instanceof Error ? error.message : "Request failed",
       },
       { status: 502 }
     );
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
   const raw: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     return NextResponse.json(
-      { error: `Paycrest orders list failed (${res.status}).` },
+      { error: `Couldn't load orders (${res.status}).` },
       { status: 502 }
     );
   }
@@ -72,6 +72,9 @@ export async function GET(req: NextRequest) {
     .filter((o) => orderMatchesWallet(o, address))
     .map((o) => summarizePaycrestOrderForHistory(o))
     .sort((a, b) => {
+      const aExpired = a.status === "expired" ? 1 : 0;
+      const bExpired = b.status === "expired" ? 1 : 0;
+      if (aExpired !== bExpired) return aExpired - bExpired;
       const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return tb - ta;
