@@ -27,6 +27,12 @@ import {
 import { useAccount, useConfig } from "wagmi";
 import { switchChain, waitForTransactionReceipt, writeContract } from "wagmi/actions";
 import {
+  clearOrderSendTx,
+  getOrderSendTxHash,
+  isOrderFundingWindowClosed,
+  saveOrderSendTx,
+} from "@/lib/offrampSendCache";
+import {
   humanizePaycrestError,
   isPaycrestFiat,
   paycrestNetworkSlug,
@@ -191,7 +197,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
 
         if (!created.receiveAddress) {
           throw new Error(
-            "Paycrest didn't return a receive address for this order."
+            "We didn't get a deposit address for this order."
           );
         }
 
@@ -237,7 +243,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
       setTransferTxHash(transferHash);
       // Remember the deposit so a resumed order knows it's already funded,
       // even before Paycrest credits it (avoids a double-send prompt).
-      rememberDeposit(ctx.orderId, transferHash);
+      saveOrderSendTx(ctx.orderId, transferHash);
       await waitForTransactionReceipt(config, {
         hash: transferHash,
         chainId: ctx.srcChainId,
@@ -294,10 +300,12 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
           throw new Error("Couldn't load this order.");
         }
         setOrder(fetched);
-        // If we funded this order in a past session, restore that so the UI
-        // shows "confirming" rather than asking the user to pay again.
-        const priorTx = recallDeposit(orderId);
+        // Restore funding tx hash for explorer link only — phase comes from Paycrest.
+        const priorTx = getOrderSendTxHash(orderId);
         if (priorTx) setTransferTxHash(priorTx as `0x${string}`);
+        if (fetched.status === "expired" || fetched.status === "refunded") {
+          clearOrderSendTx(orderId);
+        }
 
         if (SUCCESS.has(fetched.status)) {
           setStatus("complete");
@@ -350,9 +358,9 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
           setStatus("complete");
           stop();
         } else if (FAILED.has(o.status)) {
-          // Terminal (expired / refunded) — let the UI read order.status.
+          clearOrderSendTx(orderId);
           stop();
-        } else if (isFundingDeadlineMissed(o, orderId)) {
+        } else if (isOrderFundingWindowClosed(o)) {
           // Paycrest often still reports `initiated` for minutes after
           // validUntil — stop polling; StatusScreen treats this as expired.
           stop();
@@ -415,7 +423,7 @@ async function createOrder(body: CreateOrderBody): Promise<PaycrestOrder> {
   });
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data?.error || `Paycrest order failed (${res.status}).`);
+    throw new Error(data?.error || `Couldn't create this order (${res.status}).`);
   }
   return data as PaycrestOrder;
 }
@@ -423,23 +431,6 @@ async function createOrder(body: CreateOrderBody): Promise<PaycrestOrder> {
 /** Terminal order states — once reached, polling stops. */
 const SUCCESS = new Set(["fulfilled", "settled"]);
 const FAILED = new Set(["refunded", "expired"]);
-
-/**
- * True when the deposit window closed with nothing credited. Semantically this
- * is an expired order, but Paycrest may still return status `initiated` until
- * a background job flips it — see transaction lifecycle docs.
- */
-function isFundingDeadlineMissed(
-  order: PaycrestOrder,
-  orderId: string
-): boolean {
-  const paid = Number(order.amountPaid ?? 0);
-  if (paid > 0) return false;
-  // User sent on-chain; indexer may lag behind validUntil.
-  if (recallDeposit(orderId)) return false;
-  if (!order.validUntil) return false;
-  return Date.now() > new Date(order.validUntil).getTime();
-}
 
 /**
  * Polls /api/paycrest/order/:id until the order settles. Surfaces each
@@ -465,7 +456,7 @@ async function pollOrder(
   }
   throw new Error(
     "Payout is taking longer than expected. Your transfer went through — " +
-      `track order ${id} from your dashboard; it will settle once the provider pays out.`
+      `check this order in History (order ${id.slice(0, 8)}…) — it will complete once the provider pays out.`
   );
 }
 
@@ -473,22 +464,3 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// --- deposit memory (per order, survives reloads / resume) -----------------
-
-const depositKey = (orderId: string) => `paycrest:deposit:${orderId}`;
-
-function rememberDeposit(orderId: string, txHash: string): void {
-  try {
-    localStorage.setItem(depositKey(orderId), txHash);
-  } catch {
-    // localStorage unavailable — non-fatal
-  }
-}
-
-function recallDeposit(orderId: string): string | null {
-  try {
-    return localStorage.getItem(depositKey(orderId));
-  } catch {
-    return null;
-  }
-}

@@ -55,10 +55,16 @@ export function humanizePaycrestError(message: string): string {
     return "That amount is outside the supported range for this payout — try a different amount.";
   }
   // Strip the noisy "Failed to validate payload [X]" prefix if present.
-  const cleaned = message
+  let cleaned = message
     .replace(/^failed to validate payload\s*\[[^\]]*\]\s*/i, "")
     .trim();
-  return cleaned || message;
+  // Never surface vendor names in user-facing copy.
+  cleaned = cleaned
+    .replace(/\bpaycrest\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,!?])/g, "$1")
+    .trim();
+  return cleaned || "Something went wrong — try again.";
 }
 
 /** Stablecoins Paycrest accepts. */
@@ -160,6 +166,7 @@ export type PaycrestOrderStatus =
   | "pending"
   | "processing"
   | "validated"
+  | "settling"
   // Terminal success: provider has paid the recipient (and settled on-chain).
   | "fulfilled"
   | "settled"
@@ -339,6 +346,62 @@ function extractCryptoRecipientNetwork(
   if (!destination || destination.type !== "crypto") return undefined;
   const recipient = destination.recipient as { network?: string } | undefined;
   return typeof recipient?.network === "string" ? recipient.network : undefined;
+}
+
+const PAYCREST_CREDITED_STATUSES = new Set<PaycrestOrderStatus>([
+  "pending",
+  "processing",
+  "validated",
+  "settling",
+  "fulfilled",
+  "settled",
+]);
+
+function hasPaycrestTransactionLog(
+  order: PaycrestOrder,
+  statuses: string[]
+): boolean {
+  const raw = order.raw;
+  if (!raw || typeof raw !== "object") return false;
+  const root = raw as Record<string, unknown>;
+  const data =
+    root.data && typeof root.data === "object"
+      ? (root.data as Record<string, unknown>)
+      : root;
+  const logs = data.transactionLogs;
+  if (!Array.isArray(logs)) return false;
+  const want = new Set(statuses);
+  return logs.some((entry) => {
+    const o = (entry ?? {}) as Record<string, unknown>;
+    const status = typeof o.status === "string" ? o.status : "";
+    return want.has(status);
+  });
+}
+
+/** Paycrest has seen and credited the crypto deposit (source of truth). */
+export function paycrestDepositCredited(order: PaycrestOrder): boolean {
+  if (Number(order.amountPaid ?? 0) > 0) return true;
+  if (PAYCREST_CREDITED_STATUSES.has(order.status)) return true;
+  return hasPaycrestTransactionLog(order, ["crypto_deposited"]);
+}
+
+/** Provider is disbursing fiat — past the "waiting for deposit" stage. */
+export function paycrestPayoutInFlight(order: PaycrestOrder): boolean {
+  if (Number(order.amountPaid ?? 0) > 0) return true;
+  return (
+    order.status === "pending" ||
+    order.status === "processing" ||
+    order.status === "validated" ||
+    order.status === "settling"
+  );
+}
+
+/** Funding window closed with no credited deposit. */
+export function paycrestFundingWindowClosed(order: PaycrestOrder): boolean {
+  if (order.status === "expired" || order.status === "refunded") return true;
+  if (paycrestDepositCredited(order)) return false;
+  if (!order.validUntil) return false;
+  return Date.now() > new Date(order.validUntil).getTime();
 }
 
 /** Compact row for History — derived from a v2 list/detail order payload. */
