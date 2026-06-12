@@ -1,101 +1,114 @@
 # Swap Chain
 
-Swap Chain is a global stablecoin routing app: stablecoin, token, or fiat in; local currency or another chain out.
+**Stablecoin in from anywhere — local fiat or another chain out.**
 
-The current codebase is a Next.js app with a multi-rail router (CCTP, Chainrails, Relay, Paycrest), a structured AI intent parser, a LiFi-backed token + chain registry, and an in-app swap UI that drives real on-chain execution for USDC ↔ USDC routes via Circle CCTP v2.
+Swap Chain is an open-source Next.js app that routes transfers across multiple liquidity rails: Circle CCTP, Chainrails, Relay, and Paycrest. Users can describe a transfer in plain language, follow guided cash-out / buy / bridge flows, or execute USDC ↔ USDC bridges with a connected wallet.
 
-## Current features
+> **Status:** Early — mainnet Paycrest and testnet CCTP/Relay paths are wired; see [ARCHITECTURE.md](./ARCHITECTURE.md) for the full roadmap and what is not shipped yet.
 
-- **Swap UI at `/app`** — pick chain + token + amount, or describe the transfer in plain English; both paths produce the same quote and execution flow
-- **Multi-rail router** — `/api/router` picks CCTP for USDC↔USDC across supported chains, Chainrails for broader crypto routes, Relay as the catch-all, and Paycrest for fiat off-ramp
-- **CCTP v2 end-to-end** — approve → burn → poll Circle Iris for attestation → switch chain → mint, all signed by the connected wallet
-- **AI intent parser** — `/api/intent` extracts a structured intent (action, chains, tokens, amount, recipient, fiat currency) from natural language using OpenAI-compatible providers (defaults to GitHub Models)
-- **Token + chain registry** — LiFi catalog filtered to the chains the router actually supports; logos and metadata from LiFi, falls back to the local registry on testnet
-- **Wallet connection** — RainbowKit + wagmi, with connect/disconnect, account switcher, and an honest "connect to continue" guard on the confirm step
-- **Network mode** — `NEXT_PUBLIC_NETWORK=testnet|mainnet` flips chains, tokens, and rail addresses across the whole app from one switch
+## Features
 
-## Product Direction
+- **App at `/swap`** — landing page, conversational send, guided cash-out and buy flows, order status, history, and recipients
+- **Multi-rail router** — `POST /api/router` picks CCTP (USDC↔USDC), Chainrails, Relay, or Paycrest from intent shape and corridor
+- **Conversational assistant** — `POST /api/chat` multi-turn routing into cash-out, buy, or bridge flows (replaces the older single-shot intent UI on the main path)
+- **Paycrest fiat legs** — off-ramp and on-ramp via Sender API; card-based order screen with deposit window, timeline, and transfer renewal
+- **CCTP v2** — wallet-signed approve → burn → attestation → mint across supported domains
+- **Relay** — quotes and execution for non-USDC and long-tail routes
+- **Token + chain registry** — LiFi catalog filtered to supported chains; local fallback on testnet
+- **Wallet** — RainbowKit + wagmi; connect required before signing
 
-The brand should stay global. The first payout corridors can be regional, but the name and top-level promise should not be tied to one geography.
-
-Target rail split:
-
-- Chainrails: inbound crypto funding and fiat on-ramp
-- CCTP v2: USDC-to-USDC cross-chain routes
-- Relay: non-USDC outbound, long-tail routes, quote execution
-- Paycrest: local fiat payout to supported bank and mobile-money recipients
-
-See `ARCHITECTURE.md` for the phased roadmap.
-
-## Setup
+## Quick start
 
 ```bash
+git clone https://github.com/Joewizy/Swap-Chain.git
+cd swap-chain
 npm install
 cp env.example .env.local
 npm run dev
 ```
 
-Open:
+Open [http://localhost:3000/swap](http://localhost:3000/swap).
 
-```bash
-http://localhost:3000
-```
+### Required environment
 
-Required for wallet UX:
+| Variable | Purpose |
+| -------- | ------- |
+| `NEXT_PUBLIC_WALLET_CONNECT_ID` | WalletConnect project ID (RainbowKit) |
+| `OPENAI_API_KEY` | Conversational assistant (`/api/chat`) |
 
-```bash
-NEXT_PUBLIC_WALLET_CONNECT_ID=your_walletconnect_project_id
-```
+`OPENAI_BASE_URL` and `OPENAI_MODEL` are optional; see `env.example` and `src/app/api/chat/route.ts`.
 
-Required for AI intent extraction:
+### Rail API keys (enable as you integrate)
 
-```bash
-OPENAI_API_KEY=your_openai_or_compatible_api_key
-```
+| Variable | Rail |
+| -------- | ---- |
+| `PAYCREST_API_KEY` | Fiat off-ramp / on-ramp (mainnet) |
+| `CHAINRAILS_API_KEY` | Inbound crypto + fiat on-ramp |
+| `NEXT_PUBLIC_RELAY_APP_ID` | Optional Relay volume attribution |
 
-`OPENAI_BASE_URL` is optional. If omitted, the app defaults to the configured GitHub Models-compatible endpoint in `src/app/api/intent/route.ts`.
+Set `NEXT_PUBLIC_NETWORK=testnet` or `mainnet` to switch the chain registry app-wide.
 
 ## Scripts
 
 ```bash
 npm run dev        # local Next.js dev server
 npm run build      # production build
+npm run start      # production server
 npm run lint       # ESLint
-npm run typecheck  # TypeScript check
-npm test           # currently aliases typecheck
-npm run check      # lint + typecheck
+npm run typecheck  # TypeScript
+npm run check      # format + lint + typecheck
 ```
 
 ## API routes
 
 | Route | Purpose |
 | ----- | ------- |
-| `POST /api/intent` | Natural-language → structured intent (action, chains, tokens, amount, recipient, fiat). Uses OpenAI-compatible LLM. |
-| `POST /api/router` | Multi-rail router. Picks `cctp` / `chainrails` / `relay` / `paycrest` and returns an inline quote (for CCTP) or a `quoteEndpoint` for the others. |
-| `POST /api/quote` | Relay quote + execution steps. Used by the router when it picks Relay. |
-| `GET /api/cctp/attestation` | Polls Circle Iris for a CCTP v2 attestation by burn tx hash. |
-| `GET /api/cctp/fees` | Live CCTP burn-fee quote per src → dst pair. |
-| `POST /api/chainrails/quote` | Chainrails best-across-bridges quote. Requires `CHAINRAILS_API_KEY`. |
-| `POST /api/paycrest/order` | Paycrest fiat off-ramp order. Mainnet-only, requires `PAYCREST_API_KEY`. |
+| `POST /api/chat` | Multi-turn assistant → structured flow handoff |
+| `POST /api/intent` | Legacy single-shot NL → structured intent (dashboard / tooling) |
+| `POST /api/router` | Rail selection + quote endpoint or inline CCTP fees |
+| `POST /api/quote` | Relay quote and execution steps |
+| `GET /api/cctp/attestation` | Poll Circle Iris for CCTP attestation |
+| `GET /api/cctp/fees` | CCTP burn-fee quote per chain pair |
+| `POST /api/chainrails/quote` | Chainrails best-across-bridges quote |
+| `POST /api/paycrest/order` | Create off-ramp or on-ramp order |
+| `GET /api/paycrest/order/:id` | Poll order status |
+| `GET /api/paycrest/orders` | List orders by refund wallet address |
+| `GET /api/paycrest/rate` | Public unit rate estimate |
+| `GET /api/paycrest/institutions` | Payout institutions for a fiat currency |
+| `POST /api/paycrest/verify-account` | Resolve account holder name |
 
-See `src/app/api/api.rest` for example request bodies you can fire from the VS Code REST Client extension.
+Handler implementations live under `src/app/api/`. Example request bodies for local testing can be kept in a personal REST Client file (not committed).
 
-## Network Mode
+## Architecture
 
-`NEXT_PUBLIC_NETWORK` controls the active registry:
+High-level rail roles:
 
-```bash
-NEXT_PUBLIC_NETWORK=testnet
-# or
-NEXT_PUBLIC_NETWORK=mainnet
-```
+| Rail | Role |
+| ---- | ---- |
+| **Chainrails** | Crypto inbound + fiat on-ramp |
+| **CCTP v2** | USDC ↔ USDC cross-chain |
+| **Relay** | Non-USDC outbound, swaps, long-tail chains |
+| **Paycrest** | Fiat payout to bank / mobile money |
 
-Default is `testnet`.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for phased rollout, constraints, and file-level map.
 
-## Development Notes
+## Contributing
 
-- Add chains and tokens in `src/config/network.ts`.
-- Do not add server-held wallet private keys.
-- Keep provider-specific integrations behind API modules or rail modules.
-- Keep README and `ARCHITECTURE.md` aligned when a route or rail changes.
+Contributions are welcome — especially rail integrations, corridor UX, and test coverage.
 
+1. Fork the repo and create a branch from `main`
+2. Run `npm run check` before opening a PR
+3. Keep provider keys server-side; do not commit `.env` or local API scratch files
+4. Update README and `ARCHITECTURE.md` when you add or change a route or rail
+
+Open an issue first for large architectural changes.
+
+## Security
+
+Do not open public issues for sensitive vulnerabilities. Report security concerns privately to the maintainers.
+
+This app moves real funds on mainnet when configured with production API keys. Review Paycrest and Relay docs, test with small amounts, and never commit secrets.
+
+## License
+
+[MIT](./LICENSE) — Copyright (c) 2026 Swap Chain contributors.
