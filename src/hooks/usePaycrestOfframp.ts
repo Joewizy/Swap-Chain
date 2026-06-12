@@ -352,6 +352,10 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         } else if (FAILED.has(o.status)) {
           // Terminal (expired / refunded) — let the UI read order.status.
           stop();
+        } else if (isFundingDeadlineMissed(o, orderId)) {
+          // Paycrest often still reports `initiated` for minutes after
+          // validUntil — stop polling; StatusScreen treats this as expired.
+          stop();
         }
       } catch {
         // transient; keep polling
@@ -419,6 +423,23 @@ async function createOrder(body: CreateOrderBody): Promise<PaycrestOrder> {
 /** Terminal order states — once reached, polling stops. */
 const SUCCESS = new Set(["fulfilled", "settled"]);
 const FAILED = new Set(["refunded", "expired"]);
+
+/**
+ * True when the deposit window closed with nothing credited. Semantically this
+ * is an expired order, but Paycrest may still return status `initiated` until
+ * a background job flips it — see transaction lifecycle docs.
+ */
+function isFundingDeadlineMissed(
+  order: PaycrestOrder,
+  orderId: string
+): boolean {
+  const paid = Number(order.amountPaid ?? 0);
+  if (paid > 0) return false;
+  // User sent on-chain; indexer may lag behind validUntil.
+  if (recallDeposit(orderId)) return false;
+  if (!order.validUntil) return false;
+  return Date.now() > new Date(order.validUntil).getTime();
+}
 
 /**
  * Polls /api/paycrest/order/:id until the order settles. Surfaces each
