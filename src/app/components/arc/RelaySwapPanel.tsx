@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { SwapWidget, type Token } from "@relayprotocol/relay-kit-ui";
 import { adaptViemWallet } from "@relayprotocol/relay-sdk";
+import { configureDynamicChains } from "@relayprotocol/relay-sdk/chain-utils";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { useWalletClient } from "wagmi";
 import toast from "react-hot-toast";
@@ -87,6 +88,24 @@ export function RelaySwapPanel() {
   // The widget reads `defaultAmount` only on its first mount, so we hold it
   // back until the chat prefill is applied — otherwise it locks onto "10".
   const [ready, setReady] = useState(false);
+  // Our static config only covers base/arb/polygon/bnb with template icon URLs.
+  // Pull Relay's full chain list (real logos, all chains, token support) onto
+  // the shared client so the widget matches the real Relay app — and so tokens
+  // on other chains (e.g. PENGU) are actually swappable. Falls back to the
+  // static config if the fetch fails.
+  const [chainsReady, setChainsReady] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    configureDynamicChains()
+      .catch(() => {})
+      .finally(() => {
+        if (active) setChainsReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const launch = loadPendingLaunch();
@@ -116,7 +135,7 @@ export function RelaySwapPanel() {
           </span>
         </header>
 
-        {ready ? (
+        {ready && chainsReady ? (
           <SwapWidget
             wallet={wallet}
             fromToken={fromToken}
