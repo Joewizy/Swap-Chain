@@ -160,30 +160,35 @@ export async function POST(req: NextRequest) {
     const raw = JSON.parse(content) as RawReply;
     return NextResponse.json(normaliseReply(raw));
   } catch (err) {
+    // Full detail (status, host, message) stays in the server log for us;
+    // the user only ever sees the calm, non-leaky copy below.
     console.error("[chat] error:", err);
 
     if (err instanceof OpenAI.APIError) {
-      if (err.status === 401 || err.status === 403) {
-        const host = new URL(baseURL).host;
+      // A connection/DNS/timeout failure has no HTTP status — the model host
+      // was unreachable, which is almost always a network blip, not the user.
+      if (err.status === undefined) {
         return NextResponse.json(
           {
             error:
-              `Assistant auth rejected by ${host} (HTTP ${err.status}). ` +
-              `Check OPENAI_API_KEY matches OPENAI_BASE_URL.`,
+              "The assistant is unreachable right now — check your connection and try again.",
           },
-          { status: 502 }
+          { status: 503 }
         );
       }
+      // Any real API rejection (auth, rate limit, bad request). Specifics are
+      // logged above; we fix config, the user just retries.
       return NextResponse.json(
-        { error: `Assistant provider error (${err.status}): ${err.message}` },
+        {
+          error:
+            "The assistant is having trouble right now — please try again in a moment.",
+        },
         { status: 502 }
       );
     }
 
     return NextResponse.json(
-      {
-        error: err instanceof Error ? err.message : "Failed to process chat",
-      },
+      { error: "Couldn't process that — please try again." },
       { status: 500 }
     );
   }
