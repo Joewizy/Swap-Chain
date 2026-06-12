@@ -192,7 +192,7 @@ export function Home({
             Describe it in plain English
           </span>
           <span className="muted" style={{ fontSize: 13 }}>
-            “Send ₦50,000 to Tunde’s Opay” · “Cash out 200 USDC to GTBank”
+            Type it the way you’d text a friend — we’ll set it up.
           </span>
         </span>
         <Icon.ArrowRight size={14} />

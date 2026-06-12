@@ -157,8 +157,8 @@ export function AssistantChat({ onLaunch }: Props) {
               <span style={{ fontSize: 13, fontWeight: 500 }}>Try saying</span>
             </span>
             <span className="muted" style={{ fontSize: 14, lineHeight: 1.5 }}>
-              &ldquo;Convert my DAI to naira on Opay&rdquo; or &ldquo;Cash out 200
-              USDC to GTBank&rdquo;
+              &ldquo;Sell my PENGU and cash out to naira&rdquo; · &ldquo;Cash out
+              200 USDC to GTBank&rdquo; · &ldquo;Swap ETH to USDC on Base&rdquo;
             </span>
           </div>
         )}
