@@ -92,7 +92,7 @@ function intentFromOrder(o: Order): Intent {
         eta: "≈ 2 min",
         rail: ["Deposit", "Confirm", "Receive"],
         kind: "fiat",
-        railName: "Paycrest",
+        railName: "Fiat",
         railReason: "",
         exec: {
           rail: "paycrest",
@@ -137,7 +137,7 @@ function intentFromOrder(o: Order): Intent {
       eta: "≈ 2 min",
       rail: ["Deposit", "Settle", "Payout"],
       kind: "fiat",
-      railName: "Paycrest",
+      railName: "Fiat",
       railReason: "",
       exec: {
         rail: "paycrest",

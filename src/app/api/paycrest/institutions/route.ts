@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Paycrest request failed",
+          error instanceof Error ? error.message : "Upstream request failed",
       },
       { status: 502 }
     );
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   const raw: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     return NextResponse.json(
-      { error: `Paycrest institutions failed (${res.status}).` },
+      { error: `Couldn't load banks (${res.status}).` },
       { status: 502 }
     );
   }

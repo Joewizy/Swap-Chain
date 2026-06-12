@@ -1080,7 +1080,7 @@ function Footer() {
         }}
       >
         <span className="font-mono">
-          infra · CCTP · Stargate · LiFi · Paycrest · MoonPay · Stripe
+          infra · CCTP · Stargate · LiFi · MoonPay · Stripe
         </span>
       </div>
     </footer>

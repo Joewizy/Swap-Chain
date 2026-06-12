@@ -28,7 +28,7 @@ import {
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 function paycrestErrorResponse(raw: unknown, res: Response) {
-  let message = `Paycrest order failed (${res.status}).`;
+  let message = `Couldn't create this order (${res.status}).`;
   if (raw && typeof raw === "object") {
     const r = raw as Record<string, unknown>;
     message = String(r.message ?? r.error ?? message);
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Paycrest is not configured. Set PAYCREST_API_KEY in the server env.",
+          "Fiat payouts aren't available right now. Try again later.",
       },
       { status: 501 }
     );
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Paycrest request failed",
+          error instanceof Error ? error.message : "Request failed",
       },
       { status: 502 }
     );
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
 
   if (!payload || typeof payload.id !== "string") {
     return NextResponse.json(
-      { error: "Paycrest returned an unrecognised response", raw },
+      { error: "Unexpected response from payout service", raw },
       { status: 502 }
     );
   }
@@ -160,7 +160,7 @@ function buildOfframpBody(
   }
   if (typeof network !== "string" || !network) {
     return {
-      error: 'network is required (Paycrest network slug, e.g. "base")',
+      error: 'network is required (e.g. "base")',
     };
   }
   if (typeof refundAddress !== "string" || !EVM_ADDRESS.test(refundAddress)) {
@@ -240,7 +240,7 @@ function buildOnrampBody(
   }
   if (typeof network !== "string" || !network) {
     return {
-      error: 'network is required (Paycrest network slug, e.g. "base")',
+      error: 'network is required (e.g. "base")',
     };
   }
   if (

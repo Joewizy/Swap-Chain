@@ -67,12 +67,12 @@ export function selectRail(req: RouteRequest): RailDecision {
     if (!fiat || !isPaycrestFiat(fiat)) {
       throw new NoRailError(
         `No off-ramp rail for fiat "${fiat ?? "(none)"}" — ` +
-          `Paycrest supports a fixed set of payout currencies.`
+          `we support a fixed set of payout currencies.`
       );
     }
     return {
       rail: "paycrest",
-      reason: `Fiat off-ramp to ${fiat.toUpperCase()} via Paycrest.`,
+      reason: `Fiat off-ramp to ${fiat.toUpperCase()}.`,
       alternatives: [],
     };
   }
@@ -83,7 +83,7 @@ export function selectRail(req: RouteRequest): RailDecision {
     if (fiat && isPaycrestFiat(fiat)) {
       return {
         rail: "paycrest",
-        reason: `Fiat on-ramp from ${fiat.toUpperCase()} via Paycrest Sender API.`,
+        reason: `Fiat on-ramp from ${fiat.toUpperCase()}.`,
         alternatives: ["chainrails"],
       };
     }

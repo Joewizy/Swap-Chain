@@ -72,7 +72,7 @@ export function usePaycrest(): UsePaycrestReturn {
         const data = await res.json();
         if (!res.ok) {
           throw new Error(
-            data?.error || `Paycrest order failed (${res.status}).`
+            data?.error || `Couldn't create this order (${res.status}).`
           );
         }
 
@@ -82,7 +82,7 @@ export function usePaycrest(): UsePaycrestReturn {
         return created;
       } catch (err) {
         const msg =
-          err instanceof Error ? err.message : "Paycrest order failed.";
+          err instanceof Error ? err.message : "Couldn't create this order.";
         setError(msg);
         setStatus("error");
         throw err instanceof Error ? err : new Error(msg);

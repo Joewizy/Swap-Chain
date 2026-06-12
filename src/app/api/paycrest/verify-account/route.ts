@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Paycrest request failed",
+          error instanceof Error ? error.message : "Request failed",
       },
       { status: 502 }
     );

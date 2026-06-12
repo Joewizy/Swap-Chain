@@ -55,7 +55,6 @@ export interface UsePaycrestOnrampReturn {
 
 const SETTLE_POLL_INTERVAL_MS = 5_000;
 const SETTLE_POLL_ATTEMPTS = 120;
-const SETTLED = "settled";
 const SUCCESS = new Set(["settled", "fulfilled"]);
 const FAILED = new Set(["refunded", "expired"]);
 
@@ -125,7 +124,7 @@ export function usePaycrestOnramp(): UsePaycrestOnrampReturn {
           !created.amountToTransfer
         ) {
           throw new Error(
-            "Paycrest didn't return deposit instructions for this order."
+            "We didn't get deposit instructions for this order."
           );
         }
 
@@ -258,7 +257,7 @@ async function createOrder(body: CreateOnrampBody): Promise<PaycrestOrder> {
   });
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data?.error || `Paycrest order failed (${res.status}).`);
+    throw new Error(data?.error || `Couldn't create this order (${res.status}).`);
   }
   return data as PaycrestOrder;
 }
@@ -276,7 +275,7 @@ async function pollOrder(
       if (next.status === "pending" || next.status === "processing") {
         onSettling?.();
       }
-      if (next.status === SETTLED) return next;
+      if (SUCCESS.has(next.status)) return next;
       if (FAILED.has(next.status)) {
         throw new Error(
           `Order ${next.status} — any eligible fiat refund goes to your refund account.`
@@ -287,7 +286,7 @@ async function pollOrder(
   }
   throw new Error(
     "On-ramp is taking longer than expected. If you already deposited, " +
-      `track order ${id} from your Paycrest dashboard.`
+      `check this order in History (order ${id.slice(0, 8)}…).`
   );
 }
 

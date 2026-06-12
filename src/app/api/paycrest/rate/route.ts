@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Paycrest request failed",
+          error instanceof Error ? error.message : "Upstream request failed",
       },
       { status: 502 }
     );

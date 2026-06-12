@@ -26,7 +26,7 @@ export async function GET(
     return NextResponse.json(
       {
         error:
-          "Paycrest is not configured. Set PAYCREST_API_KEY in the server env.",
+          "Fiat payouts aren't available right now.",
       },
       { status: 501 }
     );
@@ -41,7 +41,7 @@ export async function GET(
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Paycrest request failed",
+          error instanceof Error ? error.message : "Request failed",
       },
       { status: 502 }
     );
@@ -50,7 +50,7 @@ export async function GET(
   const raw: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     return NextResponse.json(
-      { error: `Paycrest order lookup failed (${res.status}).` },
+      { error: `Couldn't load this order (${res.status}).` },
       { status: res.status === 401 ? 401 : res.status === 404 ? 404 : 502 }
     );
   }
@@ -62,7 +62,7 @@ export async function GET(
 
   if (!payload || typeof payload.id !== "string") {
     return NextResponse.json(
-      { error: "Paycrest returned an unrecognised response", raw },
+      { error: "Unexpected response from payout service", raw },
       { status: 502 }
     );
   }
