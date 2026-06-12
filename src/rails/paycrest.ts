@@ -78,6 +78,7 @@ export type PaycrestDirection = "offramp" | "onramp";
 
 export const PAYCREST_NETWORK_SLUGS: Partial<Record<ChainId, string>> = {
   base: "base",
+  ethereum: "ethereum",
   arbitrum: "arbitrum-one",
   polygon: "polygon",
   bnb: "bnb-smart-chain",

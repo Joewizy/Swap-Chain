@@ -12,8 +12,13 @@
 
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { DEFAULT_SETTLEMENT_CHAIN_ID, getChain } from "@/config/network";
-import { PAYCREST_FIAT } from "@/rails/paycrest";
+import { useAccount } from "wagmi";
+import {
+  DEFAULT_SETTLEMENT_CHAIN_ID,
+  getChain,
+  getChainByNumericId,
+} from "@/config/network";
+import { PAYCREST_FIAT, paycrestNetworkSlug } from "@/rails/paycrest";
 import { fiatOptionLabel, formatAmountInput, formatFiat } from "@/utils";
 import {
   ReviewScreen,
@@ -78,7 +83,18 @@ export function CashoutFlow({
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(step !== "review");
 
-  const sourceChain = DEFAULT_SETTLEMENT_CHAIN_ID;
+  // Source the stablecoin from the chain the wallet is on, when Paycrest can
+  // off-ramp it — so the balance we show and the order we create match where
+  // the user actually holds funds. Otherwise fall back to the default chain
+  // (the funding step switches them to it).
+  const { chainId: connectedNumericId } = useAccount();
+  const connectedChain = connectedNumericId
+    ? getChainByNumericId(connectedNumericId)?.id
+    : undefined;
+  const sourceChain =
+    connectedChain && paycrestNetworkSlug(connectedChain)
+      ? connectedChain
+      : DEFAULT_SETTLEMENT_CHAIN_ID;
   const sourceName = getChain(sourceChain)?.name ?? sourceChain;
   const canContinue = Number(amount) > 0;
   const label = `Cash out ${amount} ${token} to ${currency}`;
