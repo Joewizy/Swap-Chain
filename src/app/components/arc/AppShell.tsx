@@ -596,7 +596,7 @@ function NavContent({
 }
 
 function AccountChip({ compact }: { compact?: boolean }) {
-  const { address, isConnected, chain } = useAccount();
+  const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const { openConnectModal } = useConnectModal();
   const { openAccountModal } = useAccountModal();
@@ -633,7 +633,6 @@ function AccountChip({ compact }: { compact?: boolean }) {
   }
 
   const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
-  const chainLabel = chain?.name ?? "Unknown network";
 
   if (compact) {
     return (
@@ -687,8 +686,9 @@ function AccountChip({ compact }: { compact?: boolean }) {
           <span className="font-mono" style={{ fontSize: 11.5, color: "var(--fg)" }}>
             {short}
           </span>
-          <span className="font-mono" style={{ fontSize: 10, color: "var(--fg-mute)" }}>
-            {chainLabel} · connected
+          <span className="row center gap-1" style={{ fontSize: 10 }}>
+            <Icon.Dot size={6} color="var(--ok)" />
+            <span style={{ color: "var(--ok)" }}>Connected</span>
           </span>
         </div>
       </button>

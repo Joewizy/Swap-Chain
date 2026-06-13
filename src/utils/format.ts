@@ -29,10 +29,24 @@ export const FIAT_NAMES: Record<string, string> = {
   ZAR: "South African Rand",
 };
 
-/** Dropdown label for a currency, e.g. "NGN — Nigerian Naira". */
+/** Flag emoji per supported payout currency (multi-country regions omitted). */
+const FIAT_FLAGS: Record<string, string> = {
+  NGN: "🇳🇬",
+  KES: "🇰🇪",
+  GHS: "🇬🇭",
+  UGX: "🇺🇬",
+  ZMW: "🇿🇲",
+  TZS: "🇹🇿",
+  ZAR: "🇿🇦",
+};
+
+/** Dropdown label for a currency, e.g. "🇳🇬  NGN — Nigerian Naira". */
 export function fiatOptionLabel(code: string): string {
-  const name = FIAT_NAMES[code.toUpperCase()];
-  return name ? `${code} — ${name}` : code;
+  const c = code.toUpperCase();
+  const name = FIAT_NAMES[c];
+  const label = name ? `${c} — ${name}` : c;
+  const flag = FIAT_FLAGS[c];
+  return flag ? `${flag}  ${label}` : label;
 }
 
 /** Short, friendly currency names for inline prose. */
@@ -51,6 +65,11 @@ export const FIAT_SHORT_NAMES: Record<string, string> = {
 export function currencyLabel(code: string): string {
   const name = FIAT_SHORT_NAMES[code.toUpperCase()];
   return name ? `${name} (${code.toUpperCase()})` : code;
+}
+
+/** Symbol shown before fiat amounts in inputs, e.g. NGN → "₦". */
+export function fiatSymbol(code: string): string {
+  return FIAT_SYMBOLS[code.toUpperCase()] ?? "";
 }
 
 /** ISO timestamp → "Mon, Jun 11, 8:41 PM" (empty for invalid input). */

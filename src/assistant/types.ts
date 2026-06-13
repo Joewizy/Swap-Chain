@@ -24,6 +24,8 @@ export type FlowSeed = {
   fromToken?: string;
   toToken?: string;
   currency?: string;
+  /** Chain the user named (e.g. "polygon"), resolved to a source chain by the flow. */
+  chain?: string;
   recipientHint?: string;
   institutionHint?: string;
 };

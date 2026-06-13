@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import type { ChatMessage, ChatReply, FlowLaunch, FlowSeed } from "@/assistant/types";
-import { buildAssistantSystemPrompt } from "@/assistant/productRules";
+import {
+  buildAssistantSystemPrompt,
+  isSettlementToken,
+} from "@/assistant/productRules";
 
 const apiKey = process.env.OPENAI_API_KEY ?? process.env.OPEN_API_KEY;
 const baseURL =
@@ -23,6 +26,7 @@ const seedSchema = {
     fromToken: { type: ["string", "null"] },
     toToken: { type: ["string", "null"] },
     currency: { type: ["string", "null"] },
+    chain: { type: ["string", "null"] },
     recipientHint: { type: ["string", "null"] },
     institutionHint: { type: ["string", "null"] },
   },
@@ -32,6 +36,7 @@ const seedSchema = {
     "fromToken",
     "toToken",
     "currency",
+    "chain",
     "recipientHint",
     "institutionHint",
   ],
@@ -83,6 +88,7 @@ type RawSeed = {
   fromToken: string | null;
   toToken: string | null;
   currency: string | null;
+  chain: string | null;
   recipientHint: string | null;
   institutionHint: string | null;
 };
@@ -103,6 +109,7 @@ function normaliseSeed(raw: RawSeed): FlowSeed {
     fromToken: pick(raw.fromToken)?.toUpperCase(),
     toToken: pick(raw.toToken)?.toUpperCase(),
     currency: pick(raw.currency)?.toUpperCase(),
+    chain: pick(raw.chain)?.toLowerCase(),
     recipientHint: pick(raw.recipientHint),
     institutionHint: pick(raw.institutionHint)?.toLowerCase(),
   };
@@ -110,14 +117,33 @@ function normaliseSeed(raw: RawSeed): FlowSeed {
 
 function normaliseReply(raw: RawReply): ChatReply {
   let launch: FlowLaunch | undefined;
+  let message = raw.message;
+  let plan = raw.plan ?? [];
+
   if (raw.status === "ready" && raw.launch?.flow) {
     launch = { flow: raw.launch.flow, ...normaliseSeed(raw.launch.seed) };
+
+    // Safety net over the prompt: the model sometimes invents a USDC↔USDT
+    // "swap" when the user just wants to cash out a stablecoin. Two settlement
+    // tokens is never a real swap — reroute straight to cashout and drop the
+    // bogus swap step and message.
+    if (
+      launch.flow === "bridge" &&
+      isSettlementToken(launch.fromToken) &&
+      isSettlementToken(launch.toToken)
+    ) {
+      const token = launch.fromToken;
+      launch = { ...launch, flow: "cashout", token, fromToken: undefined, toToken: undefined };
+      plan = [];
+      message = `You can cash out your ${token} directly — no swap needed. Let's set it up.`;
+    }
   }
+
   return {
-    message: raw.message,
+    message,
     status: raw.status,
     launch,
-    plan: raw.plan ?? [],
+    plan,
     missing: raw.missing ?? [],
   };
 }
