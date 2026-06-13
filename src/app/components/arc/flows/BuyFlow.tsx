@@ -11,9 +11,11 @@
 
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { DEFAULT_SETTLEMENT_CHAIN_ID, getChain } from "@/config/network";
-import { PAYCREST_FIAT } from "@/rails/paycrest";
-import { fiatOptionLabel, formatAmountInput, formatToken } from "@/utils";
+import { getChain, type ChainId } from "@/config/network";
+import { PAYCREST_CHAIN_IDS, PAYCREST_FIAT } from "@/rails/paycrest";
+import { usePaycrestNetwork } from "@/hooks/usePaycrestNetwork";
+import { fiatOptionLabel, formatToken, fiatSymbol } from "@/utils";
+import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import {
   ReviewScreen,
   quoteFromIntent,
@@ -34,18 +36,20 @@ import {
 } from "../swapUrl";
 import { useSwapFlowNav } from "../useSwapFlowNav";
 
+const TOKENS = ["USDC", "USDT"] as const;
+
 /** Fetch the live on-ramp rate and return the lines to overwrite on a quote. */
-async function fetchBuyRate(amount: string, currency: string) {
+async function fetchBuyRate(amount: string, currency: string, token: string) {
   try {
     const res = await fetch(
-      `/api/paycrest/rate?fiat=${encodeURIComponent(currency)}&token=USDC`
+      `/api/paycrest/rate?fiat=${encodeURIComponent(currency)}&token=${token}`
     );
     const data = await res.json();
     if (res.ok && data?.rate) {
-      const usdc = Number(amount) / Number(data.rate);
+      const received = Number(amount) / Number(data.rate);
       return {
-        amount: `≈ ${formatToken(usdc, "USDC", 2)}`,
-        rate: `${data.rate} ${currency}/USDC`,
+        amount: `≈ ${formatToken(received, token, 2)}`,
+        rate: `${data.rate} ${currency}/${token}`,
       };
     }
   } catch {
@@ -64,16 +68,24 @@ export function BuyFlow({
   const { step, setStep, patchUrl } = useSwapFlowNav();
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<string>("NGN");
+  const [token, setToken] = useState<(typeof TOKENS)[number]>("USDC");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [payoutDraft, setPayoutDraft] = useState<PayoutDetails | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(step !== "review");
 
-  const destChain = DEFAULT_SETTLEMENT_CHAIN_ID;
-  const destName = getChain(destChain)?.name ?? destChain;
+  // Receiving USDC needs no wallet switch — it lands at your address on any
+  // supported chain. So the destination is an explicit choice, pre-selected to
+  // the chain you're already on (when supported) and overridable below.
+  const { chain: smartDefault } = usePaycrestNetwork();
+  const [network, setNetwork] = useState<ChainId>(smartDefault);
+  const [networkTouched, setNetworkTouched] = useState(false);
+  useEffect(() => {
+    if (!networkTouched) setNetwork(smartDefault);
+  }, [smartDefault, networkTouched]);
   const canContinue = Number(amount) > 0;
-  const label = `Buy USDC with ${amount} ${currency}`;
+  const label = `Buy ${token} with ${amount} ${currency}`;
 
   // Restore review step after refresh (?flow=buy&step=review).
   useEffect(() => {
@@ -85,6 +97,9 @@ export function BuyFlow({
     if (draft?.flow === "buy") {
       setAmount(draft.amount);
       setCurrency(draft.currency);
+      if (draft.token === "USDC" || draft.token === "USDT") {
+        setToken(draft.token);
+      }
       setQuote(draft.quote);
       setPayoutDraft(draft.payout);
       setReady(true);
@@ -101,11 +116,18 @@ export function BuyFlow({
     if (!launch || launch.flow !== "buy") return;
     if (launch.amount) setAmount(launch.amount);
     if (launch.currency) setCurrency(launch.currency);
+    if (launch.token === "USDC" || launch.token === "USDT") {
+      setToken(launch.token);
+    }
     clearPendingLaunch();
   }, []);
 
   const refreshRate = async (draft: FlowDraft) => {
-    const rate = await fetchBuyRate(draft.amount, draft.currency);
+    const rate = await fetchBuyRate(
+      draft.amount,
+      draft.currency,
+      draft.token ?? "USDC"
+    );
     if (!rate) return;
     const next: Quote = {
       ...draft.quote,
@@ -121,6 +143,7 @@ export function BuyFlow({
     flow: "buy",
     amount,
     currency,
+    token,
     quote: q,
     label,
     payout,
@@ -139,8 +162,8 @@ export function BuyFlow({
       fromChain: null,
       fromToken: currency,
       fromAmount: amount,
-      toChain: destChain,
-      toToken: "USDC",
+      toChain: network,
+      toToken: token,
       fiatCurrency: currency,
       recipient: null,
       needsClarification: false,
@@ -157,7 +180,7 @@ export function BuyFlow({
       return setError(r.reason);
     }
 
-    const rate = await fetchBuyRate(amount, currency);
+    const rate = await fetchBuyRate(amount, currency, token);
     if (rate) {
       r.to.amount = rate.amount;
       r.rate = rate.rate;
@@ -194,15 +217,15 @@ export function BuyFlow({
           storeFlowDraft(buildDraft(quote, p));
         }}
         onBack={leaveReview}
-        onConfirm={(payout) => {
+        onConfirm={(payout, destination) => {
           clearFlowDraft();
           patchUrl({ step: null });
-          onSubmit({
-            text: label,
-            quote: payout
-              ? { ...quote, exec: { ...quote.exec, payout } }
-              : quote,
-          });
+          const exec = {
+            ...quote.exec,
+            ...(payout ? { payout } : {}),
+            ...(destination ? { recipient: destination } : {}),
+          };
+          onSubmit({ text: label, quote: { ...quote, exec } });
         }}
       />
     );
@@ -222,7 +245,7 @@ export function BuyFlow({
           Buy crypto
         </h1>
         <span className="muted" style={{ fontSize: 14 }}>
-          Pay with local currency, receive USDC in your wallet.
+          Pay with local currency, receive USDC or USDT in your wallet.
         </span>
       </header>
 
@@ -234,16 +257,10 @@ export function BuyFlow({
           >
             You pay
           </span>
-          <input
-            value={formatAmountInput(amount)}
-            onChange={(e) => {
-              const v = e.target.value.replace(/[^0-9.]/g, "");
-              if ((v.match(/\./g) || []).length > 1) return;
-              setAmount(v);
-            }}
-            inputMode="decimal"
-            placeholder="0"
-            style={{ ...INPUT, fontSize: 22, fontWeight: 500 }}
+          <PrefixedAmountInput
+            amount={amount}
+            onAmountChange={setAmount}
+            prefix={fiatSymbol(currency)}
           />
         </label>
 
@@ -265,9 +282,51 @@ export function BuyFlow({
               </option>
             ))}
           </select>
-          <span className="muted" style={{ fontSize: 12 }}>
-            You receive USDC on {destName}
+        </label>
+
+        <label className="col gap-2">
+          <span
+            className="font-mono"
+            style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}
+          >
+            Receive
           </span>
+          <div className="row center gap-2">
+            <select
+              value={network}
+              onChange={(e) => {
+                setNetworkTouched(true);
+                setNetwork(e.target.value as ChainId);
+              }}
+              style={{ ...INPUT, cursor: "pointer", flex: 1 }}
+            >
+              {PAYCREST_CHAIN_IDS.map((id) => (
+                <option key={id} value={id}>
+                  {getChain(id)?.name ?? id}
+                </option>
+              ))}
+            </select>
+            <div className="row center gap-1" style={{ flex: "0 0 auto" }}>
+              {TOKENS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setToken(t)}
+                  className="chip"
+                  style={{
+                    cursor: "pointer",
+                    padding: "8px 12px",
+                    fontSize: 13,
+                    background: token === t ? "var(--btn-bg)" : "var(--bg-elev)",
+                    color: token === t ? "var(--btn-fg)" : "var(--fg-soft)",
+                    borderColor: token === t ? "var(--btn-bg)" : "var(--line-2)",
+                  }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
         </label>
 
         {error && (

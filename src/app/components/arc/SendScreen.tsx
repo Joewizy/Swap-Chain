@@ -26,6 +26,7 @@ import {
 import type { ExecutionProgress } from "@/hooks/useRelayExecutor";
 import { getChain, type ChainId, type TokenSymbol } from "@/config/network";
 import {
+  buildPaycrestReference,
   paycrestDepositCredited,
   paycrestFundingWindowClosed,
   paycrestPayoutInFlight,
@@ -89,6 +90,8 @@ export type QuoteExec = {
   recipient: string | null;
   /** Off-ramp payout target — filled in Review before execution. */
   payout?: PayoutDetails | null;
+  /** Off-ramp: EVM address refunds return to (filled in Review). */
+  refundAddress?: string | null;
 };
 
 export type Quote = {
@@ -270,7 +273,7 @@ function buildQuote(intent: IntentResponse, routed: RouterResponse): Quote {
               ? `${amount.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${fromToken}`
               : `≈ ${amount.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${toToken || "USDC"}`,
           label: prettyChain(toChain),
-          sub: recipient || "Your connected wallet",
+          sub: recipient || "",
         }
       : {
           kind: intent.action === "swap" ? "Wallet" : "Chain",
@@ -279,7 +282,7 @@ function buildQuote(intent: IntentResponse, routed: RouterResponse): Quote {
             maximumFractionDigits: 4,
           })} ${toToken || fromToken}`,
           label: prettyChain(toChain),
-          sub: recipient || "Your connected wallet",
+          sub: recipient || "",
         };
 
   const railStages = isOfframp
@@ -394,12 +397,12 @@ export function ReviewScreen({
   quote: Quote;
   text: string;
   onBack: () => void;
-  onConfirm: (payout: PayoutDetails | null) => void;
+  onConfirm: (payout: PayoutDetails | null, destinationAddress?: string) => void;
   /** Restored after refresh when the guided flow draft includes payout fields. */
   initialPayout?: PayoutDetails;
   onPayoutChange?: (payout: PayoutDetails) => void;
 }) {
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
   const { openConnectModal } = useConnectModal();
 
   // Paycrest fiat legs need structured bank / mobile-money details.
@@ -407,11 +410,17 @@ export function ReviewScreen({
   const isOnramp =
     quote.exec.action === "onramp" && quote.exec.rail === "paycrest";
   const needsAccountDetails = isOfframp || isOnramp;
+  // Both fiat legs collect a wallet address: on-ramp's USDC destination,
+  // off-ramp's refund address. Prefilled from the wallet, no connection needed.
+  const needsWalletField = isOnramp || isOfframp;
   const [payout, setPayout] = useState<PayoutDetails>(
     initialPayout ?? {
       institution: "",
       institutionName: "",
-      accountIdentifier: quote.exec.recipient ?? "",
+      // Off-ramp: recipient is the payee's bank account, so prefill it.
+      // On-ramp: recipient is the crypto destination, NOT a bank account —
+      // the refund account is separate, so start it empty.
+      accountIdentifier: isOnramp ? "" : (quote.exec.recipient ?? ""),
       accountName: "",
     }
   );
@@ -419,24 +428,38 @@ export function ReviewScreen({
     setPayout(next);
     onPayoutChange?.(next);
   };
+
+  // The wallet address for the fiat leg — on-ramp's USDC destination or
+  // off-ramp's refund address. Prefilled from the connected wallet when
+  // available, editable, and needs no connection.
+  const [destination, setDestination] = useState(address ?? "");
+  useEffect(() => {
+    if (address) setDestination((cur) => cur || address);
+  }, [address]);
+  const destinationValid = /^0x[0-9a-fA-F]{40}$/.test(destination.trim());
+
   const payoutReady =
     !needsAccountDetails ||
     (!!payout.institution &&
       !!payout.accountIdentifier.trim() &&
       !!payout.accountName.trim());
 
-  // Every rail needs a connected wallet — Paycrest signs the on-chain
-  // transfer that funds the order; the others sign the source-chain tx.
-  const needsWallet = true;
+  // On-ramp needs no wallet — the user pays fiat and USDC lands at a
+  // destination address (entered on the Buy form). Every other rail signs an
+  // on-chain transaction, so it does need a connected wallet.
+  const needsWallet = !needsWalletField;
   const walletReady = isConnected || !needsWallet;
-  const canConfirm = walletReady && payoutReady;
+  const canConfirm =
+    walletReady && payoutReady && (!needsWalletField || destinationValid);
 
   // Once the account name resolves, show the confirmed recipient in the
   // headline instead of the raw account number / placeholder.
   const recipientLine =
     needsAccountDetails && payout.accountName
       ? `${payout.accountName}${payout.institutionName ? ` · ${payout.institutionName}` : ""}`
-      : `${quote.to.label} · ${quote.to.sub}`;
+      : quote.to.sub
+        ? `${quote.to.label} · ${quote.to.sub}`
+        : quote.to.label;
   return (
     <div className="col gap-6">
       <header className="row between center wrap" style={{ gap: 16 }}>
@@ -601,14 +624,70 @@ export function ReviewScreen({
         )}
       </div>
 
-      {/* Paycrest bank / mobile-money details (payout or refund account). */}
-      {needsAccountDetails && (
-        <PayoutForm
-          currency={quote.exec.fiatCurrency}
-          value={payout}
-          onChange={setPayoutAndPersist}
-          mode={isOnramp ? "refund" : "payout"}
-        />
+      {/* On-ramp: USDC destination + fiat refund account, in one card. */}
+      {isOnramp && (
+        <div className="card col gap-5" style={{ padding: 20 }}>
+          <WalletAddressField
+            label="Receive USDC to"
+            info="The wallet address your USDC is delivered to. You don't need to connect — paste any address you control."
+            value={destination}
+            onChange={setDestination}
+            valid={destinationValid}
+            hasWallet={!!address}
+          />
+          <div>
+            <div className="row center gap-1" style={{ marginBottom: 12 }}>
+              <span className="eyebrow">Refund account</span>
+              <InfoHint
+                text={`If this purchase can't be completed, your ${
+                  quote.exec.fiatCurrency
+                    ? currencyLabel(quote.exec.fiatCurrency)
+                    : "money"
+                } is refunded to this account. Use a local account you control — ideally the one you're paying from.`}
+              />
+            </div>
+            <PayoutForm
+              currency={quote.exec.fiatCurrency}
+              value={payout}
+              onChange={setPayoutAndPersist}
+              mode="refund"
+              variant="embedded"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Off-ramp: payout account + crypto refund address, in one card. */}
+      {isOfframp && (
+        <div className="card col gap-5" style={{ padding: 20 }}>
+          <div>
+            <div className="row center gap-1" style={{ marginBottom: 12 }}>
+              <span className="eyebrow">Payout account</span>
+              <InfoHint
+                text={`The bank or mobile-money account that receives the ${
+                  quote.exec.fiatCurrency
+                    ? currencyLabel(quote.exec.fiatCurrency)
+                    : "cash"
+                } payout.`}
+              />
+            </div>
+            <PayoutForm
+              currency={quote.exec.fiatCurrency}
+              value={payout}
+              onChange={setPayoutAndPersist}
+              mode="payout"
+              variant="embedded"
+            />
+          </div>
+          <WalletAddressField
+            label="Refund address"
+            info="If the payout can't be completed, your USDC is returned to this address. Prefilled from your connected wallet — no connection needed."
+            value={destination}
+            onChange={setDestination}
+            valid={destinationValid}
+            hasWallet={!!address}
+          />
+        </div>
       )}
 
       <button
@@ -631,7 +710,11 @@ export function ReviewScreen({
           !walletReady
             ? () => openConnectModal?.()
             : canConfirm
-              ? () => onConfirm(needsAccountDetails ? payout : null)
+              ? () =>
+                  onConfirm(
+                    needsAccountDetails ? payout : null,
+                    needsWalletField ? destination.trim() : undefined
+                  )
               : undefined
         }
       >
@@ -639,11 +722,15 @@ export function ReviewScreen({
           <>
             Connect wallet to continue <Icon.ArrowRight />
           </>
+        ) : needsWalletField && !destinationValid ? (
+          isOnramp
+            ? "Enter wallet address to continue"
+            : "Enter refund address to continue"
         ) : !payoutReady ? (
           isOnramp
             ? "Enter refund account to continue"
             : "Enter payout details to continue"
-        ) : isOnramp ? (
+        ) : needsWalletField ? (
           <>
             Confirm and continue <Icon.ArrowRight />
           </>
@@ -869,6 +956,65 @@ export function PayoutForm({
       </div>
 
       {fields}
+    </div>
+  );
+}
+
+/** Wallet-address field shared by the fiat legs (USDC destination / refund). */
+function WalletAddressField({
+  label,
+  info,
+  value,
+  onChange,
+  valid,
+  hasWallet,
+}: {
+  label: string;
+  info: string;
+  value: string;
+  onChange: (v: string) => void;
+  valid: boolean;
+  hasWallet: boolean;
+}) {
+  return (
+    <div>
+      <div className="row center gap-1" style={{ marginBottom: 12 }}>
+        <span className="eyebrow">{label}</span>
+        <InfoHint text={info} />
+      </div>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="0x… wallet address"
+        spellCheck={false}
+        style={{
+          width: "100%",
+          padding: "11px 12px",
+          background: "var(--bg-soft)",
+          border: "1px solid var(--line)",
+          borderRadius: 10,
+          color: "var(--fg)",
+          fontSize: 13,
+          fontFamily: "Geist Mono, ui-monospace, monospace",
+          outline: "none",
+        }}
+      />
+      {(() => {
+        const hint =
+          value.trim() && !valid
+            ? "That doesn’t look like a valid wallet address."
+            : hasWallet
+              ? "Defaults to your connected wallet — edit to change."
+              : "";
+        return hint ? (
+          <span
+            className="muted"
+            style={{ fontSize: 12, marginTop: 8, display: "block" }}
+          >
+            {hint}
+          </span>
+        ) : null;
+      })()}
     </div>
   );
 }
@@ -1414,6 +1560,17 @@ export function StatusScreen({
           return;
         }
 
+        // Refund address entered on Review (prefilled from the wallet) — also
+        // ties the order to a wallet for History. No connection required.
+        const refundAddress =
+          exec.refundAddress && /^0x[0-9a-fA-F]{40}$/.test(exec.refundAddress)
+            ? (exec.refundAddress as `0x${string}`)
+            : address;
+        if (!refundAddress) {
+          setBootError("Enter a refund wallet address to continue.");
+          return;
+        }
+
         paycrestOfframp
           .offramp({
             fromChain: exec.fromChain,
@@ -1425,7 +1582,8 @@ export function StatusScreen({
               accountIdentifier: exec.payout.accountIdentifier,
               accountName: exec.payout.accountName,
             },
-            reference: `swap-chain-offramp-${Date.now()}`,
+            refundAddress,
+            reference: buildPaycrestReference("offramp", refundAddress),
           })
           .catch(() => {});
         return;
@@ -1462,6 +1620,17 @@ export function StatusScreen({
             ? "crypto"
             : "fiat";
 
+        // Destination is the address entered on the Buy form (prefilled from
+        // the wallet when connected) — no connection required to receive.
+        const destination =
+          exec.recipient && /^0x[0-9a-fA-F]{40}$/.test(exec.recipient)
+            ? (exec.recipient as `0x${string}`)
+            : address;
+        if (!destination) {
+          setBootError("Enter a destination wallet address to receive USDC.");
+          return;
+        }
+
         paycrestOnramp
           .onramp({
             toChain: exec.toChain,
@@ -1474,8 +1643,8 @@ export function StatusScreen({
               accountIdentifier: exec.payout.accountIdentifier,
               accountName: exec.payout.accountName,
             },
-            recipientAddress: address,
-            reference: `swap-chain-onramp-${Date.now()}`,
+            recipientAddress: destination,
+            reference: buildPaycrestReference("onramp", destination),
           })
           .catch(() => {});
         return;

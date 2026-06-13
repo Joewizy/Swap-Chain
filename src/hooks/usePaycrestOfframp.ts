@@ -64,6 +64,9 @@ export interface PaycrestOfframpParams {
   amount: string;
   fiatCurrency: PaycrestFiat;
   recipient: PaycrestRecipient;
+  /** EVM address refunds return to if the order fails — also ties the order
+   *  to a wallet for History. Need not be the connected wallet. */
+  refundAddress: `0x${string}`;
   reference?: string;
 }
 
@@ -128,8 +131,15 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
   // --- Step 1: create the order, then wait for the user to confirm -------
   const offramp = useCallback(
     async (params: PaycrestOfframpParams): Promise<PaycrestOrder> => {
-      const { fromChain, token, amount, fiatCurrency, recipient, reference } =
-        params;
+      const {
+        fromChain,
+        token,
+        amount,
+        fiatCurrency,
+        recipient,
+        refundAddress,
+        reference,
+      } = params;
 
       try {
         setError(null);
@@ -138,9 +148,10 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         fundingRef.current = null;
 
         // --- validate ----------------------------------------------------
-        if (!isConnected || !address) {
-          throw new Error("Connect a wallet first.");
-        }
+        // No wallet needed to create the order or send manually — only the
+        // one-tap fund() (below) needs a connected wallet. We just need a
+        // refund address, which the Review screen collects (prefilled from the
+        // wallet when connected).
         if (!isPaycrestFiat(fiatCurrency)) {
           throw new Error(`Unsupported payout currency "${fiatCurrency}".`);
         }
@@ -185,7 +196,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
           amount,
           token,
           network,
-          refundAddress: address,
+          refundAddress,
           currency: fiatCurrency,
           recipient,
           reference,
@@ -215,7 +226,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
         throw err instanceof Error ? err : new Error(msg);
       }
     },
-    [address, isConnected]
+    []
   );
 
   // --- Step 2: send the stablecoin once the user confirms the invoice ----

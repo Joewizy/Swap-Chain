@@ -12,14 +12,15 @@
 
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { useAccount } from "wagmi";
+import { getChain, resolveChain, type ChainId } from "@/config/network";
 import {
-  DEFAULT_SETTLEMENT_CHAIN_ID,
-  getChain,
-  getChainByNumericId,
-} from "@/config/network";
-import { PAYCREST_FIAT, paycrestNetworkSlug } from "@/rails/paycrest";
-import { fiatOptionLabel, formatAmountInput, formatFiat } from "@/utils";
+  PAYCREST_CHAIN_IDS,
+  PAYCREST_FIAT,
+  paycrestNetworkSlug,
+} from "@/rails/paycrest";
+import { usePaycrestNetwork } from "@/hooks/usePaycrestNetwork";
+import { fiatOptionLabel, formatFiat } from "@/utils";
+import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import {
   ReviewScreen,
   quoteFromIntent,
@@ -82,20 +83,18 @@ export function CashoutFlow({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(step !== "review");
+  // A chain the user named in chat ("on Polygon"), once resolved + supported.
+  const [seedChain, setSeedChain] = useState<ChainId | undefined>();
 
-  // Source the stablecoin from the chain the wallet is on, when Paycrest can
-  // off-ramp it — so the balance we show and the order we create match where
-  // the user actually holds funds. Otherwise fall back to the default chain
-  // (the funding step switches them to it).
-  const { chainId: connectedNumericId } = useAccount();
-  const connectedChain = connectedNumericId
-    ? getChainByNumericId(connectedNumericId)?.id
-    : undefined;
-  const sourceChain =
-    connectedChain && paycrestNetworkSlug(connectedChain)
-      ? connectedChain
-      : DEFAULT_SETTLEMENT_CHAIN_ID;
-  const sourceName = getChain(sourceChain)?.name ?? sourceChain;
+  // Source chain: where the user's USDC is. An explicit pick (like Buy),
+  // pre-selected to a chain named in chat, else the connected wallet's chain
+  // when supported, else the default — and overridable. No wallet needed.
+  const { chain: defaultSource } = usePaycrestNetwork(seedChain);
+  const [sourceChain, setSourceChain] = useState<ChainId>(defaultSource);
+  const [sourceTouched, setSourceTouched] = useState(false);
+  useEffect(() => {
+    if (!sourceTouched) setSourceChain(defaultSource);
+  }, [defaultSource, sourceTouched]);
   const canContinue = Number(amount) > 0;
   const label = `Cash out ${amount} ${token} to ${currency}`;
 
@@ -139,6 +138,10 @@ export function CashoutFlow({
     if (launch.currency) setCurrency(launch.currency);
     if (launch.token === "USDC" || launch.token === "USDT") {
       setToken(launch.token);
+    }
+    if (launch.chain) {
+      const resolved = resolveChain(launch.chain);
+      if (resolved && paycrestNetworkSlug(resolved)) setSeedChain(resolved);
     }
     if (launch.institution || launch.institutionName) {
       setPayoutDraft((prev) => ({
@@ -246,15 +249,15 @@ export function CashoutFlow({
           storeFlowDraft(buildDraft(quote, p));
         }}
         onBack={leaveReview}
-        onConfirm={(payout) => {
+        onConfirm={(payout, refundAddress) => {
           clearFlowDraft();
           patchUrl({ step: null });
-          onSubmit({
-            text: label,
-            quote: payout
-              ? { ...quote, exec: { ...quote.exec, payout } }
-              : quote,
-          });
+          const exec = {
+            ...quote.exec,
+            ...(payout ? { payout } : {}),
+            ...(refundAddress ? { refundAddress } : {}),
+          };
+          onSubmit({ text: label, quote: { ...quote, exec } });
         }}
       />
     );
@@ -281,16 +284,10 @@ export function CashoutFlow({
       <div className="card col gap-5" style={{ padding: 20 }}>
         <Field label="Amount">
           <div className="row center gap-2">
-            <input
-              value={formatAmountInput(amount)}
-              onChange={(e) => {
-                const v = e.target.value.replace(/[^0-9.]/g, "");
-                if ((v.match(/\./g) || []).length > 1) return;
-                setAmount(v);
-              }}
-              inputMode="decimal"
-              placeholder="0"
-              style={{ ...INPUT, fontSize: 22, fontWeight: 500 }}
+            <PrefixedAmountInput
+              amount={amount}
+              onAmountChange={setAmount}
+              prefix="$"
             />
             <div className="row center gap-1" style={{ flex: "0 0 auto" }}>
               {TOKENS.map((t) => (
@@ -312,10 +309,31 @@ export function CashoutFlow({
               ))}
             </div>
           </div>
-          <span className="muted" style={{ fontSize: 12 }}>
-            From your {token} on {sourceName}
-          </span>
         </Field>
+
+        <label className="col gap-2">
+          <span
+            className="font-mono"
+            style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)" }}
+          >
+            <span style={{ textTransform: "uppercase" }}>From</span>
+            {" "}(The chain your USDC/USDT is on.)
+          </span>
+          <select
+            value={sourceChain}
+            onChange={(e) => {
+              setSourceTouched(true);
+              setSourceChain(e.target.value as ChainId);
+            }}
+            style={{ ...INPUT, cursor: "pointer" }}
+          >
+            {PAYCREST_CHAIN_IDS.map((id) => (
+              <option key={id} value={id}>
+                {getChain(id)?.name ?? id}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <Field label="Recipient gets paid in">
           <select
