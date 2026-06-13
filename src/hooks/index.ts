@@ -50,3 +50,6 @@ export type {
 
 export { useTokenBalance } from "./useTokenBalance";
 export type { UseTokenBalanceReturn } from "./useTokenBalance";
+
+export { usePaycrestRate } from "./usePaycrestRate";
+export type { UsePaycrestRateReturn } from "./usePaycrestRate";

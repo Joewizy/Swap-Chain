@@ -238,7 +238,8 @@ export default function AppShell() {
 
   const pickFlow = (id: FlowId | "describe") => {
     clearFlowDraft();
-    patchUrl({ view: "send", flow: id, status: null, step: null });
+    // Push so the back button returns to the chooser, not out of the app.
+    patchUrl({ view: "send", flow: id, status: null, step: null }, { push: true });
   };
 
   const launchFlow = async (launch: FlowLaunch) => {

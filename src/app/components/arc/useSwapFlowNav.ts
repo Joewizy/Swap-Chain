@@ -15,17 +15,25 @@ export function useSwapFlowNav() {
   const router = useRouter();
   const step = parseStep(searchParams.get("step"));
 
+  // `push: true` adds a history entry so the browser/device back button steps
+  // back through the flow (chooser → form → review) instead of leaving the app.
+  // Forward moves push; in-place corrections and restores replace (the default).
   const patchUrl = useCallback(
-    (patch: Parameters<typeof mergeSwapSearchParams>[1]) => {
+    (
+      patch: Parameters<typeof mergeSwapSearchParams>[1],
+      opts?: { push?: boolean }
+    ) => {
       const qs = mergeSwapSearchParams(searchParams, patch);
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      const url = qs ? `${pathname}?${qs}` : pathname;
+      if (opts?.push) router.push(url, { scroll: false });
+      else router.replace(url, { scroll: false });
     },
     [pathname, router, searchParams]
   );
 
   const setStep = useCallback(
-    (next: FlowStep) => {
-      patchUrl({ step: next === "review" ? "review" : null });
+    (next: FlowStep, opts?: { push?: boolean }) => {
+      patchUrl({ step: next === "review" ? "review" : null }, opts);
     },
     [patchUrl]
   );

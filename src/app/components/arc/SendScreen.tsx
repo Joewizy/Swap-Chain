@@ -36,11 +36,15 @@ import {
 } from "@/rails/paycrest";
 import {
   currencyLabel,
+  fiatSymbol,
   formatCountdown,
   formatDeadline,
   formatFiat,
+  formatMoney,
   formatNumber,
+  formatStable,
   formatToken,
+  isStableToken,
   titleCase,
 } from "@/utils";
 
@@ -270,8 +274,8 @@ function buildQuote(intent: IntentResponse, routed: RouterResponse): Quote {
           currency: toToken || "USDC",
           amount:
             fromToken === "USDC" || fromToken === "USDT"
-              ? `${amount.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${fromToken}`
-              : `≈ ${amount.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${toToken || "USDC"}`,
+              ? formatStable(amount, fromToken)
+              : `≈ ${formatStable(amount, toToken || "USDC", 0)}`,
           label: prettyChain(toChain),
           sub: recipient || "",
         }
@@ -507,6 +511,8 @@ export function ReviewScreen({
                 letterSpacing: "-0.015em",
               }}
             >
+              {fiatSymbol(quote.from.token) ||
+                (isStableToken(quote.from.token) ? "$" : "")}
               {formatNumber(quote.from.amount)}{" "}
               <span style={{ color: "var(--fg-mute)" }}>
                 {quote.from.token}
@@ -1522,7 +1528,11 @@ export function StatusScreen({
     paycrestOnramp.reset();
     relay.reset();
 
-    if (!isConnected || !address) {
+    // Paycrest fiat legs need no wallet to start: off-ramp shows a deposit
+    // address the user can fund from anywhere; on-ramp pays fiat and delivers
+    // to an address entered on the form. Only the signing rails (CCTP / Relay)
+    // need a connected wallet up front.
+    if (exec.rail !== "paycrest" && (!isConnected || !address)) {
       setBootError(
         "Connect a wallet first — the source-chain transaction needs to be signed by the sender."
       );
@@ -1760,7 +1770,7 @@ export function StatusScreen({
   const payoutBank = exec?.payout?.institutionName ?? null;
   const payoutAcct = exec?.payout?.accountIdentifier ?? null;
   const sendLabel = offrampOrder
-    ? formatToken(offrampOrder.amount, exec?.fromToken ?? "")
+    ? formatStable(offrampOrder.amount, exec?.fromToken ?? "")
     : "";
   const fiatReceive =
     offrampOrder?.rate && offrampOrder.amount
@@ -1932,12 +1942,12 @@ export function StatusScreen({
       isOfframpRail && fiatReceiveLabel
         ? fiatReceiveLabel
         : onrampOrder?.amount && onrampOrder.currency
-          ? `${onrampOrder.amount} ${onrampOrder.currency}`
+          ? formatMoney(onrampOrder.amount, onrampOrder.currency)
           : (intent?.quote?.to?.amount ?? "—");
 
     const onrampSendLabel =
       onrampOrder?.amountToTransfer && onrampOrder.depositCurrency
-        ? `${onrampOrder.amountToTransfer} ${onrampOrder.depositCurrency}`
+        ? formatMoney(onrampOrder.amountToTransfer, onrampOrder.depositCurrency)
         : exec.fiatCurrency && intent?.quote?.from?.amount
           ? formatFiat(exec.fiatCurrency, Number(intent.quote.from.amount))
           : null;

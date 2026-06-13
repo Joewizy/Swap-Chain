@@ -14,7 +14,9 @@ import toast from "react-hot-toast";
 import { getChain, type ChainId } from "@/config/network";
 import { PAYCREST_CHAIN_IDS, PAYCREST_FIAT } from "@/rails/paycrest";
 import { usePaycrestNetwork } from "@/hooks/usePaycrestNetwork";
-import { fiatOptionLabel, formatToken, fiatSymbol } from "@/utils";
+import { usePaycrestRate } from "@/hooks";
+import { fetchPaycrestRate } from "@/lib/paycrestRate";
+import { fiatOptionLabel, formatNumber, formatStable, fiatSymbol } from "@/utils";
 import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import {
   ReviewScreen,
@@ -38,24 +40,18 @@ import { useSwapFlowNav } from "../useSwapFlowNav";
 
 const TOKENS = ["USDC", "USDT"] as const;
 
-/** Fetch the live on-ramp rate and return the lines to overwrite on a quote. */
-async function fetchBuyRate(amount: string, currency: string, token: string) {
-  try {
-    const res = await fetch(
-      `/api/paycrest/rate?fiat=${encodeURIComponent(currency)}&token=${token}`
-    );
-    const data = await res.json();
-    if (res.ok && data?.rate) {
-      const received = Number(amount) / Number(data.rate);
-      return {
-        amount: `≈ ${formatToken(received, token, 2)}`,
-        rate: `${data.rate} ${currency}/${token}`,
-      };
-    }
-  } catch {
-    // Rate is a nicety — fall back to the placeholder estimate.
-  }
-  return null;
+/** Quote lines (crypto received + rate) derived from a unit rate. */
+function rateLines(
+  amount: string,
+  currency: string,
+  token: string,
+  unitRate: number
+) {
+  const received = (Number(amount) || 0) / unitRate;
+  return {
+    amount: `≈ ${formatStable(received, token, 2)}`,
+    rate: `${formatNumber(unitRate)} ${currency}/${token}`,
+  };
 }
 
 export function BuyFlow({
@@ -84,6 +80,13 @@ export function BuyFlow({
   useEffect(() => {
     if (!networkTouched) setNetwork(smartDefault);
   }, [smartDefault, networkTouched]);
+  // Live unit rate, fetched once per (currency, token) pair — we divide the
+  // typed fiat by it locally so the crypto estimate updates with no extra API
+  // calls. The exact rate locks when the order is created.
+  const { rate: unitRate } = usePaycrestRate(currency, token);
+  const amountNum = Number(amount) || 0;
+  const estimate = unitRate && amountNum > 0 ? amountNum / unitRate : null;
+
   const canContinue = Number(amount) > 0;
   const label = `Buy ${token} with ${amount} ${currency}`;
 
@@ -123,16 +126,14 @@ export function BuyFlow({
   }, []);
 
   const refreshRate = async (draft: FlowDraft) => {
-    const rate = await fetchBuyRate(
-      draft.amount,
-      draft.currency,
-      draft.token ?? "USDC"
-    );
-    if (!rate) return;
+    const draftToken = draft.token ?? "USDC";
+    const ur = await fetchPaycrestRate(draft.currency, draftToken);
+    if (!ur) return;
+    const lines = rateLines(draft.amount, draft.currency, draftToken, ur);
     const next: Quote = {
       ...draft.quote,
-      to: { ...draft.quote.to, amount: rate.amount },
-      rate: rate.rate,
+      to: { ...draft.quote.to, amount: lines.amount },
+      rate: lines.rate,
     };
     setQuote(next);
     storeFlowDraft({ ...draft, quote: next });
@@ -151,7 +152,8 @@ export function BuyFlow({
 
   const persistDraft = (q: Quote, payout?: PayoutDetails) => {
     storeFlowDraft(buildDraft(q, payout));
-    setStep("review");
+    // Push so the back button returns to the form, not out of the app.
+    setStep("review", { push: true });
   };
 
   const toReview = async () => {
@@ -180,10 +182,12 @@ export function BuyFlow({
       return setError(r.reason);
     }
 
-    const rate = await fetchBuyRate(amount, currency, token);
-    if (rate) {
-      r.to.amount = rate.amount;
-      r.rate = rate.rate;
+    // Reuse the cached live rate; only hit the API if it hasn't loaded yet.
+    const ur = unitRate ?? (await fetchPaycrestRate(currency, token));
+    if (ur) {
+      const lines = rateLines(amount, currency, token, ur);
+      r.to.amount = lines.amount;
+      r.rate = lines.rate;
     }
 
     setLoading(false);
@@ -262,6 +266,23 @@ export function BuyFlow({
             onAmountChange={setAmount}
             prefix={fiatSymbol(currency)}
           />
+          {unitRate && (
+            <div
+              className="row center gap-2"
+              style={{ fontSize: 12.5, padding: "0 2px" }}
+            >
+              {estimate !== null && (
+                <span style={{ color: "var(--accent)", fontWeight: 500 }}>
+                  ≈ {formatStable(estimate, token, 2)}
+                </span>
+              )}
+              <span className="muted font-mono tabular">
+                {estimate !== null
+                  ? `(1 ${token} = ${formatNumber(unitRate)} ${currency})`
+                  : `1 ${token} = ${formatNumber(unitRate)} ${currency}`}
+              </span>
+            </div>
+          )}
         </label>
 
         <label className="col gap-2">
@@ -312,11 +333,14 @@ export function BuyFlow({
                   key={t}
                   type="button"
                   onClick={() => setToken(t)}
-                  className="chip"
                   style={{
                     cursor: "pointer",
-                    padding: "8px 12px",
+                    padding: "8px 14px",
                     fontSize: 13,
+                    fontWeight: 500,
+                    lineHeight: 1.2,
+                    borderRadius: 999,
+                    border: "1px solid",
                     background: token === t ? "var(--btn-bg)" : "var(--bg-elev)",
                     color: token === t ? "var(--btn-fg)" : "var(--fg-soft)",
                     borderColor: token === t ? "var(--btn-bg)" : "var(--line-2)",

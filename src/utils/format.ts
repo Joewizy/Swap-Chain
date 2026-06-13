@@ -135,6 +135,36 @@ export function formatFiat(code: string, amount: number | string): string {
   return sym ? `${sym}${n}` : `${code} ${n}`;
 }
 
+/** The dollar-pegged stablecoins we show a leading "$" for. */
+export function isStableToken(symbol: string): boolean {
+  return symbol === "USDC" || symbol === "USDT";
+}
+
+/** Stablecoin amount with a leading $, e.g. (2, "USDC") → "$2 USDC". */
+export function formatStable(
+  value: number | string,
+  symbol: string,
+  maxFractionDigits = 4
+): string {
+  return `$${formatToken(value, symbol, maxFractionDigits)}`;
+}
+
+/**
+ * Amount + symbol with the right currency sign in front: "$" for stablecoins,
+ * the local sign for supported fiat (₦, KSh…), nothing otherwise.
+ * e.g. "$2 USDC", "₦5,000 NGN", "0.04 ETH".
+ */
+export function formatMoney(
+  value: number | string,
+  symbol: string,
+  maxFractionDigits = 4
+): string {
+  if (isStableToken(symbol)) return formatStable(value, symbol, maxFractionDigits);
+  const sym = FIAT_SYMBOLS[symbol.toUpperCase()];
+  const body = formatToken(value, symbol, maxFractionDigits);
+  return sym ? `${sym}${body}` : body;
+}
+
 /**
  * Formats a raw numeric input string for display, grouping the integer part
  * with commas while keeping the fractional part exactly as typed so a

@@ -19,7 +19,9 @@ import {
   paycrestNetworkSlug,
 } from "@/rails/paycrest";
 import { usePaycrestNetwork } from "@/hooks/usePaycrestNetwork";
-import { fiatOptionLabel, formatFiat } from "@/utils";
+import { usePaycrestRate, useTokenBalance } from "@/hooks";
+import { fetchPaycrestRate } from "@/lib/paycrestRate";
+import { fiatOptionLabel, formatFiat, formatNumber, formatToken } from "@/utils";
 import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import {
   ReviewScreen,
@@ -48,23 +50,17 @@ import { useSwapFlowNav } from "../useSwapFlowNav";
 
 const TOKENS = ["USDC", "USDT"] as const;
 
-/** Fetch the live off-ramp rate and return the lines to overwrite on a quote. */
-async function fetchCashoutRate(amount: string, currency: string, token: string) {
-  try {
-    const res = await fetch(
-      `/api/paycrest/rate?fiat=${encodeURIComponent(currency)}&token=${token}`
-    );
-    const data = await res.json();
-    if (res.ok && data?.rate) {
-      return {
-        amount: `≈ ${formatFiat(currency, Number(amount) * Number(data.rate))}`,
-        rate: `${data.rate} ${currency}/${token}`,
-      };
-    }
-  } catch {
-    // Rate is a nicety — the exact figure comes from the order invoice.
-  }
-  return null;
+/** Quote lines (recipient amount + rate) derived from a unit rate. */
+function rateLines(
+  amount: string,
+  currency: string,
+  token: string,
+  unitRate: number
+) {
+  return {
+    amount: `≈ ${formatFiat(currency, (Number(amount) || 0) * unitRate)}`,
+    rate: `${formatNumber(unitRate)} ${currency}/${token}`,
+  };
 }
 
 export function CashoutFlow({
@@ -95,6 +91,28 @@ export function CashoutFlow({
   useEffect(() => {
     if (!sourceTouched) setSourceChain(defaultSource);
   }, [defaultSource, sourceTouched]);
+  // Connected wallet's balance of the selected token on the chosen chain, so
+  // the user can see what they have before getting a quote. Undefined until a
+  // wallet is connected and the read resolves.
+  const balance = useTokenBalance(token, sourceChain);
+
+  // Live unit rate, fetched once per (currency, token) pair — we multiply it
+  // locally as the user types so the Naira estimate updates with no extra API
+  // calls. The exact rate locks when the order is created.
+  const { rate: unitRate } = usePaycrestRate(currency, token);
+
+  const amountNum = Number(amount) || 0;
+  const estimate = unitRate && amountNum > 0 ? amountNum * unitRate : null;
+
+  // Balance is informational, not a gate: orders can be funded from any wallet,
+  // so an amount above the connected balance still proceeds (with a heads-up).
+  // Floor to 2dp so the shown balance and the Max fill match exactly.
+  const balanceNum =
+    balance.formatted !== undefined ? Number(balance.formatted) : undefined;
+  const balanceFloored =
+    balanceNum !== undefined ? Math.floor(balanceNum * 100) / 100 : undefined;
+  const overBalance = balanceNum !== undefined && amountNum > balanceNum;
+
   const canContinue = Number(amount) > 0;
   const label = `Cash out ${amount} ${token} to ${currency}`;
 
@@ -155,16 +173,14 @@ export function CashoutFlow({
   }, []);
 
   const refreshRate = async (draft: FlowDraft) => {
-    const rate = await fetchCashoutRate(
-      draft.amount,
-      draft.currency,
-      draft.token ?? "USDC"
-    );
-    if (!rate) return;
+    const draftToken = draft.token ?? "USDC";
+    const ur = await fetchPaycrestRate(draft.currency, draftToken);
+    if (!ur) return;
+    const lines = rateLines(draft.amount, draft.currency, draftToken, ur);
     const next: Quote = {
       ...draft.quote,
-      to: { ...draft.quote.to, amount: rate.amount },
-      rate: rate.rate,
+      to: { ...draft.quote.to, amount: lines.amount },
+      rate: lines.rate,
     };
     setQuote(next);
     storeFlowDraft({ ...draft, quote: next });
@@ -183,7 +199,8 @@ export function CashoutFlow({
 
   const persistDraft = (q: Quote, payout?: PayoutDetails) => {
     storeFlowDraft(buildDraft(q, payout));
-    setStep("review");
+    // Push so the back button returns to the form, not out of the app.
+    setStep("review", { push: true });
   };
 
   const toReview = async () => {
@@ -212,10 +229,12 @@ export function CashoutFlow({
       return setError(r.reason);
     }
 
-    const rate = await fetchCashoutRate(amount, currency, token);
-    if (rate) {
-      r.to.amount = rate.amount;
-      r.rate = rate.rate;
+    // Reuse the cached live rate; only hit the API if it hasn't loaded yet.
+    const ur = unitRate ?? (await fetchPaycrestRate(currency, token));
+    if (ur) {
+      const lines = rateLines(amount, currency, token, ur);
+      r.to.amount = lines.amount;
+      r.rate = lines.rate;
     }
 
     setLoading(false);
@@ -283,31 +302,100 @@ export function CashoutFlow({
 
       <div className="card col gap-5" style={{ padding: 20 }}>
         <Field label="Amount">
-          <div className="row center gap-2">
-            <PrefixedAmountInput
-              amount={amount}
-              onAmountChange={setAmount}
-              prefix="$"
-            />
-            <div className="row center gap-1" style={{ flex: "0 0 auto" }}>
-              {TOKENS.map((t) => (
+          <div className="col gap-2">
+            <div className="row center gap-2">
+              <PrefixedAmountInput
+                amount={amount}
+                onAmountChange={setAmount}
+                prefix="$"
+              />
+              <div className="row center gap-1" style={{ flex: "0 0 auto" }}>
+                {TOKENS.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setToken(t)}
+                    style={{
+                      cursor: "pointer",
+                      padding: "8px 14px",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      lineHeight: 1.2,
+                      borderRadius: 999,
+                      border: "1px solid",
+                      background: token === t ? "var(--btn-bg)" : "var(--bg-elev)",
+                      color: token === t ? "var(--btn-fg)" : "var(--fg-soft)",
+                      borderColor: token === t ? "var(--btn-bg)" : "var(--line-2)",
+                    }}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Balance first — what they have, with Max right beside it. */}
+            {balanceFloored !== undefined && (
+              <div
+                className="row between center gap-2"
+                style={{ fontSize: 12.5, padding: "0 2px" }}
+              >
+                <span className="muted">
+                  Balance on {getChain(sourceChain)?.name ?? sourceChain} ·{" "}
+                  <span className="font-mono tabular">
+                    {formatToken(balanceFloored, token, 2)}
+                  </span>
+                </span>
                 <button
-                  key={t}
-                  onClick={() => setToken(t)}
-                  className="chip"
+                  type="button"
+                  onClick={() => setAmount(String(balanceFloored))}
                   style={{
+                    padding: "3px 12px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    background: "var(--bg-elev)",
+                    border: "1px solid var(--line-2)",
+                    borderRadius: 999,
+                    color: "var(--accent)",
                     cursor: "pointer",
-                    padding: "8px 12px",
-                    fontSize: 13,
-                    background: token === t ? "var(--btn-bg)" : "var(--bg-elev)",
-                    color: token === t ? "var(--btn-fg)" : "var(--fg-soft)",
-                    borderColor: token === t ? "var(--btn-bg)" : "var(--line-2)",
                   }}
                 >
-                  {t}
+                  Max
                 </button>
-              ))}
-            </div>
+              </div>
+            )}
+
+            {/* One line: estimate + the rate that produced it, in parens. */}
+            {unitRate && (
+              <div
+                className="row center gap-2"
+                style={{ fontSize: 12.5, padding: "0 2px" }}
+              >
+                {estimate !== null && (
+                  <span style={{ color: "var(--accent)", fontWeight: 500 }}>
+                    ≈ {formatFiat(currency, estimate)}
+                  </span>
+                )}
+                <span className="muted font-mono tabular">
+                  {estimate !== null
+                    ? `(1 ${token} = ${formatNumber(unitRate)} ${currency})`
+                    : `1 ${token} = ${formatNumber(unitRate)} ${currency}`}
+                </span>
+              </div>
+            )}
+
+            {overBalance && (
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "var(--pend)",
+                  padding: "0 2px",
+                  lineHeight: 1.4,
+                }}
+              >
+                That&apos;s more than this wallet holds — you can still continue
+                and send from another wallet, or top up first.
+              </span>
+            )}
           </div>
         </Field>
 
