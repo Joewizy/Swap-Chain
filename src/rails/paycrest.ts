@@ -54,6 +54,9 @@ export function humanizePaycrestError(message: string): string {
   if (m.includes("insufficient") || m.includes("minimum")) {
     return "That amount is outside the supported range for this payout — try a different amount.";
   }
+  if (m.includes("failed to initiate payment order")) {
+    return "We couldn't start this payout — please try again in a moment.";
+  }
   // Strip the noisy "Failed to validate payload [X]" prefix if present.
   let cleaned = message
     .replace(/^failed to validate payload\s*\[[^\]]*\]\s*/i, "")
@@ -478,17 +481,30 @@ export interface PaycrestHistoryOrder {
 }
 
 /**
+ * Paycrest rejects an order with HTTP 500 "Failed to initiate payment order"
+ * if the reference runs long (empirically anything past ~70 chars). Keep our
+ * references comfortably under this so the encoded wallet always fits.
+ */
+export const PAYCREST_REFERENCE_MAX_LENGTH = 70;
+
+/**
  * Builds the `reference` we attach to a Paycrest order so History can tie it
  * back to the connected wallet. Paycrest overrides the off-ramp refundAddress
  * to our account default, so the wallet isn't otherwise recoverable from the
  * order — we encode it here and match on it in orderMatchesWallet.
+ *
+ * Kept short on purpose: a 0x address is 42 chars and the timestamp 13, so the
+ * prefix is abbreviated ("sw-off"/"sw-on") to stay under
+ * PAYCREST_REFERENCE_MAX_LENGTH. orderMatchesWallet keys off the embedded
+ * address, not the prefix, so it's safe to shorten.
  */
 export function buildPaycrestReference(
   direction: PaycrestDirection,
   address: string | undefined
 ): string {
   const wallet = address ? address.toLowerCase() : "anon";
-  return `swap-chain-${direction}-${wallet}-${Date.now()}`;
+  const tag = direction === "offramp" ? "off" : "on";
+  return `sw-${tag}-${wallet}-${Date.now()}`;
 }
 
 /** True when the connected wallet is the refund (off-ramp) or recipient (on-ramp) address. */

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   PAYCREST_BASE_URL,
+  PAYCREST_REFERENCE_MAX_LENGTH,
   isPaycrestConfigured,
   isPaycrestFiat,
   normalizePaycrestOrder,
@@ -51,6 +52,18 @@ export async function POST(req: NextRequest) {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  if (
+    typeof body.reference === "string" &&
+    body.reference.length > PAYCREST_REFERENCE_MAX_LENGTH
+  ) {
+    return NextResponse.json(
+      {
+        error: `reference must be ${PAYCREST_REFERENCE_MAX_LENGTH} characters or fewer`,
+      },
+      { status: 400 }
+    );
   }
 
   const direction =
