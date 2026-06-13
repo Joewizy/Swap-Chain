@@ -89,6 +89,11 @@ export function paycrestNetworkSlug(chainId: ChainId): string | null {
   return PAYCREST_NETWORK_SLUGS[chainId] ?? null;
 }
 
+/** ChainIds Paycrest can on/off-ramp, in slug-map order — for network pickers. */
+export const PAYCREST_CHAIN_IDS = Object.keys(
+  PAYCREST_NETWORK_SLUGS
+) as ChainId[];
+
 /** Reverse of paycrestNetworkSlug: "base" → "base", "arbitrum-one" → "arbitrum". */
 export function chainIdFromPaycrestSlug(slug: string): ChainId | null {
   const entry = Object.entries(PAYCREST_NETWORK_SLUGS).find(
@@ -472,12 +477,34 @@ export interface PaycrestHistoryOrder {
   createdAt: string | null;
 }
 
+/**
+ * Builds the `reference` we attach to a Paycrest order so History can tie it
+ * back to the connected wallet. Paycrest overrides the off-ramp refundAddress
+ * to our account default, so the wallet isn't otherwise recoverable from the
+ * order — we encode it here and match on it in orderMatchesWallet.
+ */
+export function buildPaycrestReference(
+  direction: PaycrestDirection,
+  address: string | undefined
+): string {
+  const wallet = address ? address.toLowerCase() : "anon";
+  return `swap-chain-${direction}-${wallet}-${Date.now()}`;
+}
+
 /** True when the connected wallet is the refund (off-ramp) or recipient (on-ramp) address. */
 export function orderMatchesWallet(
   payload: Record<string, unknown>,
   address: string
 ): boolean {
   const want = address.toLowerCase();
+
+  // Primary signal: the wallet we encoded in the order reference at creation.
+  // Survives Paycrest overriding the off-ramp refundAddress to our account.
+  const reference = payload.reference;
+  if (typeof reference === "string" && reference.toLowerCase().includes(want)) {
+    return true;
+  }
+
   const source = payload.source as Record<string, unknown> | undefined;
   const destination = payload.destination as Record<string, unknown> | undefined;
 
