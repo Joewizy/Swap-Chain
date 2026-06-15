@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   PAYCREST_BASE_URL,
@@ -7,6 +8,47 @@ import {
   normalizePaycrestOrder,
   type PaycrestOrder,
 } from "@/rails/paycrest";
+import { redis } from "@/lib/redis";
+
+/**
+ * Deterministic fingerprint of an order's economic content within a 10-minute
+ * window. Excludes the per-call `reference` (which carries a timestamp) so a
+ * double-click / retry of the *same* intent hashes identically and can be
+ * de-duplicated, while a deliberate re-order later still goes through.
+ */
+function idempotencyDigest(
+  direction: string,
+  body: Record<string, unknown>
+): string {
+  const bucket = Math.floor(Date.now() / (10 * 60 * 1000));
+  const recipient = (body.recipient ?? {}) as Record<string, unknown>;
+  const refundAccount = (body.refundAccount ?? {}) as Record<string, unknown>;
+  const parts =
+    direction === "onramp"
+      ? {
+          d: "onramp",
+          amount: body.amount,
+          token: body.token,
+          network: body.network,
+          recipientAddress: body.recipientAddress,
+          fiatCurrency: body.fiatCurrency,
+          acct: refundAccount.accountIdentifier,
+          inst: refundAccount.institution,
+          bucket,
+        }
+      : {
+          d: "offramp",
+          amount: body.amount,
+          token: body.token,
+          network: body.network,
+          refundAddress: body.refundAddress,
+          currency: body.currency,
+          acct: recipient.accountIdentifier,
+          inst: recipient.institution,
+          bucket,
+        };
+  return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+}
 
 /**
  * POST /api/paycrest/order
@@ -105,6 +147,33 @@ export async function POST(req: NextRequest) {
     fallbackCurrency = built.currency;
   }
 
+  // Idempotency: claim this intent so a double-submit (double-click, client
+  // retry, back-and-confirm) can't create two real payout orders. The first
+  // request claims the key; a concurrent duplicate gets 409, and a later
+  // replay gets the already-created order back instead of a new one.
+  const idemKey = `paycrest:order:${idempotencyDigest(direction, body)}`;
+  let claimed = false;
+  if (redis) {
+    const claim = await redis.set(idemKey, { pending: true }, { nx: true, ex: 900 });
+    if (!claim) {
+      const existing = await redis.get<Record<string, unknown>>(idemKey);
+      if (existing && typeof existing.id === "string") {
+        return NextResponse.json(existing);
+      }
+      return NextResponse.json(
+        {
+          error:
+            "An identical order is already being created — check your history in a moment.",
+        },
+        { status: 409 }
+      );
+    }
+    claimed = true;
+  }
+  const releaseClaim = async () => {
+    if (claimed && redis) await redis.del(idemKey);
+  };
+
   let res: Response;
   try {
     res = await fetch(`${PAYCREST_BASE_URL}/v2/sender/orders`, {
@@ -116,6 +185,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(paycrestBody),
     });
   } catch (error) {
+    await releaseClaim();
     return NextResponse.json(
       {
         error:
@@ -127,6 +197,7 @@ export async function POST(req: NextRequest) {
 
   const raw: unknown = await res.json().catch(() => null);
   if (!res.ok) {
+    await releaseClaim();
     return paycrestErrorResponse(raw, res);
   }
 
@@ -136,6 +207,7 @@ export async function POST(req: NextRequest) {
       : (raw as Record<string, unknown> | null);
 
   if (!payload || typeof payload.id !== "string") {
+    await releaseClaim();
     console.error("[paycrest] unexpected order-create shape", raw);
     return NextResponse.json(
       { error: "Unexpected response from payout service" },
@@ -148,6 +220,11 @@ export async function POST(req: NextRequest) {
   }
 
   const order: PaycrestOrder = normalizePaycrestOrder(payload, raw);
+  // Store the created order under the idempotency key so an immediate replay
+  // of the same intent returns this order instead of creating another.
+  if (claimed && redis) {
+    await redis.set(idemKey, order, { ex: 900 });
+  }
   return NextResponse.json(order);
 }
 

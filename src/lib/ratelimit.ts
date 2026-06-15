@@ -3,12 +3,7 @@
  *
  */
 import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
-
-const url = process.env.UPSTASH_REDIS_REST_URL;
-const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-
-const redis = url && token ? new Redis({ url, token }) : null;
+import { redis } from "./redis";
 
 /** Coarse buckets — see middleware for how routes map onto them. */
 export type RateTier = "default" | "llm" | "verify" | "order";
