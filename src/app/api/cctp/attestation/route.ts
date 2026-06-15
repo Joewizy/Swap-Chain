@@ -39,7 +39,6 @@ export async function GET(request: NextRequest) {
       attestation:
         first && first.attestation !== "PENDING" ? first.attestation : null,
       eventNonce: first?.eventNonce ?? null,
-      raw: data,
     });
   } catch (error) {
     return NextResponse.json(

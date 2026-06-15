@@ -6,26 +6,25 @@ import {
   summarizePaycrestOrderForHistory,
   type PaycrestHistoryOrder,
 } from "@/rails/paycrest";
+import { getSession } from "@/lib/session";
 
 /**
- * GET /api/paycrest/orders?address=0x...
+ * GET /api/paycrest/orders
  *
- * Lists the connected wallet's Paycrest orders so History can show live
- * status. Proxies Paycrest's v2 sender orders list (server-only API key) and
- * filters to orders tied to this wallet (refund address on off-ramp, crypto
- * recipient on on-ramp).
+ * Lists the authenticated wallet's Paycrest orders so History can show live
+ * status. The wallet is taken from a verified SIWE session — never from a
+ * query param — because a wallet address is public on-chain data and proves
+ * nothing about who is asking. Proxies Paycrest's v2 sender orders list
+ * (server-only API key) and filters to orders tied to this wallet (refund
+ * address on off-ramp, crypto recipient on on-ramp).
  */
 
-const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
-
 export async function GET(req: NextRequest) {
-  const address = req.nextUrl.searchParams.get("address");
-  if (!address || !EVM_ADDRESS.test(address)) {
-    return NextResponse.json(
-      { error: "A valid ?address= is required" },
-      { status: 400 }
-    );
+  const session = getSession(req);
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const address = session.address;
 
   const apiKey = process.env.PAYCREST_API_KEY;
   if (!isPaycrestConfigured() || !apiKey) {
@@ -80,5 +79,5 @@ export async function GET(req: NextRequest) {
       return tb - ta;
     });
 
-  return NextResponse.json({ orders });
+  return NextResponse.json({ orders, address });
 }

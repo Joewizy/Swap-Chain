@@ -11,7 +11,7 @@ import { PAYCREST_BASE_URL, isPaycrestFiat } from "@/rails/paycrest";
  */
 export async function GET(req: NextRequest) {
   const fiat = req.nextUrl.searchParams.get("fiat");
-  const token = (req.nextUrl.searchParams.get("token") || "USDC").toLowerCase();
+  const token = (req.nextUrl.searchParams.get("token") || "USDC").toUpperCase();
 
   if (!fiat || !isPaycrestFiat(fiat)) {
     return NextResponse.json(
@@ -20,10 +20,19 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Allowlist the token rather than interpolating it raw into the upstream
+  // path (path injection / constrained SSRF against the keyed Paycrest host).
+  if (token !== "USDC" && token !== "USDT") {
+    return NextResponse.json(
+      { error: `Unsupported token "${token}"` },
+      { status: 400 }
+    );
+  }
+
   let res: Response;
   try {
     res = await fetch(
-      `${PAYCREST_BASE_URL}/v1/rates/${token}/1/${fiat.toLowerCase()}`,
+      `${PAYCREST_BASE_URL}/v1/rates/${token.toLowerCase()}/1/${fiat.toLowerCase()}`,
       { headers: { Accept: "application/json" } }
     );
   } catch (error) {

@@ -136,8 +136,9 @@ export async function POST(req: NextRequest) {
       : (raw as Record<string, unknown> | null);
 
   if (!payload || typeof payload.id !== "string") {
+    console.error("[paycrest] unexpected order-create shape", raw);
     return NextResponse.json(
-      { error: "Unexpected response from payout service", raw },
+      { error: "Unexpected response from payout service" },
       { status: 502 }
     );
   }

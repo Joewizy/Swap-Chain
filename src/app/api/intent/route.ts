@@ -19,7 +19,7 @@ import {
 import { PAYCREST_FIAT } from "@/rails/paycrest";
 
 
-const apiKey = process.env.OPENAI_API_KEY ?? process.env.OPEN_API_KEY;
+const apiKey = process.env.OPENAI_API_KEY;
 const baseURL = process.env.OPENAI_BASE_URL ?? "https://models.github.ai/inference";
 const model = process.env.OPENAI_MODEL ?? "openai/gpt-4o-mini";
 
@@ -165,6 +165,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "No message provided" },
         { status: 400 }
+      );
+    }
+    // Cap input size so a single request can't run up an unbounded token bill.
+    if (message.length > 2_000) {
+      return NextResponse.json(
+        { error: "Message is too long." },
+        { status: 413 }
       );
     }
 

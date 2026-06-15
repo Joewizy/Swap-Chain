@@ -17,8 +17,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  if (!id) {
-    return NextResponse.json({ error: "Order id is required" }, { status: 400 });
+  // Validate the id shape before interpolating it into the upstream URL so a
+  // crafted value (e.g. encoded "../") can't redirect our API-Key'd request to
+  // another Paycrest endpoint (path traversal / constrained SSRF).
+  if (!id || !/^[a-zA-Z0-9-]{8,64}$/.test(id)) {
+    return NextResponse.json({ error: "Invalid order id" }, { status: 400 });
   }
 
   const apiKey = process.env.PAYCREST_API_KEY;
@@ -34,9 +37,12 @@ export async function GET(
 
   let res: Response;
   try {
-    res = await fetch(`${PAYCREST_BASE_URL}/v2/sender/orders/${id}`, {
-      headers: { "API-Key": apiKey, Accept: "application/json" },
-    });
+    res = await fetch(
+      `${PAYCREST_BASE_URL}/v2/sender/orders/${encodeURIComponent(id)}`,
+      {
+        headers: { "API-Key": apiKey, Accept: "application/json" },
+      }
+    );
   } catch (error) {
     return NextResponse.json(
       {
@@ -61,8 +67,9 @@ export async function GET(
       : (raw as Record<string, unknown> | null);
 
   if (!payload || typeof payload.id !== "string") {
+    console.error("[paycrest] unexpected order-detail shape", raw);
     return NextResponse.json(
-      { error: "Unexpected response from payout service", raw },
+      { error: "Unexpected response from payout service" },
       { status: 502 }
     );
   }

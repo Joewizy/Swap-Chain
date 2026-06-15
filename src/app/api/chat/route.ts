@@ -6,7 +6,7 @@ import {
   isSettlementToken,
 } from "@/assistant/productRules";
 
-const apiKey = process.env.OPENAI_API_KEY ?? process.env.OPEN_API_KEY;
+const apiKey = process.env.OPENAI_API_KEY;
 const baseURL =
   process.env.OPENAI_BASE_URL ?? "https://models.github.ai/inference";
 const model = process.env.OPENAI_MODEL ?? "openai/gpt-4o-mini";
@@ -163,6 +163,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "No messages provided" },
         { status: 400 }
+      );
+    }
+    // Cap input size so a single request can't run up an unbounded token bill.
+    if (messages.length > 40 || JSON.stringify(messages).length > 12_000) {
+      return NextResponse.json(
+        { error: "Conversation is too long. Please start a new chat." },
+        { status: 413 }
       );
     }
 

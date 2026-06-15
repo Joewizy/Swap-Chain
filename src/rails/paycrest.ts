@@ -343,7 +343,38 @@ export function normalizePaycrestOrder(
           : new Date().toISOString(),
     updatedAt:
       typeof payload.updatedAt === "string" ? payload.updatedAt : undefined,
-    raw: raw ?? payload,
+    raw: sanitizePaycrestRaw(raw ?? payload),
+  };
+}
+
+/**
+ * Strips a Paycrest payload down to the only part the client legitimately
+ * needs from `raw` — the transactionLogs lifecycle. Everything else (recipient
+ * bank name/number, refund account, provider internals) is dropped so an order
+ * response can never leak banking PII, even via an IDOR on the order-detail
+ * route. Both extractLifecycle and hasPaycrestTransactionLog read these logs
+ * at the root, which is where we put them.
+ */
+export function sanitizePaycrestRaw(
+  raw: unknown
+): { transactionLogs: Array<{ status: string; created_at?: string }> } | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const root = raw as Record<string, unknown>;
+  const data =
+    root.data && typeof root.data === "object"
+      ? (root.data as Record<string, unknown>)
+      : root;
+  const logs = data.transactionLogs;
+  if (!Array.isArray(logs)) return undefined;
+  return {
+    transactionLogs: logs.map((entry) => {
+      const o = (entry ?? {}) as Record<string, unknown>;
+      return {
+        status: typeof o.status === "string" ? o.status : "",
+        created_at:
+          typeof o.created_at === "string" ? o.created_at : undefined,
+      };
+    }),
   };
 }
 

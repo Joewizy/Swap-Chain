@@ -4,8 +4,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useAccount } from "wagmi";
+import { useAccount, useChainId, useSignMessage } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
+import { signInWithEthereum } from "@/lib/siweClient";
 import { fiatOptionLabel, formatFiat, titleCase } from "@/utils";
 import { PAYCREST_FIAT, type PaycrestHistoryOrder } from "@/rails/paycrest";
 import { formatToken } from "@/utils/format";
@@ -74,20 +75,39 @@ export function HistoryScreen({
 }) {
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
+  const { signMessageAsync } = useSignMessage();
+  const chainId = useChainId();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // History is gated behind a SIWE session proving wallet ownership. When the
+  // session is missing (or for a different wallet), we prompt the user to sign.
+  const [needsAuth, setNeedsAuth] = useState(false);
+  const [authing, setAuthing] = useState(false);
 
   const load = useCallback(async () => {
     if (!address) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/paycrest/orders?address=${address}`
-      );
+      const res = await fetch("/api/paycrest/orders");
+      if (res.status === 401) {
+        setNeedsAuth(true);
+        setOrders([]);
+        return;
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+      // Session may belong to a previously-connected wallet; re-auth on mismatch.
+      if (
+        typeof data.address === "string" &&
+        data.address.toLowerCase() !== address.toLowerCase()
+      ) {
+        setNeedsAuth(true);
+        setOrders([]);
+        return;
+      }
+      setNeedsAuth(false);
       setOrders(data.orders ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't load orders.");
@@ -96,9 +116,27 @@ export function HistoryScreen({
     }
   }, [address]);
 
+  const signIn = useCallback(async () => {
+    if (!address) return;
+    setAuthing(true);
+    setError(null);
+    try {
+      await signInWithEthereum({ address, chainId, signMessageAsync });
+      setNeedsAuth(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign-in failed.");
+    } finally {
+      setAuthing(false);
+    }
+  }, [address, chainId, signMessageAsync, load]);
+
   useEffect(() => {
     if (isConnected && address) load();
-    else setOrders([]);
+    else {
+      setOrders([]);
+      setNeedsAuth(false);
+    }
   }, [isConnected, address, load]);
 
   return (
@@ -143,6 +181,20 @@ export function HistoryScreen({
               onClick={() => openConnectModal?.()}
             >
               Connect wallet
+            </button>
+          }
+        />
+      ) : needsAuth ? (
+        <EmptyState
+          title="Verify it's you"
+          sub="Sign a quick message to prove you own this wallet and unlock your order history. It's free!"
+          action={
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={signIn}
+              disabled={authing}
+            >
+              {authing ? <Icon.Spinner size={12} /> : null} Sign in
             </button>
           }
         />
