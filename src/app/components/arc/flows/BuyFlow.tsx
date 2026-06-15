@@ -16,7 +16,7 @@ import { PAYCREST_CHAIN_IDS, PAYCREST_FIAT } from "@/rails/paycrest";
 import { usePaycrestNetwork } from "@/hooks/usePaycrestNetwork";
 import { usePaycrestRate } from "@/hooks";
 import { fetchPaycrestRate } from "@/lib/paycrestRate";
-import { fiatOptionLabel, formatNumber, formatStable, fiatSymbol } from "@/utils";
+import { fiatOptionLabel, formatNumber, formatToken, fiatSymbol } from "@/utils";
 import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import {
   ReviewScreen,
@@ -49,7 +49,7 @@ function rateLines(
 ) {
   const received = (Number(amount) || 0) / unitRate;
   return {
-    amount: `≈ ${formatStable(received, token, 2)}`,
+    amount: `≈ ${formatToken(received, token, 2)}`,
     rate: `${formatNumber(unitRate)} ${currency}/${token}`,
   };
 }
@@ -273,7 +273,7 @@ export function BuyFlow({
             >
               {estimate !== null && (
                 <span style={{ color: "var(--accent)", fontWeight: 500 }}>
-                  ≈ {formatStable(estimate, token, 2)}
+                  You receive ≈ {formatToken(estimate, token, 2)}
                 </span>
               )}
               <span className="muted font-mono tabular">
@@ -282,6 +282,14 @@ export function BuyFlow({
                   : `1 ${token} = ${formatNumber(unitRate)} ${currency}`}
               </span>
             </div>
+          )}
+          {unitRate && estimate !== null && (
+            <span
+              className="muted"
+              style={{ fontSize: 11, padding: "0 2px", opacity: 0.85 }}
+            >
+              Estimate · final rate locks when you create the order
+            </span>
           )}
         </label>
 
