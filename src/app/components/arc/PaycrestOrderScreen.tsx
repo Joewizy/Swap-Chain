@@ -1308,8 +1308,8 @@ function OnrampDepositCard({ order }: { order: PaycrestOrder }) {
       )}
       {order.amount && order.currency && (
         <p className="mt-1 text-xs text-[var(--fg-mute)]">
-          You receive ≈ {order.amount} {order.currency}
-          {order.rate ? ` @ ${order.rate}` : ""}
+          You receive {order.amount} {order.currency}
+          {order.rate ? ` · locked rate ${order.rate}` : ""}
         </p>
       )}
     </ActionCard>

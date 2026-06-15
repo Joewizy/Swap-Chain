@@ -383,6 +383,18 @@ export function CashoutFlow({
               </div>
             )}
 
+            {/* The figure above is an estimate at the live rate; Paycrest locks
+                the real rate when the order is created, and the locked rate is
+                shown on the funding screen before any crypto is sent. */}
+            {unitRate && estimate !== null && (
+              <span
+                className="muted"
+                style={{ fontSize: 11, padding: "0 2px", opacity: 0.85 }}
+              >
+                Estimate · final rate locks when you create the order
+              </span>
+            )}
+
             {overBalance && (
               <span
                 style={{
