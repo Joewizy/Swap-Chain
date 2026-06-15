@@ -199,8 +199,15 @@ function detectRateQuery(
   return { fiat, tokens };
 }
 
-/** Live-rate context line(s) for the model, or null when not a rate question. */
-async function buildRateNote(text: string): Promise<string | null> {
+/**
+ * For a rate question, fetches live rate(s) and returns both a `modelNote`
+ * (context for the LLM) and a deterministic `fallback` reply we can serve
+ * verbatim if the model flakes — so a rate answer never depends on the LLM.
+ * Null when it isn't a rate question.
+ */
+async function resolveRates(
+  text: string
+): Promise<{ modelNote: string; fallback: string } | null> {
   const q = detectRateQuery(text);
   if (!q) return null;
   const lines: string[] = [];
@@ -213,7 +220,15 @@ async function buildRateNote(text: string): Promise<string | null> {
     }
   }
   if (!lines.length) return null;
-  return `LIVE RATES (estimates; the exact rate locks when an order is created):\n${lines.join("\n")}`;
+  return {
+    modelNote: `LIVE RATES (estimates; the exact rate locks when an order is created):\n${lines.join("\n")}`,
+    fallback: `${lines.join(". ")}. These are estimates that lock when the order is created. Want me to cash some out?`,
+  };
+}
+
+/** A graceful, schema-valid reply for when the model output can't be used. */
+function fallbackReply(message: string): ChatReply {
+  return { message, status: "clarifying", launch: undefined, plan: [], missing: [] };
 }
 
 export async function POST(req: NextRequest) {
@@ -223,6 +238,10 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+
+  // Declared out here so the catch can still answer a rate question from the
+  // live rate even if the model call itself errors or times out.
+  let rates: { modelNote: string; fallback: string } | null = null;
 
   try {
     const body = (await req.json()) as { messages?: ChatMessage[] };
@@ -245,7 +264,7 @@ export async function POST(req: NextRequest) {
     // give it to the model so it can answer with a real number, not a refusal.
     const lastUser =
       [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
-    const rateNote = await buildRateNote(lastUser);
+    rates = await resolveRates(lastUser);
 
     const completion = await client.chat.completions.create({
       model,
@@ -253,8 +272,8 @@ export async function POST(req: NextRequest) {
       max_tokens: 800,
       messages: [
         { role: "system", content: buildAssistantSystemPrompt() },
-        ...(rateNote
-          ? [{ role: "system" as const, content: rateNote }]
+        ...(rates
+          ? [{ role: "system" as const, content: rates.modelNote }]
           : []),
         ...messages.map((m) => ({
           role: m.role as "user" | "assistant",
@@ -265,14 +284,39 @@ export async function POST(req: NextRequest) {
     });
 
     const content = completion.choices?.[0]?.message?.content;
-    if (!content) throw new Error("Empty response from model");
 
-    const raw = JSON.parse(content) as RawReply;
+    // The model (GitHub Models) occasionally returns empty or truncated JSON,
+    // especially under load. Don't 500 on it — serve a graceful reply. If this
+    // was a rate question, answer it deterministically from the live rate we
+    // already fetched, so rates never depend on LLM reliability.
+    let raw: RawReply | null = null;
+    if (content) {
+      try {
+        raw = JSON.parse(content) as RawReply;
+      } catch {
+        console.error("[chat] non-JSON model output:", content.slice(0, 200));
+      }
+    }
+    if (!raw) {
+      return NextResponse.json(
+        rates
+          ? fallbackReply(rates.fallback)
+          : fallbackReply(
+              "Sorry, I didn't quite catch that — could you say it again?"
+            )
+      );
+    }
     return NextResponse.json(normaliseReply(raw));
   } catch (err) {
     // Full detail (status, host, message) stays in the server log for us;
     // the user only ever sees the calm, non-leaky copy below.
     console.error("[chat] error:", err);
+
+    // A rate question can still be answered from the live rate we fetched,
+    // even if the model call errored or timed out.
+    if (rates) {
+      return NextResponse.json(fallbackReply(rates.fallback));
+    }
 
     if (err instanceof OpenAI.APIError) {
       // A connection/DNS/timeout failure has no HTTP status — the model host
