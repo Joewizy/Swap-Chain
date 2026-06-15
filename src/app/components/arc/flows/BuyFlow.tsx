@@ -320,35 +320,70 @@ export function BuyFlow({
             style={{ gap: 6, fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}
           >
             <span className="font-mono">Receive</span>
-            <button
-              type="button"
-              aria-label="About the receive network"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setShowNetworkInfo((v) => !v);
-              }}
-              style={{
-                cursor: "pointer",
-                width: 14,
-                height: 14,
-                borderRadius: 999,
-                border: "1px solid var(--line-2)",
-                background: showNetworkInfo ? "var(--line-2)" : "transparent",
-                color: "var(--fg-mute)",
-                fontSize: 9,
-                fontWeight: 700,
-                fontStyle: "italic",
-                fontFamily: "Georgia, serif",
-                textTransform: "none",
-                lineHeight: 1,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
+            <span
+              style={{ position: "relative", display: "inline-flex" }}
+              onMouseEnter={() => setShowNetworkInfo(true)}
+              onMouseLeave={() => setShowNetworkInfo(false)}
             >
-              i
-            </button>
+              <button
+                type="button"
+                aria-label="About the receive network"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowNetworkInfo((v) => !v);
+                }}
+                style={{
+                  cursor: "pointer",
+                  width: 14,
+                  height: 14,
+                  borderRadius: 999,
+                  border: "1px solid var(--line-2)",
+                  background: showNetworkInfo ? "var(--line-2)" : "transparent",
+                  color: "var(--fg-mute)",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  fontStyle: "italic",
+                  fontFamily: "Georgia, serif",
+                  textTransform: "none",
+                  lineHeight: 1,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                i
+              </button>
+              {showNetworkInfo && (
+                <span
+                  role="tooltip"
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    left: -4,
+                    zIndex: 30,
+                    width: 232,
+                    padding: "10px 12px",
+                    background: "var(--bg-elev)",
+                    border: "1px solid var(--line-2)",
+                    borderRadius: 10,
+                    boxShadow: "0 10px 28px rgba(0,0,0,0.22)",
+                    color: "var(--fg-soft)",
+                    fontSize: 11.5,
+                    fontWeight: 400,
+                    fontStyle: "normal",
+                    lineHeight: 1.5,
+                    letterSpacing: 0,
+                    textTransform: "none",
+                    whiteSpace: "normal",
+                  }}
+                >
+                  The chain your stablecoin lands on. Base, Arbitrum &amp;
+                  Polygon have near-zero transaction fees — Ethereum is far
+                  pricier to use afterward.
+                </span>
+              )}
+            </span>
           </span>
           <div className="row center gap-2">
             <select
@@ -389,16 +424,6 @@ export function BuyFlow({
               ))}
             </div>
           </div>
-          {showNetworkInfo && (
-            <span
-              className="muted"
-              style={{ fontSize: 11, lineHeight: 1.5, padding: "2px 2px 0" }}
-            >
-              The chain your stablecoin lands on. Base, Arbitrum & Polygon have
-              near-zero transaction fees — Ethereum is far pricier to use
-              afterward.
-            </span>
-          )}
         </label>
 
         {error && (
