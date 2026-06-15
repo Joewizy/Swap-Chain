@@ -5,6 +5,7 @@ import {
   buildAssistantSystemPrompt,
   isSettlementToken,
 } from "@/assistant/productRules";
+import { fetchPaycrestUnitRate, type PaycrestFiat } from "@/rails/paycrest";
 
 const apiKey = process.env.OPENAI_API_KEY;
 const baseURL =
@@ -148,6 +149,73 @@ function normaliseReply(raw: RawReply): ChatReply {
   };
 }
 
+// Map fiat codes + common names/providers to a supported currency.
+const FIAT_ALIASES: Record<string, PaycrestFiat> = {
+  ngn: "NGN",
+  naira: "NGN",
+  kes: "KES",
+  shilling: "KES",
+  shillings: "KES",
+  mpesa: "KES",
+  "m-pesa": "KES",
+  ghs: "GHS",
+  cedi: "GHS",
+  cedis: "GHS",
+  ugx: "UGX",
+  xof: "XOF",
+  cfa: "XOF",
+  zmw: "ZMW",
+  kwacha: "ZMW",
+  tzs: "TZS",
+  zar: "ZAR",
+  rand: "ZAR",
+};
+
+const RATE_INTENT =
+  /\b(rate|rates|worth|how much|price|convert|exchange|equal|value)\b|[=≈]/i;
+
+/**
+ * If the latest user message is a rate / "how much" question naming a
+ * supported fiat, returns the fiat + token(s) to price so the route can fetch
+ * and inject a real number — otherwise the model has no rate data and refuses.
+ */
+function detectRateQuery(
+  text: string
+): { fiat: PaycrestFiat; tokens: ("USDC" | "USDT")[] } | null {
+  const lower = text.toLowerCase();
+  if (!RATE_INTENT.test(lower)) return null;
+  let fiat: PaycrestFiat | null = null;
+  for (const [alias, code] of Object.entries(FIAT_ALIASES)) {
+    if (new RegExp(`\\b${alias}\\b`).test(lower)) {
+      fiat = code;
+      break;
+    }
+  }
+  if (!fiat) return null;
+  const tokens: ("USDC" | "USDT")[] = [];
+  if (/\busdt\b/.test(lower)) tokens.push("USDT");
+  if (/\busdc\b/.test(lower)) tokens.push("USDC");
+  if (!tokens.length) tokens.push("USDT", "USDC");
+  return { fiat, tokens };
+}
+
+/** Live-rate context line(s) for the model, or null when not a rate question. */
+async function buildRateNote(text: string): Promise<string | null> {
+  const q = detectRateQuery(text);
+  if (!q) return null;
+  const lines: string[] = [];
+  for (const token of q.tokens) {
+    const rate = await fetchPaycrestUnitRate(q.fiat, token);
+    if (rate) {
+      lines.push(
+        `1 ${token} ≈ ${rate.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${q.fiat}`
+      );
+    }
+  }
+  if (!lines.length) return null;
+  return `LIVE RATES (estimates; the exact rate locks when an order is created):\n${lines.join("\n")}`;
+}
+
 export async function POST(req: NextRequest) {
   if (!client) {
     return NextResponse.json(
@@ -173,12 +241,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // If the user is asking a rate/"how much" question, fetch the live rate and
+    // give it to the model so it can answer with a real number, not a refusal.
+    const lastUser =
+      [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+    const rateNote = await buildRateNote(lastUser);
+
     const completion = await client.chat.completions.create({
       model,
       temperature: 0.2,
       max_tokens: 800,
       messages: [
         { role: "system", content: buildAssistantSystemPrompt() },
+        ...(rateNote
+          ? [{ role: "system" as const, content: rateNote }]
+          : []),
         ...messages.map((m) => ({
           role: m.role as "user" | "assistant",
           content: m.content,

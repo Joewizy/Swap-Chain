@@ -40,6 +40,35 @@ export function isPaycrestFiat(code: string): code is PaycrestFiat {
 }
 
 /**
+ * Server-side fetch of the live unit rate (fiat per 1 token) straight from
+ * Paycrest's public rates endpoint. Used by the chat assistant to quote a
+ * real rate. Returns null on any failure — a rate is a nicety, never a gate.
+ */
+export async function fetchPaycrestUnitRate(
+  fiat: string,
+  token: string
+): Promise<number | null> {
+  const t = token.toUpperCase();
+  if (!isPaycrestFiat(fiat) || (t !== "USDC" && t !== "USDT")) return null;
+  try {
+    const res = await fetch(
+      `${PAYCREST_BASE_URL}/v1/rates/${t.toLowerCase()}/1/${fiat.toLowerCase()}`,
+      { headers: { Accept: "application/json" } }
+    );
+    if (!res.ok) return null;
+    const raw: unknown = await res.json().catch(() => null);
+    const data =
+      raw && typeof raw === "object"
+        ? (raw as Record<string, unknown>).data
+        : null;
+    const rate = Number(data);
+    return Number.isFinite(rate) && rate > 0 ? rate : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Turns a raw Paycrest error into something a non-technical user can act on.
  * Falls back to the original message (minus the noisy validation prefix).
  */
