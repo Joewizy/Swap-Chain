@@ -77,6 +77,7 @@ export function BuyFlow({
   const { chain: smartDefault } = usePaycrestNetwork();
   const [network, setNetwork] = useState<ChainId>(smartDefault);
   const [networkTouched, setNetworkTouched] = useState(false);
+  const [showNetworkInfo, setShowNetworkInfo] = useState(false);
   useEffect(() => {
     if (!networkTouched) setNetwork(smartDefault);
   }, [smartDefault, networkTouched]);
@@ -315,10 +316,39 @@ export function BuyFlow({
 
         <label className="col gap-2">
           <span
-            className="font-mono"
-            style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}
+            className="row center"
+            style={{ gap: 6, fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}
           >
-            Receive
+            <span className="font-mono">Receive</span>
+            <button
+              type="button"
+              aria-label="About the receive network"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowNetworkInfo((v) => !v);
+              }}
+              style={{
+                cursor: "pointer",
+                width: 14,
+                height: 14,
+                borderRadius: 999,
+                border: "1px solid var(--line-2)",
+                background: showNetworkInfo ? "var(--line-2)" : "transparent",
+                color: "var(--fg-mute)",
+                fontSize: 9,
+                fontWeight: 700,
+                fontStyle: "italic",
+                fontFamily: "Georgia, serif",
+                textTransform: "none",
+                lineHeight: 1,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              i
+            </button>
           </span>
           <div className="row center gap-2">
             <select
@@ -359,6 +389,16 @@ export function BuyFlow({
               ))}
             </div>
           </div>
+          {showNetworkInfo && (
+            <span
+              className="muted"
+              style={{ fontSize: 11, lineHeight: 1.5, padding: "2px 2px 0" }}
+            >
+              The chain your stablecoin lands on. Base, Arbitrum & Polygon have
+              near-zero transaction fees — Ethereum is far pricier to use
+              afterward.
+            </span>
+          )}
         </label>
 
         {error && (
