@@ -10,12 +10,14 @@ import "@rainbow-me/rainbowkit/styles.css";
 import { RELAY_API, RELAY_CHAINS, RELAY_THEME } from "@/config/relay";
 import config from "./rainbowKitConfig";
 import { rainbowKitTheme } from "./rainbowKitConfig";
+import { Analytics } from "@vercel/analytics/next";
 
 export function Providers(props: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
 
   return (
     <WagmiProvider config={config}>
+      <Analytics />
       <QueryClientProvider client={queryClient}>
         <RelayKitProvider
           theme={RELAY_THEME}
