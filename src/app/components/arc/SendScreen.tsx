@@ -130,7 +130,7 @@ export type Intent = {
 
 /* ───────── real intent → route pipeline ───────── */
 
-/** The slice of /api/intent's response this screen reads. */
+/** The slice of /api/chat's response this screen reads. */
 export type IntentResponse = {
   action: "onramp" | "offramp" | "bridge" | "swap" | "unclear";
   fromChain: string | null;

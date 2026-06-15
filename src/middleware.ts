@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { rateLimit, type RateTier } from "@/lib/ratelimit";
 
 function tierFor(pathname: string): RateTier {
-  if (pathname.startsWith("/api/chat") || pathname.startsWith("/api/intent")) {
+  if (pathname.startsWith("/api/chat")) {
     return "llm";
   }
   if (pathname.startsWith("/api/paycrest/verify-account")) {
