@@ -8,6 +8,7 @@ import { RelayKitProvider } from "@relayprotocol/relay-kit-ui";
 import "@relayprotocol/relay-kit-ui/styles.css";
 import "@rainbow-me/rainbowkit/styles.css";
 import { RELAY_API, RELAY_CHAINS, RELAY_THEME } from "@/config/relay";
+import { relayAppFees } from "@/config/fees";
 import config from "./rainbowKitConfig";
 import { rainbowKitTheme } from "./rainbowKitConfig";
 import { Analytics } from "@vercel/analytics/next";
@@ -26,6 +27,7 @@ export function Providers(props: { children: ReactNode }) {
             chains: RELAY_CHAINS,
             baseApiUrl: RELAY_API,
             themeScheme: "light",
+            appFees: relayAppFees(),
           }}
         >
           <RainbowKitProvider showRecentTransactions theme={rainbowKitTheme}>

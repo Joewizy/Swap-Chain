@@ -10,6 +10,7 @@ import {
   resolveToken,
   type ChainEntry,
 } from "@/config/network";
+import { relayAppFees } from "@/config/fees";
 
 const RELAY_API = IS_MAINNET
   ? "https://api.relay.link"
@@ -97,6 +98,9 @@ export async function POST(request: NextRequest) {
 
     const sellDecimals = getToken(sellSymbol)?.decimals ?? 18;
 
+    // Platform app fee (basis points) paid to our fee wallet, if configured.
+    const appFees = relayAppFees();
+
     const quoteResponse = await fetch(`${RELAY_API}/quote`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -109,6 +113,7 @@ export async function POST(request: NextRequest) {
         destinationCurrency: buyAddress,
         amount: parseUnits(String(amount), sellDecimals).toString(),
         tradeType: "EXACT_INPUT",
+        ...(appFees ? { appFees } : {}),
       }),
     });
 
