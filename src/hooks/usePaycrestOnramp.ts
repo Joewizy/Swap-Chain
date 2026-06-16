@@ -23,6 +23,7 @@ import {
   type PaycrestToken,
 } from "@/rails/paycrest";
 import { pollPaycrestOrder } from "@/lib/paycrestPoll";
+import { trackOrder } from "@/lib/orderNotifications";
 import { getChain, type ChainId } from "@/config/network";
 
 export type PaycrestOnrampStatus =
@@ -116,6 +117,7 @@ export function usePaycrestOnramp(): UsePaycrestOnrampReturn {
           reference,
         });
         setOrder(created);
+        trackOrder({ id: created.id, direction: "onramp", token, network });
 
         if (
           !created.depositAccountIdentifier ||

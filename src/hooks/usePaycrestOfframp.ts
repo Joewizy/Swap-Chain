@@ -42,6 +42,7 @@ import {
   type PaycrestToken,
 } from "@/rails/paycrest";
 import { pollPaycrestOrder } from "@/lib/paycrestPoll";
+import { trackOrder } from "@/lib/orderNotifications";
 import { getChain, getToken, getTokenAddress, type ChainId } from "@/config/network";
 
 // ---------------------------------------------------------------------------
@@ -202,6 +203,7 @@ export function usePaycrestOfframp(): UsePaycrestOfframpReturn {
           reference,
         });
         setOrder(created);
+        trackOrder({ id: created.id, direction: "offramp", token, network });
 
         if (!created.receiveAddress) {
           throw new Error(

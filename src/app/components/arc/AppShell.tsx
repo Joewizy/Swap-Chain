@@ -48,6 +48,7 @@ import {
   type SwapView,
 } from "./swapUrl";
 import { useSwapFlowNav } from "./useSwapFlowNav";
+import { useOrderNotifications } from "./useOrderNotifications";
 import {
   matchRecipient,
   storePendingRecipient,
@@ -235,6 +236,9 @@ export default function AppShell() {
     patchUrl({ view: "send", flow: null, status: true, step: null });
     setDrawerOpen(false);
   };
+
+  // Toast orders that finished while the user was away; "View" reopens them.
+  useOrderNotifications(resumeOrder);
 
   const pickFlow = (id: FlowId | "describe") => {
     clearFlowDraft();
