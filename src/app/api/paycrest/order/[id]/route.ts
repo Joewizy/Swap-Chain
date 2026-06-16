@@ -2,12 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   PAYCREST_BASE_URL,
   isPaycrestConfigured,
+  isPaycrestTerminalStatus,
   normalizePaycrestOrder,
   walletFromPaycrestPayload,
   type PaycrestOrder,
 } from "@/rails/paycrest";
 import { getStoredOrder, upsertStoredOrder } from "@/lib/orderStore";
 
+// How long a non-terminal store snapshot is trusted before we re-check Paycrest.
+// Terminal orders are served from the store forever; in-flight ones refresh past
+// this, so the app self-corrects even if a webhook is missed or delayed.
+const STORE_FRESH_MS = 30_000;
 
 export async function GET(
   _req: NextRequest,
@@ -21,11 +26,15 @@ export async function GET(
     return NextResponse.json({ error: "Invalid order id" }, { status: 400 });
   }
 
-  // Store-first: the webhook + cron keep this fresh, so a poll is a Redis read,
-  // not a Paycrest round-trip. Cold/missing store falls through to live below.
+  // Store-first, but only trust a non-terminal snapshot briefly: terminal orders
+  // never change, while in-flight ones must refresh from Paycrest so a missed
+  // webhook can't pin them at a stale status.
   const stored = await getStoredOrder(id);
   if (stored) {
-    return NextResponse.json(stored.order);
+    const fresh = Date.now() - Date.parse(stored.updatedAt) < STORE_FRESH_MS;
+    if (isPaycrestTerminalStatus(stored.order.status) || fresh) {
+      return NextResponse.json(stored.order);
+    }
   }
 
   const apiKey = process.env.PAYCREST_API_KEY;
