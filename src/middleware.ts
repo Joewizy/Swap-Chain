@@ -11,6 +11,9 @@ function tierFor(pathname: string): RateTier {
   if (pathname.startsWith("/api/paycrest/verify-account")) {
     return "verify";
   }
+  if (pathname.startsWith("/api/paycrest/webhook")) {
+    return "webhook";
+  }
   if (pathname.startsWith("/api/paycrest/order")) {
     return "order";
   }

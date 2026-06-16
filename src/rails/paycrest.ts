@@ -509,6 +509,77 @@ export function classifyPaycrestOrder(
   return "pending";
 }
 
+/**
+ * Monotonic rank of a status along the order lifecycle. The webhook/store layer
+ * uses this so a late, out-of-order webhook (Paycrest retries, and delivery is
+ * not ordered) can never overwrite a more-advanced status — a stray `pending`
+ * must not clobber a `settled`. Off-path states share a tier with the in-flight
+ * state they branch from; the terminal states sit at the top.
+ */
+const PAYCREST_STATUS_RANK: Record<PaycrestOrderStatus, number> = {
+  initiated: 0,
+  deposited: 1,
+  pending: 2,
+  processing: 3,
+  validated: 4,
+  settling: 5,
+  refunding: 5,
+  fulfilled: 6,
+  settled: 7,
+  refunded: 7,
+  expired: 7,
+};
+
+export function paycrestStatusRank(status: PaycrestOrderStatus): number {
+  return PAYCREST_STATUS_RANK[status] ?? 0;
+}
+
+const PAYCREST_TERMINAL_STATUSES = new Set<PaycrestOrderStatus>([
+  "fulfilled",
+  "settled",
+  "refunded",
+  "expired",
+]);
+
+/** True once an order has reached a final state and won't progress further. */
+export function isPaycrestTerminalStatus(status: PaycrestOrderStatus): boolean {
+  return PAYCREST_TERMINAL_STATUSES.has(status);
+}
+
+/**
+ * Best-effort extraction of the connected wallet from a raw Paycrest order
+ * payload, used to attribute store records to a user. The wallet we encode in
+ * the order `reference` (`sw-off-<wallet>-<ts>`) is the most reliable signal —
+ * Paycrest overrides the off-ramp `refundAddress` to its account default, so on
+ * off-ramp orders the reference is the *only* link back to the real wallet.
+ * Falls back to the on-ramp crypto recipient and then the off-ramp refund
+ * address. Returns a lowercased address or null.
+ */
+export function walletFromPaycrestPayload(
+  payload: Record<string, unknown>
+): string | null {
+  const reference = payload.reference;
+  if (typeof reference === "string") {
+    const match = reference.match(/0x[0-9a-fA-F]{40}/);
+    if (match) return match[0].toLowerCase();
+  }
+
+  const destination = payload.destination as Record<string, unknown> | undefined;
+  if (destination?.type === "crypto") {
+    const recipient = destination.recipient as { address?: string } | undefined;
+    if (typeof recipient?.address === "string") {
+      return recipient.address.toLowerCase();
+    }
+  }
+
+  const source = payload.source as Record<string, unknown> | undefined;
+  if (source?.type === "crypto" && typeof source.refundAddress === "string") {
+    return (source.refundAddress as string).toLowerCase();
+  }
+
+  return null;
+}
+
 /** Compact row for History — derived from a v2 list/detail order payload. */
 export interface PaycrestHistoryOrder {
   id: string;

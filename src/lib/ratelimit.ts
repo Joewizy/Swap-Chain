@@ -6,7 +6,7 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { redis } from "./redis";
 
 /** Coarse buckets — see middleware for how routes map onto them. */
-export type RateTier = "default" | "llm" | "verify" | "order";
+export type RateTier = "default" | "llm" | "verify" | "order" | "webhook";
 
 type Window = `${number} ${"s" | "m" | "h"}`;
 
@@ -27,6 +27,10 @@ const limiters: Record<RateTier, Ratelimit | null> = {
   llm: make(10, "1 m"),
   verify: make(8, "1 m"),
   order: make(120, "1 m"),
+  // Inbound Paycrest webhooks share a handful of source IPs and can burst when
+  // many orders settle at once; the HMAC signature is the real gate, so this
+  // tier just caps abuse rather than throttling legitimate deliveries.
+  webhook: make(300, "1 m"),
 };
 
 export interface RateLimitResult {

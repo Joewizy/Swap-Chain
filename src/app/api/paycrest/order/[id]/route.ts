@@ -2,15 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   PAYCREST_BASE_URL,
   isPaycrestConfigured,
+  isPaycrestTerminalStatus,
   normalizePaycrestOrder,
+  walletFromPaycrestPayload,
   type PaycrestOrder,
 } from "@/rails/paycrest";
+import { getStoredOrder, upsertStoredOrder } from "@/lib/orderStore";
 
 /**
  * GET /api/paycrest/order/:id
  *
  * Reads back an off-ramp or on-ramp order so the UI can poll to settlement.
- * Proxies Paycrest's v2 Sender API GET /v2/sender/orders/:id.
+ * Store-first: a webhook may have already recorded a terminal state, in which
+ * case we serve that without calling Paycrest (saves an API call and survives
+ * Paycrest being briefly down). Otherwise we proxy Paycrest's v2 Sender API
+ * GET /v2/sender/orders/:id and refresh the store with what we got.
  */
 export async function GET(
   _req: NextRequest,
@@ -22,6 +28,13 @@ export async function GET(
   // another Paycrest endpoint (path traversal / constrained SSRF).
   if (!id || !/^[a-zA-Z0-9-]{8,64}$/.test(id)) {
     return NextResponse.json({ error: "Invalid order id" }, { status: 400 });
+  }
+
+  // Fast path: a webhook already saw this order reach a final state. Nothing
+  // further can change, so skip the upstream call and serve the stored snapshot.
+  const stored = await getStoredOrder(id);
+  if (stored && isPaycrestTerminalStatus(stored.order.status)) {
+    return NextResponse.json(stored.order);
   }
 
   const apiKey = process.env.PAYCREST_API_KEY;
@@ -75,5 +88,11 @@ export async function GET(
   }
 
   const order: PaycrestOrder = normalizePaycrestOrder(payload, raw);
+  // Keep our store warm from live reads too — this is the backstop for orders
+  // whose webhook was missed, and it lets the fast path above kick in next time.
+  void upsertStoredOrder(order, {
+    walletAddress: walletFromPaycrestPayload(payload),
+    event: "live_read",
+  });
   return NextResponse.json(order);
 }
