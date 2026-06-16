@@ -1079,9 +1079,6 @@ function Footer() {
           letterSpacing: 0.04,
         }}
       >
-        <span className="font-mono">
-          infra · CCTP · Stargate · LiFi · MoonPay · Stripe
-        </span>
       </div>
     </footer>
   );

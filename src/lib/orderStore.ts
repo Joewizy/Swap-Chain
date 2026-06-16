@@ -1,15 +1,10 @@
 /**
  * Server-owned Paycrest order store (Upstash Redis).
  *
- * The client poller and Paycrest's API both describe an order's state, but
- * neither survives a closed tab: once the user leaves, polling stops and we
- * never learn the order settled. This store is the source of truth we control —
- * the webhook (fast path) and, later, a reconcile cron (backstop) write into it
- * so the app can show "your buy completed" even after the user walks away.
+ * Source of truth we control: the webhook and reconcile cron write order state
+ * here so the app still knows an order settled after the user closes the tab.
  *
- * Degrades to a no-op when Redis isn't configured (local dev): callers still
- * work, they just don't gain durable state. See todo.md "Phase 1 — Webhook +
- * store" and the four invariants (idempotency, signature, monotonic, reconcile).
+ * No-ops when Redis is unconfigured or failing — callers fall back to Paycrest.
  */
 import { redis } from "@/lib/redis";
 import {
@@ -32,35 +27,35 @@ export interface StoredPaycrestOrder {
   terminalAt?: string;
 }
 
-// Keep records around long enough to cover History and late reconciliation,
-// but not forever — an order is uninteresting weeks after it settles.
 const ORDER_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
-const EVENT_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days — covers Paycrest's retry window
+const EVENT_TTL_SECONDS = 60 * 60 * 24 * 7; // covers Paycrest's 24h retry window
 
 const orderKey = (id: string) => `paycrest:store:order:${id}`;
 const walletIndexKey = (address: string) => `paycrest:store:wallet:${address.toLowerCase()}`;
 const eventKey = (eventId: string) => `paycrest:store:event:${eventId}`;
 
-/**
- * Claims a webhook event id so the same delivery is processed once. Paycrest
- * retries deliveries and may send duplicates; returns true only for the first
- * caller. Without Redis there's no dedupe, so we process (true) and rely on the
- * upsert being monotonic anyway.
- */
+// Non-terminal order ids the reconcile cron walks; pruned once an order settles.
+const OPEN_ORDERS_KEY = "paycrest:store:open";
+
+/** Claims an event id so a retried/duplicate webhook is processed once. */
 export async function markWebhookEventSeen(eventId: string): Promise<boolean> {
   if (!redis) return true;
-  const claim = await redis.set(eventKey(eventId), 1, {
-    nx: true,
-    ex: EVENT_TTL_SECONDS,
-  });
-  return claim !== null;
+  try {
+    const claim = await redis.set(eventKey(eventId), 1, {
+      nx: true,
+      ex: EVENT_TTL_SECONDS,
+    });
+    return claim !== null;
+  } catch (err) {
+    // Can't dedupe with Redis down — process anyway; the upsert is monotonic.
+    console.error("[orderStore] event-dedupe failed", err);
+    return true;
+  }
 }
 
 /**
- * Decides whether an incoming snapshot should replace the stored one. Enforces
- * the monotonic invariant: never move backwards in the lifecycle, and never
- * leave a terminal state for a non-terminal one. Same-rank snapshots fall back
- * to recency so a fresher payload (e.g. with a txHash) wins.
+ * Monotonic guard: never move an order backwards, never leave a terminal state.
+ * Same-rank snapshots prefer the more recent one.
  */
 function shouldReplace(prev: StoredPaycrestOrder, next: PaycrestOrder): boolean {
   const prevStatus = prev.order.status;
@@ -98,60 +93,90 @@ export async function upsertStoredOrder(
 ): Promise<UpsertResult> {
   if (!redis) return { stored: null, changed: false };
 
-  const existing = await redis.get<StoredPaycrestOrder>(orderKey(order.id));
-  if (existing && !shouldReplace(existing, order)) {
-    return { stored: existing, changed: false };
+  try {
+    const existing = await redis.get<StoredPaycrestOrder>(orderKey(order.id));
+    if (existing && !shouldReplace(existing, order)) {
+      return { stored: existing, changed: false };
+    }
+
+    const nowIso = new Date().toISOString();
+    const becameTerminal = isPaycrestTerminalStatus(order.status);
+    const record: StoredPaycrestOrder = {
+      order,
+      // Don't lose a wallet we already attributed if a later event omits it.
+      walletAddress: meta.walletAddress ?? existing?.walletAddress ?? null,
+      event: meta.event ?? existing?.event ?? null,
+      updatedAt: nowIso,
+      terminalAt: becameTerminal
+        ? (existing?.terminalAt ?? nowIso)
+        : existing?.terminalAt,
+    };
+
+    await redis.set(orderKey(order.id), record, { ex: ORDER_TTL_SECONDS });
+
+    if (becameTerminal) {
+      await redis.srem(OPEN_ORDERS_KEY, order.id);
+    } else {
+      await redis.sadd(OPEN_ORDERS_KEY, order.id);
+    }
+
+    if (record.walletAddress) {
+      const key = walletIndexKey(record.walletAddress);
+      await redis.zadd(key, {
+        score: timeOf(order.createdAt) || Date.now(),
+        member: order.id,
+      });
+      await redis.expire(key, ORDER_TTL_SECONDS);
+    }
+
+    return { stored: record, changed: true };
+  } catch (err) {
+    // Best-effort: a store outage must not break create/webhook/reconcile.
+    console.error("[orderStore] upsert failed", err);
+    return { stored: null, changed: false };
   }
-
-  const nowIso = new Date().toISOString();
-  const becameTerminal = isPaycrestTerminalStatus(order.status);
-  const record: StoredPaycrestOrder = {
-    order,
-    // Don't lose a wallet we already attributed if a later event omits it.
-    walletAddress: meta.walletAddress ?? existing?.walletAddress ?? null,
-    event: meta.event ?? existing?.event ?? null,
-    updatedAt: nowIso,
-    terminalAt: becameTerminal
-      ? (existing?.terminalAt ?? nowIso)
-      : existing?.terminalAt,
-  };
-
-  await redis.set(orderKey(order.id), record, { ex: ORDER_TTL_SECONDS });
-
-  if (record.walletAddress) {
-    const key = walletIndexKey(record.walletAddress);
-    await redis.zadd(key, {
-      score: timeOf(order.createdAt) || Date.now(),
-      member: order.id,
-    });
-    await redis.expire(key, ORDER_TTL_SECONDS);
-  }
-
-  return { stored: record, changed: true };
 }
 
-/** Reads a single stored order, or null when absent / no store configured. */
+/** Non-terminal order ids for the reconcile cron to re-sync. */
+export async function listOpenOrderIds(): Promise<string[]> {
+  if (!redis) return [];
+  try {
+    return (await redis.smembers(OPEN_ORDERS_KEY)) ?? [];
+  } catch (err) {
+    console.error("[orderStore] listOpenOrderIds failed", err);
+    return [];
+  }
+}
+
+/** A stored order, or null when absent / unconfigured / erroring (caller reads live). */
 export async function getStoredOrder(
   id: string
 ): Promise<StoredPaycrestOrder | null> {
   if (!redis) return null;
-  return (await redis.get<StoredPaycrestOrder>(orderKey(id))) ?? null;
+  try {
+    return (await redis.get<StoredPaycrestOrder>(orderKey(id))) ?? null;
+  } catch (err) {
+    console.error("[orderStore] getStoredOrder failed", err);
+    return null;
+  }
 }
 
-/**
- * Lists a wallet's stored orders, newest first. Backed by the per-wallet index;
- * skips any index entries whose record has since expired.
- */
+/** A wallet's stored orders, newest first; skips entries whose record expired. */
 export async function listStoredOrdersByWallet(
   address: string
 ): Promise<StoredPaycrestOrder[]> {
   if (!redis) return [];
-  const ids = await redis.zrange<string[]>(walletIndexKey(address), 0, -1, {
-    rev: true,
-  });
-  if (!ids.length) return [];
-  const records = await Promise.all(ids.map((id) => getStoredOrder(id)));
-  return records.filter((r): r is StoredPaycrestOrder => r !== null);
+  try {
+    const ids = await redis.zrange<string[]>(walletIndexKey(address), 0, -1, {
+      rev: true,
+    });
+    if (!ids.length) return [];
+    const records = await Promise.all(ids.map((id) => getStoredOrder(id)));
+    return records.filter((r): r is StoredPaycrestOrder => r !== null);
+  } catch (err) {
+    console.error("[orderStore] listStoredOrdersByWallet failed", err);
+    return [];
+  }
 }
 
 /** Statuses we'd consider "still moving" — exported for reconcile callers. */

@@ -41,16 +41,30 @@ export interface RateLimitResult {
   reset: number;
 }
 
+const ALLOW: RateLimitResult = {
+  success: true,
+  limit: -1,
+  remaining: -1,
+  reset: 0,
+};
+
 export async function rateLimit(
   tier: RateTier,
   key: string
 ): Promise<RateLimitResult> {
   const limiter = limiters[tier];
   if (!limiter) {
-    return { success: true, limit: -1, remaining: -1, reset: 0 };
+    return ALLOW;
   }
-  const { success, limit, remaining, reset } = await limiter.limit(key);
-  return { success, limit, remaining, reset };
+  try {
+    const { success, limit, remaining, reset } = await limiter.limit(key);
+    return { success, limit, remaining, reset };
+  } catch (err) {
+    // Fail open: this Redis is shared with the order store, so a failure here
+    // must not 500 every API route.
+    console.error("[ratelimit] check failed, allowing request", err);
+    return ALLOW;
+  }
 }
 
 export function isRateLimitConfigured(): boolean {

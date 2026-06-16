@@ -33,8 +33,7 @@ function verifyPaycrestSignature(
 export async function POST(req: NextRequest) {
   const secret = process.env.PAYCREST_WEBHOOK_SECRET;
   if (!secret) {
-    // Refuse to "accept" events we can't authenticate — that would let anyone
-    // write to our order store. 503 so Paycrest retries once it's configured.
+    // Can't authenticate the event — refuse. 503 so Paycrest retries once set.
     console.error("[paycrest webhook] PAYCREST_WEBHOOK_SECRET is not set");
     return NextResponse.json(
       { error: "Webhook not configured" },
@@ -56,16 +55,14 @@ export async function POST(req: NextRequest) {
 
   const data = event.data;
   if (!data || typeof data !== "object" || typeof (data as Record<string, unknown>).id !== "string") {
-    // Signature was valid but the shape is unexpected; ack so Paycrest doesn't
-    // retry a payload we'll never be able to process.
+    // Valid signature, unusable shape — ack so Paycrest stops retrying it.
     console.error("[paycrest webhook] unexpected event shape", event.event);
     return NextResponse.json({ received: true, ignored: true });
   }
   const payload = data as Record<string, unknown>;
   const eventName = typeof event.event === "string" ? event.event : null;
 
-  // Idempotency: dedupe on the event id when present, else on the order's
-  // (id, status, updatedAt) fingerprint so a retried identical event is a no-op.
+  // Dedupe on event id, else on an (id, status, updatedAt) fingerprint.
   const eventId =
     typeof event.eventId === "string" && event.eventId
       ? event.eventId

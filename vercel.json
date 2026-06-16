@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/paycrest/reconcile",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}

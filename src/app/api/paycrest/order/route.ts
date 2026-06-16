@@ -6,9 +6,11 @@ import {
   isPaycrestConfigured,
   isPaycrestFiat,
   normalizePaycrestOrder,
+  walletFromPaycrestPayload,
   type PaycrestOrder,
 } from "@/rails/paycrest";
 import { redis } from "@/lib/redis";
+import { upsertStoredOrder } from "@/lib/orderStore";
 
 /**
  * Deterministic fingerprint of an order's economic content within a 10-minute
@@ -49,24 +51,6 @@ function idempotencyDigest(
         };
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 }
-
-/**
- * POST /api/paycrest/order
- *
- * Creates a fiat off-ramp or on-ramp order via Paycrest's v2 Sender API.
- * The API key is server-only; hooks post a flat body and this route nests
- * it into Paycrest's { source, destination } shape.
- *
- * Off-ramp body: { direction?: "offramp", amount, token, network,
- *   refundAddress, currency, recipient, reference? }
- *
- * On-ramp body: { direction: "onramp", amount, amountIn?: "fiat"|"crypto",
- *   fiatCurrency, refundAccount, token, network, recipientAddress, reference? }
- *
- * Returns HTTP 501 until PAYCREST_API_KEY is set in the server env.
- *
- * Docs: https://docs.paycrest.io/implementation-guides/sender-api-integration
- */
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
@@ -154,24 +138,38 @@ export async function POST(req: NextRequest) {
   const idemKey = `paycrest:order:${idempotencyDigest(direction, body)}`;
   let claimed = false;
   if (redis) {
-    const claim = await redis.set(idemKey, { pending: true }, { nx: true, ex: 900 });
-    if (!claim) {
-      const existing = await redis.get<Record<string, unknown>>(idemKey);
-      if (existing && typeof existing.id === "string") {
-        return NextResponse.json(existing);
-      }
-      return NextResponse.json(
-        {
-          error:
-            "An identical order is already being created — check your history in a moment.",
-        },
-        { status: 409 }
+    try {
+      const claim = await redis.set(
+        idemKey,
+        { pending: true },
+        { nx: true, ex: 900 }
       );
+      if (!claim) {
+        const existing = await redis.get<Record<string, unknown>>(idemKey);
+        if (existing && typeof existing.id === "string") {
+          return NextResponse.json(existing);
+        }
+        return NextResponse.json(
+          {
+            error:
+              "An identical order is already being created — check your history in a moment.",
+          },
+          { status: 409 }
+        );
+      }
+      claimed = true;
+    } catch (err) {
+      // Redis down — skip idempotency rather than block a real payout.
+      console.error("[paycrest] idempotency unavailable, proceeding", err);
     }
-    claimed = true;
   }
   const releaseClaim = async () => {
-    if (claimed && redis) await redis.del(idemKey);
+    if (!claimed || !redis) return;
+    try {
+      await redis.del(idemKey);
+    } catch {
+      /* best effort — the key expires in 900s regardless */
+    }
   };
 
   let res: Response;
@@ -223,8 +221,17 @@ export async function POST(req: NextRequest) {
   // Store the created order under the idempotency key so an immediate replay
   // of the same intent returns this order instead of creating another.
   if (claimed && redis) {
-    await redis.set(idemKey, order, { ex: 900 });
+    try {
+      await redis.set(idemKey, order, { ex: 900 });
+    } catch (err) {
+      console.error("[paycrest] failed to persist idempotency result", err);
+    }
   }
+  // Seed the store so polling reads from Redis without waiting for a webhook.
+  await upsertStoredOrder(order, {
+    walletAddress: walletFromPaycrestPayload(payload),
+    event: "created",
+  });
   return NextResponse.json(order);
 }
 
