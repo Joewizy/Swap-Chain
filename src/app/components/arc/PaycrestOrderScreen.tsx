@@ -283,12 +283,12 @@ export function PaycrestOrderScreen(props: PaycrestOrderScreenProps) {
         <div
           className={
             showTimeline
-              ? "mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-6 lg:items-start"
-              : "mt-5"
+              ? "mt-6 grid gap-8 lg:mt-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-6 lg:items-start"
+              : "mt-6 lg:mt-5"
           }
         >
           {/* ── Main column: only the information the user acts on ── */}
-          <div className="flex flex-col gap-5 min-w-0">
+          <div className="flex flex-col gap-6 min-w-0 lg:gap-5">
             {/* Summary — phase-aware so in-flight transfers feel alive */}
             {!done && !isExpired && phase !== "refunded" && (
               <>

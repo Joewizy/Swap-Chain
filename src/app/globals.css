@@ -388,6 +388,37 @@ h1 {
   color: var(--fg-faint);
 }
 
+/* landing responsive grids — inline styles can't hold media queries, so the
+   marketing grids use these classes and collapse to one column on phones. */
+.l-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.1fr);
+  gap: 56px;
+  align-items: center;
+}
+.l-cols-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+.l-cols-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+@media (max-width: 860px) {
+  .l-hero {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  .l-cols-2,
+  .l-cols-3 {
+    grid-template-columns: 1fr;
+  }
+  .l-hide-mobile {
+    display: none !important;
+  }
+}
+
 /* hr ------------------------------------------------------------ */
 .hr {
   height: 1px;

@@ -39,10 +39,14 @@ function TopBar({ onOpenApp }: OpenApp) {
         className="row center gap-2"
         style={{ color: "var(--fg-soft)", fontSize: 13 }}
       >
-        <a href="#routes" style={{ padding: "8px 12px" }}>
+        <a href="#routes" className="l-hide-mobile" style={{ padding: "8px 12px" }}>
           Routes
         </a>
-        <a href="#settlement" style={{ padding: "8px 12px" }}>
+        <a
+          href="#settlement"
+          className="l-hide-mobile"
+          style={{ padding: "8px 12px" }}
+        >
           Settlement
         </a>
         <button
@@ -66,14 +70,7 @@ function Hero({ onOpenApp }: OpenApp) {
     >
       <div className="blob-hero" aria-hidden />
       <div className="container" style={{ position: "relative", zIndex: 1 }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1.05fr) minmax(0, 1.1fr)",
-            gap: 56,
-            alignItems: "center",
-          }}
-        >
+        <div className="l-hero">
           {/* left: copy */}
           <div>
             <h1
@@ -424,13 +421,7 @@ function SentenceExamples() {
           </p>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(2, 1fr)",
-            gap: 16,
-          }}
-        >
+        <div className="l-cols-2">
           {examples.map((e, i) => (
             <article key={i} className="card" style={{ padding: 20 }}>
               <div className="row between center" style={{ gap: 10 }}>
@@ -961,9 +952,8 @@ function Reassurance() {
   return (
     <section className="container" style={{ padding: "96px 0 0" }}>
       <div
+        className="l-cols-3"
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
           gap: 1,
           background: "var(--line)",
           border: "1px solid var(--line)",
