@@ -233,7 +233,7 @@ export default function AppShell() {
     const intent = intentFromOrder(order);
     storeIntent(intent);
     setRecentIntent(intent);
-    patchUrl({ view: "send", flow: null, status: true, step: null });
+    patchUrl({ view: "send", flow: null, status: true, step: null }, { push: true });
     setDrawerOpen(false);
   };
 
