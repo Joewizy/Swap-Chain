@@ -77,17 +77,17 @@ function Hero({ onOpenApp }: OpenApp) {
           {/* left: copy */}
           <div>
             <h1
+              className="display"
               style={{
-                fontSize: "var(--t-display)",
-                lineHeight: 1.04,
-                letterSpacing: "-0.03em",
-                fontWeight: 500,
-                maxWidth: "16ch",
+                fontSize: "calc(var(--t-display) * 1.12)",
+                lineHeight: 1.0,
+                letterSpacing: "-0.015em",
+                maxWidth: "15ch",
               }}
             >
               Send money anywhere,
               <br />
-              <span style={{ color: "var(--fg-mute)" }}>in plain English.</span>
+              <em>in plain English.</em>
             </h1>
             <p
               style={{
@@ -1011,18 +1011,18 @@ function FinalCTA({ onOpenApp }: OpenApp) {
     <section style={{ padding: "120px 0 80px" }}>
       <div className="narrow" style={{ textAlign: "center" }}>
         <h2
+          className="display"
           style={{
-            fontSize: "var(--t-display)",
-            lineHeight: 1.04,
-            letterSpacing: "-0.03em",
-            fontWeight: 500,
+            fontSize: "calc(var(--t-display) * 1.12)",
+            lineHeight: 1.0,
+            letterSpacing: "-0.015em",
             maxWidth: "16ch",
             margin: "0 auto",
           }}
         >
           Skip the bridges.
           <br />
-          <span style={{ color: "var(--fg-mute)" }}>Just say it.</span>
+          <em>Just say it.</em>
         </h2>
         <div style={{ marginTop: 28, textAlign: "center" }}>
           <button className="btn btn-primary btn-big" onClick={onOpenApp}>

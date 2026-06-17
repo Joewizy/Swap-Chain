@@ -94,6 +94,9 @@
   --t-small: 13px;
   --t-mono: 12.5px;
 
+  /* distinctive editorial display face — paired with Geist body + mono */
+  --font-display: "Instrument Serif", "Times New Roman", Georgia, serif;
+
   /* radii */
   --r-input: 8px;
   --r-card: 14px;
@@ -180,6 +183,18 @@ h1 {
     "Geist",
     -apple-system,
     sans-serif;
+}
+
+/* editorial display — high-contrast serif for hero + section heads */
+.display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.005em;
+}
+.display em,
+.display .em {
+  font-style: italic;
+  color: var(--accent);
 }
 .font-mono {
   font-family: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
