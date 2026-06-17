@@ -1937,6 +1937,32 @@ export function StatusScreen({
   const paycrestDirection =
     exec?.action === "onramp" ? ("onramp" as const) : ("offramp" as const);
 
+  // Resuming an order from History: wait for the fetch before rendering the
+  // order screen. Otherwise we briefly flash the "getting rate" stages built
+  // from the intent before snapping to the order's real (often completed) state.
+  if (
+    isPaycrestRail &&
+    intent?.resumeOrderId &&
+    !offrampOrder &&
+    !onrampOrder &&
+    !railError &&
+    !bootError
+  ) {
+    return (
+      <div
+        className="col center gap-3"
+        style={{
+          padding: "64px 0",
+          color: "var(--fg-soft)",
+          animation: "fade-up .22s var(--ease) both",
+        }}
+      >
+        <Icon.Spinner size={20} />
+        <span style={{ fontSize: 13 }}>Loading order…</span>
+      </div>
+    );
+  }
+
   if (isPaycrestRail && exec) {
     const receiveLabel =
       isOfframpRail && fiatReceiveLabel
