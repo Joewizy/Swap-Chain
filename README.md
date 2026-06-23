@@ -1,8 +1,8 @@
-# Swap Chain
+# Railglide
 
 **Stablecoin in from anywhere — local fiat or another chain out.**
 
-Swap Chain is an open-source Next.js app that routes transfers across multiple liquidity rails: Circle CCTP, Chainrails, Relay, and Paycrest. Users can describe a transfer in plain language, follow guided cash-out / buy / bridge flows, or execute USDC ↔ USDC bridges with a connected wallet.
+Railglide is an open-source Next.js app that routes transfers across multiple liquidity rails: Circle CCTP, Chainrails, Relay, and Paycrest. Users can describe a transfer in plain language, follow guided cash-out / buy / bridge flows, or execute USDC ↔ USDC bridges with a connected wallet.
 
 > **Status:** Early — mainnet Paycrest and testnet CCTP/Relay paths are wired; see [ARCHITECTURE.md](./ARCHITECTURE.md) for the full roadmap and what is not shipped yet.
 
@@ -20,8 +20,8 @@ Swap Chain is an open-source Next.js app that routes transfers across multiple l
 ## Quick start
 
 ```bash
-git clone https://github.com/Joewizy/Swap-Chain.git
-cd swap-chain
+git clone https://github.com/Joewizy/Railglide.git
+cd railglide
 npm install
 cp env.example .env.local
 npm run dev
@@ -111,4 +111,4 @@ This app moves real funds on mainnet when configured with production API keys. R
 
 ## License
 
-[MIT](./LICENSE) — Copyright (c) 2026 Swap Chain contributors.
+[MIT](./LICENSE) — Copyright (c) 2026 Railglide contributors.

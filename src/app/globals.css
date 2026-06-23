@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ========================================================================
-   Swap Chain — design tokens (v2)
+   Railglide — design tokens (v2)
    Light by default. Warm off-white base, one confident coral accent.
    Inspired by Chainrails / Linear / Mercury restraint.
    ========================================================================= */
@@ -112,7 +112,7 @@
 }
 
 /* ========================================================================
-   Swap Chain — base styles (v2)
+   Railglide — base styles (v2)
    ========================================================================= */
 
 *,

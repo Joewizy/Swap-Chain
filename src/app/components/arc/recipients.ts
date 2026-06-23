@@ -26,8 +26,8 @@ export type Recipient = {
   lastUsed: number;
 };
 
-const RECIPIENTS_KEY = "swap-chain:recipients";
-const PENDING_RECIPIENT_KEY = "swap-chain:pending-recipient";
+const RECIPIENTS_KEY = "railglide:recipients";
+const PENDING_RECIPIENT_KEY = "railglide:pending-recipient";
 /** Fired on same-tab mutations so open screens re-read (storage event only fires cross-tab). */
 const CHANGED_EVENT = "recipients:changed";
 

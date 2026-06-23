@@ -62,7 +62,7 @@ async function run() {
   const apiKey = process.env.CHAINRAILS_API_KEY;
   if (!apiKey) {
     console.error(
-      "CHAINRAILS_API_KEY is not set. Add it to swap-chain/.env.local."
+      "CHAINRAILS_API_KEY is not set. Add it to railglide/.env.local."
     );
     process.exit(1);
   }
@@ -127,7 +127,7 @@ async function createAndFetchIntent() {
     recipient: fixture.recipient,
     refund_address: fixture.sender,
     metadata: {
-      description: "swap-chain backend smoke test",
+      description: "railglide backend smoke test",
       reference: `test-${Date.now()}`,
     },
   });

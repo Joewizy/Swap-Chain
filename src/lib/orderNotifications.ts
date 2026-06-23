@@ -30,7 +30,7 @@ export interface TrackedOrder {
   notified?: boolean;
 }
 
-const KEY = "swap-chain:tracked-orders";
+const KEY = "railglide:tracked-orders";
 
 // Drop entries this old so the list can't grow forever (orders settle in
 // minutes; a month is a generous ceiling for a "while you were away" toast).

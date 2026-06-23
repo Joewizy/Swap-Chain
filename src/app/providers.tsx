@@ -23,7 +23,7 @@ export function Providers(props: { children: ReactNode }) {
         <RelayKitProvider
           theme={RELAY_THEME}
           options={{
-            appName: "Swap Chain",
+            appName: "Railglide",
             chains: RELAY_CHAINS,
             baseApiUrl: RELAY_API,
             themeScheme: "light",

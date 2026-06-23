@@ -44,7 +44,7 @@ const seedSchema = {
 } as const;
 
 const chatSchema = {
-  name: "swap_chain_chat_reply",
+  name: "railglide_chat_reply",
   strict: true,
   schema: {
     type: "object",

@@ -217,7 +217,7 @@ Foundation only; no user-facing features.
 - Telegram mini-app parity
 - Referral attribution
 - Dispute / reversal UX + ops tooling
-- Merchant SDK (`<PayWithSwapChain />`)
+- Merchant SDK (`<PayWithRailglide />`)
 - Alternate off-ramp providers (Yellow Card, Bitnob, FonBNK, …)
 - SMB treasury (Safe, exports)
 - Relay behind feature flag as inbound fallback when Chainrails degrades

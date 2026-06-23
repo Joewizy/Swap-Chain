@@ -379,7 +379,7 @@ export default function AppShell() {
                 style={{ marginBottom: 4 }}
               >
                 <span className="row center gap-2" style={{ fontSize: 14, fontWeight: 500 }}>
-                  <Icon.Logo size={20} /> Swap Chain
+                  <Icon.Logo size={20} /> Railglide
                 </span>
                 <button
                   onClick={() => setDrawerOpen(false)}
@@ -446,7 +446,7 @@ export default function AppShell() {
             marginBottom: 4,
           }}
         >
-          <Icon.Logo size={20} /> <span>Swap Chain</span>
+          <Icon.Logo size={20} /> <span>Railglide</span>
         </button>
         <NavContent view={view} setView={goToView} onBack={onBack} />
       </aside>
@@ -528,7 +528,7 @@ function MobileTopBar({
           cursor: "pointer",
         }}
       >
-        <Icon.Logo size={18} /> Swap Chain
+        <Icon.Logo size={18} /> Railglide
       </button>
       <AccountChip compact />
     </div>

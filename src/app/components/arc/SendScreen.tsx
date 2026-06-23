@@ -1790,7 +1790,7 @@ export function StatusScreen({
     Number(balance.formatted) >= sendAmountNum;
   const offrampPaid = Number(offrampOrder?.amountPaid ?? 0);
 
-  // Only the senderFee (SwapChain's own markup) actually reduces the user's
+  // Only the senderFee (Railglide's own markup) actually reduces the user's
   // payout. Paycrest's protocol transactionFee is absorbed in the provider's
   // settlement — the recipient gets the full amount × rate — so we don't show
   // it as a user-facing fee.

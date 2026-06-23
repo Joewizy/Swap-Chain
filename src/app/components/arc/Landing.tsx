@@ -33,7 +33,7 @@ function TopBar({ onOpenApp }: OpenApp) {
         style={{ fontSize: 14, fontWeight: 500 }}
       >
         <Icon.Logo size={20} />
-        <span>Swap&nbsp;Chain</span>
+        <span>Railglide</span>
       </a>
       <div
         className="row center gap-2"
@@ -95,7 +95,7 @@ function Hero({ onOpenApp }: OpenApp) {
                 marginTop: 22,
               }}
             >
-              Tell Swap&nbsp;Chain what you want. Stablecoins from any chain can
+              Tell Railglide what you want. Stablecoins from any chain can
               land in a local bank, mobile money account, another wallet, or
               another chain.
             </p>
@@ -192,7 +192,7 @@ function HeroMockup() {
             className="font-mono"
             style={{ fontSize: 11, color: "var(--fg-faint)" }}
           >
-            swap-chain.app · /send
+            railglide.io · /send
           </span>
           <span className="chip chip-inline" style={{ fontSize: 10 }}>
             live
@@ -1042,7 +1042,7 @@ function Footer() {
       >
         <div className="row center gap-3">
           <Icon.Logo size={16} />
-          <span>© 2026 Swap Chain Labs</span>
+          <span>© 2026 Railglide Labs</span>
         </div>
         <div className="row center gap-6">
           <a href="#" onClick={(e) => e.preventDefault()}>

@@ -49,7 +49,7 @@ const transports = Object.fromEntries(
 ) as Record<number, Transport>;
 
 export default getDefaultConfig({
-  appName: "Swap-Chain",
+  appName: "Railglide",
   projectId,
   chains: evmChains as unknown as readonly [Chain, ...Chain[]],
   transports,

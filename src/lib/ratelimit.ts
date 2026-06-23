@@ -15,7 +15,7 @@ function make(limit: number, window: Window): Ratelimit | null {
   return new Ratelimit({
     redis,
     limiter: Ratelimit.slidingWindow(limit, window),
-    prefix: "swapchain/rl",
+    prefix: "railglide/rl",
     analytics: false,
   });
 }

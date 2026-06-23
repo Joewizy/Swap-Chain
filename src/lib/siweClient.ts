@@ -24,7 +24,7 @@ export async function signInWithEthereum(params: {
     uri: window.location.origin,
     version: "1",
     nonce,
-    statement: "Sign in to view your Swap-Chain order history.",
+    statement: "Sign in to view your Railglide order history.",
   });
 
   const signature = await params.signMessageAsync({ message });

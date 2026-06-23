@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import AppShell from "../components/arc/AppShell";
 
 export const metadata: Metadata = {
-  title: "Swap Chain — Send",
+  title: "Railglide — Send",
 };
 
 export default function AppPage() {

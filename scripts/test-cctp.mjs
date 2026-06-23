@@ -60,7 +60,7 @@
  *   node scripts/test-cctp.mjs attest base-sepolia 0xabc…        # poll
  *   NEXT_PUBLIC_NETWORK=mainnet node scripts/test-cctp.mjs fees ethereum polygon
  *
- * Reads `NEXT_PUBLIC_NETWORK` from `swap-chain/.env.local` if present.
+ * Reads `NEXT_PUBLIC_NETWORK` from `railglide/.env.local` if present.
  */
 
 import { readFileSync } from "node:fs";

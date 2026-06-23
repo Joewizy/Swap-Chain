@@ -8,10 +8,10 @@ export type FlowStep = "compose" | "review";
 const FLOW_IDS = new Set<string>(["cashout", "buy", "bridge", "describe"]);
 const VIEW_IDS = new Set<string>(["history", "recipients", "settings"]);
 
-export const SWAP_INTENT_STORAGE_KEY = "swap-chain:intent";
-export const SWAP_FLOW_DRAFT_KEY = "swap-chain:flow-draft";
-export const PENDING_LAUNCH_KEY = "swap-chain:pending-launch";
-export const CHAT_STATE_KEY = "swap-chain:chat-state";
+export const SWAP_INTENT_STORAGE_KEY = "railglide:intent";
+export const SWAP_FLOW_DRAFT_KEY = "railglide:flow-draft";
+export const PENDING_LAUNCH_KEY = "railglide:pending-launch";
+export const CHAT_STATE_KEY = "railglide:chat-state";
 
 /** Persisted chat transcript so the conversation survives a refresh. */
 export type ChatState = { messages: ChatMessage[]; lastReply: ChatReply | null };
@@ -153,7 +153,7 @@ export function loadPendingLaunch(): FlowLaunch | null {
   try {
     const raw =
       sessionStorage.getItem(PENDING_LAUNCH_KEY) ??
-      sessionStorage.getItem("swap-chain:flow-launch");
+      sessionStorage.getItem("railglide:flow-launch");
     return raw ? (JSON.parse(raw) as FlowLaunch) : null;
   } catch {
     return null;
@@ -163,7 +163,7 @@ export function loadPendingLaunch(): FlowLaunch | null {
 export function clearPendingLaunch(): void {
   try {
     sessionStorage.removeItem(PENDING_LAUNCH_KEY);
-    sessionStorage.removeItem("swap-chain:flow-launch");
+    sessionStorage.removeItem("railglide:flow-launch");
   } catch {
     // ignore
   }
