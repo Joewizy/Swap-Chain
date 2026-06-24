@@ -6,9 +6,9 @@ import { Toaster } from "react-hot-toast";
 import { StarknetProvider } from "./components/starknet-provider";
 
 export const metadata: Metadata = {
-  title: "Railglide — Send money anywhere, in plain English",
+  title: "Railglide — Crypto in, cash out. Cash in, crypto out.",
   description:
-    "Tell Railglide what you want. Stablecoins from any chain can land in a local bank, mobile money account, another wallet, or another chain.",
+    "Buy, sell, or swap crypto across chains — or cash out to a bank or mobile money account.",
   icons: {
     icon: "/railglidelogo.png",
     shortcut: "/railglidelogo.png",

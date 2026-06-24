@@ -5,11 +5,114 @@
 // · routes without plumbing (4 neutral rail cards) · built for local settlement
 // (payout methods) · slim reassurance row · footer.
 
+import "flag-icons/css/flag-icons.min.css";
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Icon, Chain } from "./icons";
+import { Icon } from "./icons";
+import {
+  NetworkEthereum,
+  NetworkBase,
+  NetworkArbitrumOne,
+  NetworkOptimism,
+  NetworkPolygon,
+  NetworkSolana,
+  NetworkBinanceSmartChain,
+  NetworkTron,
+  NetworkBitcoin,
+  NetworkStarknet,
+  TokenUSDC,
+  TokenUSDT,
+} from "@web3icons/react";
 
 type OpenApp = { onOpenApp: () => void };
+type W3Icon = React.ElementType;
+type ConvSide = { label: string; Icon?: W3Icon; flag?: string; img?: string };
+
+function PairSideIcon({ side, size = 22 }: { side: ConvSide; size?: number }) {
+  const I = side.Icon;
+  return (
+    <span className="hero-pair-icon" style={{ width: size, height: size }}>
+      {I ? (
+        <I variant="branded" size={size} />
+      ) : side.img ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={side.img} alt="" width={size} height={size} />
+      ) : (
+        <span
+          className={`fi fis fi-${side.flag}`}
+          style={{ width: size, height: size, borderRadius: "50%" }}
+          aria-hidden
+        />
+      )}
+    </span>
+  );
+}
+
+function HeroPairPill({ from, to }: { from: ConvSide; to: ConvSide }) {
+  return (
+    <div className="hero-pair-pill">
+      <span className="hero-pair-side">
+        <PairSideIcon side={from} />
+        <span className="hero-pair-label">{from.label}</span>
+      </span>
+      <span className="hero-pair-swap" aria-hidden>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path
+            d="M3 6.5h10.5M11.5 4.5L14 6.5l-2.5 2M15 11.5H4.5M6.5 13.5L4 11.5l2.5-2"
+            stroke="currentColor"
+            strokeWidth="1.35"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+      <span className="hero-pair-side">
+        <PairSideIcon side={to} />
+        <span className="hero-pair-label">{to.label}</span>
+      </span>
+    </div>
+  );
+}
+
+// Nigeria-led corridor rotation for the hero pill (TOKEN ↔ FIAT).
+const HERO_PAIRS: [ConvSide, ConvSide][] = [
+  [{ label: "USDT", Icon: TokenUSDT }, { label: "NGN", flag: "ng" }],
+  [{ label: "USDC", Icon: TokenUSDC }, { label: "NGN", flag: "ng" }],
+  [{ label: "cNGN", img: "/tokens/cngn.png" }, { label: "NGN", flag: "ng" }],
+  [{ label: "USDT", Icon: TokenUSDT }, { label: "KES", flag: "ke" }],
+];
+
+/* One cycling conversion pill — gentle crossfade, pauses on hover. */
+function HeroAssets() {
+  const [i, setI] = useState(0);
+  const [paused, setPaused] = useState(false);
+  useEffect(() => {
+    if (paused) return;
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return; // reduced motion → stay on USDT ↔ NGN
+    }
+    const id = setInterval(
+      () => setI((p) => (p + 1) % HERO_PAIRS.length),
+      3200,
+    );
+    return () => clearInterval(id);
+  }, [paused]);
+  const [from, to] = HERO_PAIRS[i];
+  return (
+    <div
+      className="hero-pairs"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
+      <div key={i} className="hero-pair-fade">
+        <HeroPairPill from={from} to={to} />
+      </div>
+    </div>
+  );
+}
 
 /* ───────────────────── TOP BAR ────────────────────── */
 function TopBar({ onOpenApp }: OpenApp) {
@@ -76,15 +179,14 @@ function Hero({ onOpenApp }: OpenApp) {
             <h1
               className="display"
               style={{
-                fontSize: "calc(var(--t-display) * 1.12)",
-                lineHeight: 1.0,
-                letterSpacing: "-0.015em",
-                maxWidth: "15ch",
+                fontSize: "clamp(36px, 4.6vw, 56px)",
+                lineHeight: 1.08,
+                letterSpacing: "-0.02em",
               }}
             >
-              Send money anywhere,
+              Crypto in. Cash out.
               <br />
-              <em>in plain English.</em>
+              <em>Cash in. Crypto out.</em>
             </h1>
             <p
               style={{
@@ -95,11 +197,11 @@ function Hero({ onOpenApp }: OpenApp) {
                 marginTop: 22,
               }}
             >
-              Tell Railglide what you want. Stablecoins from any chain can
-              land in a local bank, mobile money account, another wallet, or
-              another chain.
+              Buy stablecoins with local currency, swap across chains, or cash
+              out USDC, USDT, and cNGN to a bank or mobile money account.
             </p>
-            <div style={{ marginTop: 32 }}>
+            <HeroAssets />
+            <div style={{ marginTop: 28 }}>
               <button className="btn btn-primary btn-big" onClick={onOpenApp}>
                 Launch app <Icon.ArrowRight />
               </button>
@@ -110,9 +212,6 @@ function Hero({ onOpenApp }: OpenApp) {
             >
               <span className="row center gap-2">
                 <Icon.Shield /> Stablecoin settlement
-              </span>
-              <span className="row center gap-2">
-                <Icon.Globe /> 40+ destinations
               </span>
             </div>
           </div>
@@ -179,26 +278,6 @@ function HeroMockup() {
           overflow: "hidden",
         }}
       >
-        {/* chrome */}
-        <div
-          className="row center between"
-          style={{
-            padding: "11px 14px",
-            borderBottom: "1px solid var(--line)",
-            background: "var(--bg-soft)",
-          }}
-        >
-          <span
-            className="font-mono"
-            style={{ fontSize: 11, color: "var(--fg-faint)" }}
-          >
-            railglide.io · /send
-          </span>
-          <span className="chip chip-inline" style={{ fontSize: 10 }}>
-            live
-          </span>
-        </div>
-
         {/* command field */}
         <div style={{ padding: "26px 24px 18px" }}>
           <span className="eyebrow">What would you like to do?</span>
@@ -265,12 +344,11 @@ function HeroMockup() {
               margin: 0,
             }}
           >
-            Got it.{" "}
+            Got it —{" "}
             <strong style={{ color: "var(--fg)" }}>
-              USDC on Base → local payout to GTBank.
+              cashing out USDC to GTBank.
             </strong>{" "}
-            Estimated arrival:{" "}
-            <strong style={{ color: "var(--fg)" }}>2 minutes</strong>.
+            No swap needed. Confirm the amount and rate on the next screen.
           </p>
         </div>
 
@@ -285,11 +363,11 @@ function HeroMockup() {
               transition: "opacity .35s var(--ease)",
             }}
           >
-            <ParseTile label="You send" value="200.00 USDC" sub="Base" />
+            <ParseTile label="You cash out" value="200 USDC" sub="Base" />
             <ParseTile
-              label="Recipient gets"
+              label="You receive ≈"
               value="₦318,420"
-              sub="GTBank · 0124 4429"
+              sub="GTBank · ···· 4429"
               accent
             />
           </div>
@@ -305,13 +383,10 @@ function HeroMockup() {
             color: "var(--fg-mute)",
           }}
         >
-          <span className="font-mono">FEE $0.55</span>
-          <span className="font-mono">ETA ≈ 2 min</span>
-          <span
-            className="chip chip-ok"
-            style={{ padding: "2px 8px", fontSize: 10 }}
-          >
-            ● rate locked
+          <span className="font-mono">FEE ≈ $0.55</span>
+          <span className="font-mono">ARRIVES ≈ 2 min</span>
+          <span className="chip" style={{ padding: "2px 8px", fontSize: 10 }}>
+            rate set when you confirm
           </span>
         </div>
       </div>
@@ -360,126 +435,39 @@ function ParseTile({
   );
 }
 
-/* ───────────────────── ONE SENTENCE BECOMES A ROUTE ────── */
-function SentenceExamples() {
+/* ───────────────────── EXAMPLE SENTENCE STRIP (slim) ────── */
+function SentenceStrip() {
   const examples = [
-    {
-      text: "Send ₦50,000 to Tunde's Opay",
-      kind: "Mobile money",
-      out: "₦50,000 · Opay",
-      eta: "≈ 45 s",
-      from: "31.40 USDC · Base",
-    },
-    {
-      text: "Cash out 200 USDC to GTBank",
-      kind: "Bank account",
-      out: "₦318,420 · GTBank",
-      eta: "≈ 2 min",
-      from: "200 USDC · Base",
-    },
-    {
-      text: "Move 1.4 ETH from Base to Solana",
-      kind: "Chain",
-      out: "1.398 ETH · Solana",
-      eta: "≈ 35 s",
-      from: "1.4 ETH · Base",
-    },
-    {
-      text: "Send 100 USDC to my EUR account",
-      kind: "Bank account",
-      out: "€92.04 · SEPA",
-      eta: "≈ 4 min",
-      from: "100 USDC · Base",
-    },
+    "Cash out 200 USDC to GTBank",
+    "Send $500 to Tunde's Opay",
+    "Swap XRP for USDC on Base",
+    "How can I buy USDC on Base?",
   ];
   return (
-    <section style={{ padding: "96px 0", borderTop: "1px solid var(--line)" }}>
-      <div className="container">
-        <div
-          className="row between wrap"
-          style={{ alignItems: "flex-end", gap: 24, marginBottom: 36 }}
-        >
-          <div>
-            <span className="eyebrow">How it parses</span>
-            <h2
-              style={{
-                fontSize: "var(--t-h1)",
-                marginTop: 12,
-                lineHeight: 1.05,
-                letterSpacing: "-0.025em",
-                fontWeight: 500,
-                maxWidth: "16ch",
-              }}
-            >
-              One sentence becomes a route.
-            </h2>
-          </div>
-          <p className="muted" style={{ maxWidth: "44ch", fontSize: 15 }}>
-            Each example is something a real user types. The assistant resolves
-            the destination type, currency, fee, and arrival time before you
-            sign anything.
-          </p>
-        </div>
-
-        <div className="l-cols-2">
-          {examples.map((e, i) => (
-            <article key={i} className="card" style={{ padding: 20 }}>
-              <div className="row between center" style={{ gap: 10 }}>
-                <span className="chip" style={{ fontSize: 10.5 }}>
-                  {e.kind}
-                </span>
-                <Icon.Arrow size={14} />
-              </div>
-              <div
-                style={{
-                  marginTop: 16,
-                  fontSize: 19,
-                  fontWeight: 500,
-                  lineHeight: 1.35,
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                “{e.text}”
-              </div>
-              <div className="hr" style={{ margin: "18px 0" }} />
-              <div className="row between center wrap" style={{ gap: 10 }}>
-                <div className="col" style={{ gap: 2 }}>
-                  <span className="eyebrow" style={{ fontSize: 10 }}>
-                    From
-                  </span>
-                  <span
-                    className="font-mono"
-                    style={{ fontSize: 13, color: "var(--fg-soft)" }}
-                  >
-                    {e.from}
-                  </span>
-                </div>
-                <Icon.ArrowRight size={14} />
-                <div className="col" style={{ gap: 2, textAlign: "right" }}>
-                  <span className="eyebrow" style={{ fontSize: 10 }}>
-                    To
-                  </span>
-                  <span
-                    className="font-mono tabular"
-                    style={{ fontSize: 13, color: "var(--accent)" }}
-                  >
-                    {e.out}
-                  </span>
-                </div>
-                <span
-                  className="font-mono"
-                  style={{
-                    fontSize: 11,
-                    color: "var(--fg-mute)",
-                    marginLeft: "auto",
-                  }}
-                >
-                  {e.eta}
-                </span>
-              </div>
-            </article>
-          ))}
-        </div>
+    <section style={{ padding: "44px 0", borderTop: "1px solid var(--line)" }}>
+      <div
+        className="container row center wrap"
+        style={{ gap: 12, justifyContent: "center" }}
+      >
+        <span className="eyebrow" style={{ marginRight: 4 }}>
+          Just describe it
+        </span>
+        {examples.map((text, i) => (
+          <span
+            key={i}
+            style={{
+              padding: "8px 14px",
+              borderRadius: 999,
+              border: "1px solid var(--line)",
+              background: "var(--bg-soft)",
+              fontSize: 13.5,
+              color: "var(--fg-soft)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            “{text}”
+          </span>
+        ))}
       </div>
     </section>
   );
@@ -489,9 +477,9 @@ function SentenceExamples() {
 function RailCards() {
   const rails = [
     {
-      label: "Deposit",
-      title: "Move funds in.",
-      copy: "Any chain, any token. Drop into a deposit address or pay from your connected wallet.",
+      label: "Buy",
+      title: "Buy stablecoins.",
+      copy: "Pay with fiat from your bank and receive stablecoins in your wallet.",
       glyph: (
         <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
           <rect
@@ -514,54 +502,9 @@ function RailCards() {
       ),
     },
     {
-      label: "Bridge",
-      title: "Move across chains.",
-      copy: "USDC ↔ USDC where it can. Behind one signature, never two.",
-      glyph: (
-        <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
-          <circle
-            cx="8"
-            cy="16"
-            r="4"
-            stroke="currentColor"
-            strokeWidth="1.4"
-          />
-          <circle
-            cx="24"
-            cy="16"
-            r="4"
-            stroke="currentColor"
-            strokeWidth="1.4"
-          />
-          <path
-            d="M12 16h8"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
-        </svg>
-      ),
-    },
-    {
-      label: "Swap",
-      title: "Convert tokens.",
-      copy: "Routing across aggregators to land the asset the recipient actually wants.",
-      glyph: (
-        <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
-          <path
-            d="M6 12h18l-4-4M26 20H8l4 4"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ),
-    },
-    {
-      label: "Payout",
-      title: "Settle locally.",
-      copy: "Bank account, mobile money, or another wallet — quoted before you sign.",
+      label: "Sell",
+      title: "Cash out.",
+      copy: "Sell stablecoins and receive fiat in your bank or mobile money account.",
       glyph: (
         <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
           <rect
@@ -582,6 +525,22 @@ function RailCards() {
         </svg>
       ),
     },
+    {
+      label: "Swap",
+      title: "Swap tokens.",
+      copy: "Swap any token across chains — or convert to USDC or USDT before you cash out.",
+      glyph: (
+        <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
+          <path
+            d="M6 12h18l-4-4M26 20H8l4 4"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ),
+    },
   ];
 
   return (
@@ -590,29 +549,20 @@ function RailCards() {
       style={{ padding: "96px 0", borderTop: "1px solid var(--line)" }}
     >
       <div className="container">
-        <div
-          className="row between wrap"
-          style={{ alignItems: "flex-end", gap: 24, marginBottom: 36 }}
-        >
-          <div>
-            <span className="eyebrow">The route</span>
-            <h2
-              style={{
-                fontSize: "var(--t-h1)",
-                marginTop: 12,
-                lineHeight: 1.05,
-                letterSpacing: "-0.025em",
-                fontWeight: 500,
-                maxWidth: "18ch",
-              }}
-            >
-              Routes without showing plumbing.
-            </h2>
-          </div>
-          <p className="muted" style={{ maxWidth: "44ch", fontSize: 15 }}>
-            Four neutral stages, each transparent on fee and ETA. You see what
-            the route does, not who runs it.
-          </p>
+        <div style={{ marginBottom: 36, maxWidth: "60ch" }}>
+          <span className="eyebrow">How it works</span>
+          <h2
+            style={{
+              fontSize: "var(--t-h1)",
+              marginTop: 12,
+              lineHeight: 1.05,
+              letterSpacing: "-0.025em",
+              fontWeight: 500,
+              maxWidth: "20ch",
+            }}
+          >
+            You choose.
+          </h2>
         </div>
 
         <div
@@ -638,13 +588,7 @@ function RailCards() {
                 minWidth: 0,
               }}
             >
-              <div className="row between center" style={{ marginBottom: 22 }}>
-                <span
-                  className="font-mono"
-                  style={{ fontSize: 11, color: "var(--fg-mute)" }}
-                >
-                  0{i + 1}
-                </span>
+              <div style={{ marginBottom: 22 }}>
                 <span className="chip chip-inline" style={{ fontSize: 10 }}>
                   {r.label}
                 </span>
@@ -681,12 +625,12 @@ function Settlement() {
   const methods = [
     {
       title: "Bank account",
-      sub: "Direct deposit to local banks.",
+      sub: "Direct deposit to your bank account.",
       examples: [
-        ["NGN", "GTBank · 0124 4429"],
-        ["EUR", "SEPA · DE89 3704 0044…"],
-        ["USD", "ACH · *****4429"],
-        ["GBP", "Faster Payments · 12-34-56"],
+        ["NGN", "GTBank · ···· 4429"],
+        ["GHS", "GCB · ···· 4429"],
+        ["XOF", "Ecobank · ···· 4429"],
+        ["ZAR", "Capitec · ···· 4429"],
       ],
       glyph: (
         <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
@@ -704,10 +648,10 @@ function Settlement() {
       title: "Mobile money",
       sub: "Phone-number payouts.",
       examples: [
-        ["NGN", "Opay · 080-1234-4429"],
-        ["KES", "M-Pesa · 254 700 ***"],
-        ["GHS", "MoMo · 024 *** 4429"],
-        ["UGX", "MTN · 077 *** 4429"],
+        ["KES", "M-Pesa · ··· 4429"],
+        ["UGX", "MTN · ··· 4429"],
+        ["ZMW", "MTN · ··· 4429"],
+        ["TZS", "Airtel · ··· 4429"],
       ],
       glyph: (
         <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
@@ -730,13 +674,13 @@ function Settlement() {
       ),
     },
     {
-      title: "Wallet address",
-      sub: "External wallet, any chain.",
+      title: "Crypto wallet",
+      sub: "USDC, USDT, or cNGN on your network.",
       examples: [
-        ["ETH", "0x84a4…7d10"],
-        ["SOL", "G7sX…dQ4n"],
-        ["ARB", "0xA2…91Bc"],
-        ["BTC", "bc1qx…f3kp"],
+        ["USDC", "Base"],
+        ["USDT", "Tron"],
+        ["USDC", "Arbitrum"],
+        ["cNGN", "Base"],
       ],
       glyph: (
         <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
@@ -754,34 +698,6 @@ function Settlement() {
         </svg>
       ),
     },
-    {
-      title: "Stablecoin address",
-      sub: "USDC or USDT, your network.",
-      examples: [
-        ["USDC", "Base"],
-        ["USDC", "Solana"],
-        ["USDT", "Tron"],
-        ["USDC", "Arbitrum"],
-      ],
-      glyph: (
-        <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
-          <circle
-            cx="16"
-            cy="16"
-            r="11"
-            stroke="currentColor"
-            strokeWidth="1.4"
-          />
-          <path
-            d="M16 9v14M12 12h6.5a2.5 2.5 0 0 1 0 5H13a2.5 2.5 0 0 0 0 5h7"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ),
-    },
   ];
   return (
     <section
@@ -789,29 +705,20 @@ function Settlement() {
       style={{ padding: "96px 0", borderTop: "1px solid var(--line)" }}
     >
       <div className="container">
-        <div
-          className="row between wrap"
-          style={{ alignItems: "flex-end", gap: 24, marginBottom: 36 }}
-        >
-          <div>
-            <span className="eyebrow">Settlement</span>
-            <h2
-              style={{
-                fontSize: "var(--t-h1)",
-                marginTop: 12,
-                lineHeight: 1.05,
-                letterSpacing: "-0.025em",
-                fontWeight: 500,
-                maxWidth: "16ch",
-              }}
-            >
-              Built for local settlement.
-            </h2>
-          </div>
-          <p className="muted" style={{ maxWidth: "44ch", fontSize: 15 }}>
-            Stablecoins from any chain. Funds land in whatever the recipient
-            actually uses — bank, mobile money, wallet, or chain.
-          </p>
+        <div style={{ marginBottom: 36, maxWidth: "60ch" }}>
+          <span className="eyebrow">Settlement</span>
+          <h2
+            style={{
+              fontSize: "var(--t-h1)",
+              marginTop: 12,
+              lineHeight: 1.05,
+              letterSpacing: "-0.025em",
+              fontWeight: 500,
+              maxWidth: "16ch",
+            }}
+          >
+            Where your money lands.
+          </h2>
         </div>
 
         <div
@@ -886,110 +793,59 @@ function Settlement() {
   );
 }
 
-/* ───────────────────── SUPPORTED CHAINS STRIP ──────────── */
-function ChainsStrip() {
-  const items: [string, string][] = [
-    ["Ethereum", "ETH"],
-    ["Base", "BASE"],
-    ["Arbitrum", "ARB"],
-    ["Optimism", "OP"],
-    ["Polygon", "POLY"],
-    ["Solana", "SOL"],
-    ["BNB Chain", "BNB"],
-    ["Tron", "TRON"],
-    ["Bitcoin", "BTC"],
-    ["Starknet", "STRK"],
+/* ───────────────────── SUPPORTED NETWORKS (marquee) ─ */
+function NetworksMarquee() {
+  // Real branded chain logos via @web3icons/react.
+  const chains: { name: string; Icon: W3Icon }[] = [
+    { name: "Ethereum", Icon: NetworkEthereum },
+    { name: "Base", Icon: NetworkBase },
+    { name: "Arbitrum", Icon: NetworkArbitrumOne },
+    { name: "Optimism", Icon: NetworkOptimism },
+    { name: "Polygon", Icon: NetworkPolygon },
+    { name: "Solana", Icon: NetworkSolana },
+    { name: "BNB Chain", Icon: NetworkBinanceSmartChain },
+    { name: "Tron", Icon: NetworkTron },
+    { name: "Bitcoin", Icon: NetworkBitcoin },
+    { name: "Starknet", Icon: NetworkStarknet },
   ];
+
   return (
-    <section style={{ padding: "60px 0", borderTop: "1px solid var(--line)" }}>
-      <div className="narrow" style={{ textAlign: "center" }}>
-        <span className="eyebrow">Funds can come from</span>
-        <div
-          className="row center"
+    <section
+      style={{ position: "relative", padding: "76px 0", borderTop: "1px solid var(--line)" }}
+    >
+      <div className="net-glow" aria-hidden />
+      <div
+        className="narrow"
+        style={{ position: "relative", zIndex: 1, textAlign: "center", marginBottom: 40 }}
+      >
+        <span className="eyebrow">Supported networks</span>
+        <h2
           style={{
-            marginTop: 22,
-            gap: 24,
-            justifyContent: "center",
-            flexWrap: "wrap",
+            fontSize: 25,
+            fontWeight: 500,
+            letterSpacing: "-0.02em",
+            lineHeight: 1.3,
+            marginTop: 12,
+            maxWidth: "20ch",
+            marginInline: "auto",
           }}
         >
-          {items.map(([name, code]) => {
-            const G = Chain[code];
-            return (
-              <span
-                key={code}
-                className="row center gap-2"
-                title={name}
-                style={{ color: "var(--fg-soft)", fontSize: 13 }}
-              >
-                <G size={22} />
-                <span style={{ fontSize: 13 }}>{name}</span>
-              </span>
-            );
-          })}
-        </div>
+          Accept value from anywhere — crypto or cash, instantly.
+        </h2>
       </div>
-    </section>
-  );
-}
 
-/* ───────────────────── REASSURANCE ─────────────────────── */
-function Reassurance() {
-  const items = [
-    {
-      t: "Fees, always upfront.",
-      c: "Network, rail, and FX broken out. No 'estimated' weasel words once the quote is firm.",
-    },
-    {
-      t: "Picks the cheapest rail.",
-      c: "USDC ↔ USDC where it can, off-ramp where it must. You never choose a bridge by hand.",
-    },
-    {
-      t: "Built for the corridor.",
-      c: "Local banks and mobile money across NGN, KES, GHS, EUR, USD, GBP — the payout that actually arrives.",
-    },
-  ];
-  return (
-    <section className="container" style={{ padding: "96px 0 0" }}>
-      <div
-        className="l-cols-3"
-        style={{
-          gap: 1,
-          background: "var(--line)",
-          border: "1px solid var(--line)",
-          borderRadius: 14,
-          overflow: "hidden",
-        }}
-      >
-        {items.map((i, n) => (
-          <div
-            key={n}
-            style={{ background: "var(--bg)", padding: "28px 26px" }}
-          >
-            <span
-              className="font-mono"
-              style={{ fontSize: 11, color: "var(--accent)" }}
-            >
-              0{n + 1}
+      {/* chains — large bare floating logos */}
+      <div className="marquee chain-marquee" aria-hidden>
+        <div
+          className="marquee-track chain-track"
+          style={{ ["--marquee-dur" as string]: "52s" }}
+        >
+          {[...chains, ...chains].map(({ name, Icon }, i) => (
+            <span key={i} className="chain-logo" title={name}>
+              <Icon variant="branded" size={46} />
             </span>
-            <h3
-              style={{
-                fontSize: 22,
-                marginTop: 12,
-                letterSpacing: "-0.02em",
-                fontWeight: 500,
-              }}
-            >
-              {i.t}
-            </h3>
-            <p
-              className="muted"
-              style={{ fontSize: 14, marginTop: 8, lineHeight: 1.55 }}
-            >
-              {i.c}
-            </p>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -1010,9 +866,9 @@ function FinalCTA({ onOpenApp }: OpenApp) {
             margin: "0 auto",
           }}
         >
-          Skip the bridges.
+          Stop bridging.
           <br />
-          <em>Just say it.</em>
+          <em>Buy or cash out.</em>
         </h2>
         <div style={{ marginTop: 28, textAlign: "center" }}>
           <button className="btn btn-primary btn-big" onClick={onOpenApp}>
@@ -1042,14 +898,15 @@ function Footer() {
       >
         <div className="row center gap-3">
           <Icon.Logo size={16} />
-          <span>© 2026 Railglide Labs</span>
+          <span>© 2026 Railglide</span>
         </div>
         <div className="row center gap-6">
-          <a href="#" onClick={(e) => e.preventDefault()}>
-            API
-          </a>
-          <a href="#" onClick={(e) => e.preventDefault()}>
-            Status
+          <a
+            href="https://x.com/Railglideapp"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            X
           </a>
           <a href="#" onClick={(e) => e.preventDefault()}>
             Privacy
@@ -1084,11 +941,10 @@ export default function Landing() {
     >
       <TopBar onOpenApp={onOpenApp} />
       <Hero onOpenApp={onOpenApp} />
-      <SentenceExamples />
+      <SentenceStrip />
       <RailCards />
       <Settlement />
-      <ChainsStrip />
-      <Reassurance />
+      <NetworksMarquee />
       <FinalCTA onOpenApp={onOpenApp} />
       <Footer />
     </div>

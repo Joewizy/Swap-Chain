@@ -96,7 +96,7 @@ export function Home({
           What would you like to do?
         </h1>
         <span className="muted" style={{ fontSize: 14, marginTop: 2 }}>
-          Pick a goal, or just say it in plain English.
+          Pick a goal, or just describe it in your own words.
         </span>
       </header>
 
@@ -189,10 +189,10 @@ export function Home({
         </span>
         <span className="col" style={{ gap: 2, textAlign: "left", flex: 1 }}>
           <span style={{ fontSize: 15, fontWeight: 500 }}>
-            Describe it in plain English
+            Describe it in your own words
           </span>
           <span className="muted" style={{ fontSize: 13 }}>
-            Type it the way you’d text a friend — we’ll set it up.
+            Tell Railglide what you want — it works out the route.
           </span>
         </span>
         <Icon.ArrowRight size={14} />
