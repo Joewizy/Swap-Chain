@@ -357,7 +357,7 @@ function HeroMockup() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr",
+              gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
               gap: 12,
               opacity: showReply ? 1 : 0.35,
               transition: "opacity .35s var(--ease)",
@@ -374,13 +374,16 @@ function HeroMockup() {
         </div>
 
         <div
-          className="row between center"
+          className="row center"
           style={{
             padding: "12px 24px",
             background: "var(--bg-sunk)",
             borderTop: "1px solid var(--line)",
             fontSize: 11,
             color: "var(--fg-mute)",
+            flexWrap: "wrap",
+            justifyContent: "space-between",
+            gap: "6px 14px",
           }}
         >
           <span className="font-mono">FEE ≈ $0.55</span>
@@ -444,30 +447,31 @@ function SentenceStrip() {
     "How can I buy USDC on Base?",
   ];
   return (
-    <section style={{ padding: "44px 0", borderTop: "1px solid var(--line)" }}>
-      <div
-        className="container row center wrap"
-        style={{ gap: 12, justifyContent: "center" }}
-      >
-        <span className="eyebrow" style={{ marginRight: 4 }}>
-          Just describe it
-        </span>
-        {examples.map((text, i) => (
-          <span
-            key={i}
-            style={{
-              padding: "8px 14px",
-              borderRadius: 999,
-              border: "1px solid var(--line)",
-              background: "var(--bg-soft)",
-              fontSize: 13.5,
-              color: "var(--fg-soft)",
-              whiteSpace: "nowrap",
-            }}
-          >
-            “{text}”
-          </span>
-        ))}
+    <section style={{ padding: "52px 0", borderTop: "1px solid var(--line)" }}>
+      <div className="container" style={{ textAlign: "center" }}>
+        <span className="eyebrow">Just describe it</span>
+        <div
+          className="row center wrap"
+          style={{ gap: 10, justifyContent: "center", marginTop: 18 }}
+        >
+          {examples.map((text, i) => (
+            <span
+              key={i}
+              style={{
+                padding: "9px 16px",
+                borderRadius: 999,
+                background: "var(--bg-elev)",
+                boxShadow:
+                  "inset 0 0 0 1px rgba(20,18,14,.06), 0 2px 8px -5px rgba(20,18,14,.18)",
+                fontSize: 13.5,
+                color: "var(--fg-soft)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              “{text}”
+            </span>
+          ))}
+        </div>
       </div>
     </section>
   );

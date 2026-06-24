@@ -23,7 +23,6 @@ export default function RootLayout({
     <html lang="en" data-theme="light">
       <head>
         <link rel="icon" href="/railglidelogo.png" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"

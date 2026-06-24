@@ -2,11 +2,11 @@ import type { ChatMessage, ChatReply, FlowLaunch } from "@/assistant/types";
 import type { FlowId } from "./Home";
 import type { Intent, PayoutDetails, Quote } from "./SendScreen";
 
-export type SwapView = "send" | "history" | "recipients" | "settings";
+export type SwapView = "send" | "history" | "recipients";
 export type FlowStep = "compose" | "review";
 
 const FLOW_IDS = new Set<string>(["cashout", "buy", "bridge", "describe"]);
-const VIEW_IDS = new Set<string>(["history", "recipients", "settings"]);
+const VIEW_IDS = new Set<string>(["history", "recipients"]);
 
 export const SWAP_INTENT_STORAGE_KEY = "railglide:intent";
 export const SWAP_FLOW_DRAFT_KEY = "railglide:flow-draft";

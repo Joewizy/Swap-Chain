@@ -22,7 +22,6 @@ import { BuyFlow } from "./flows/BuyFlow";
 import {
   HistoryScreen,
   RecipientsScreen,
-  SettingsScreen,
   type Order,
 } from "./AppScreens";
 import {
@@ -338,7 +337,6 @@ export default function AppShell() {
         {view === "send" && sendBody}
         {view === "history" && <HistoryScreen onResume={resumeOrder} />}
         {view === "recipients" && <RecipientsScreen onSend={sendToRecipient} />}
-        {view === "settings" && <SettingsScreen />}
       </div>
     </main>
   );
@@ -548,7 +546,6 @@ function NavContent({
     { id: "send", label: "Send", icon: <Icon.Send /> },
     { id: "history", label: "History", icon: <Icon.History /> },
     { id: "recipients", label: "Recipients", icon: <Icon.Book /> },
-    { id: "settings", label: "Settings", icon: <Icon.Settings /> },
   ];
   return (
     <>

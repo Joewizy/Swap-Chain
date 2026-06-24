@@ -396,6 +396,9 @@ h1 {
   gap: 56px;
   align-items: center;
 }
+.l-hero > * {
+  min-width: 0;
+}
 .l-cols-2 {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -407,12 +410,12 @@ h1 {
 }
 @media (max-width: 860px) {
   .l-hero {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 40px;
   }
   .l-cols-2,
   .l-cols-3 {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .l-hide-mobile {
     display: none !important;
