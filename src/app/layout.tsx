@@ -10,9 +10,9 @@ export const metadata: Metadata = {
   description:
     "Tell Railglide what you want. Stablecoins from any chain can land in a local bank, mobile money account, another wallet, or another chain.",
   icons: {
-    icon: "/logo edit.png",
-    shortcut: "/logo edit.png",
-    apple: "/logo edit.png",
+    icon: "/railglidelogo.png",
+    shortcut: "/railglidelogo.png",
+    apple: "/railglidelogo.png",
   },
 };
 
@@ -22,7 +22,7 @@ export default function RootLayout({
   return (
     <html lang="en" data-theme="light">
       <head>
-        <link rel="icon" href="/logo edit.png" />
+        <link rel="icon" href="/railglidelogo.png" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
