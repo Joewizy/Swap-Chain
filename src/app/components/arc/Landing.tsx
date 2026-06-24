@@ -626,12 +626,6 @@ function Settlement() {
     {
       title: "Bank account",
       sub: "Direct deposit to your bank account.",
-      examples: [
-        ["NGN", "GTBank · ···· 4429"],
-        ["GHS", "GCB · ···· 4429"],
-        ["XOF", "Ecobank · ···· 4429"],
-        ["ZAR", "Capitec · ···· 4429"],
-      ],
       glyph: (
         <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
           <path
@@ -647,12 +641,6 @@ function Settlement() {
     {
       title: "Mobile money",
       sub: "Phone-number payouts.",
-      examples: [
-        ["KES", "M-Pesa · ··· 4429"],
-        ["UGX", "MTN · ··· 4429"],
-        ["ZMW", "MTN · ··· 4429"],
-        ["TZS", "Airtel · ··· 4429"],
-      ],
       glyph: (
         <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
           <rect
@@ -676,12 +664,6 @@ function Settlement() {
     {
       title: "Crypto wallet",
       sub: "USDC, USDT, or cNGN on your network.",
-      examples: [
-        ["USDC", "Base"],
-        ["USDT", "Tron"],
-        ["USDC", "Arbitrum"],
-        ["cNGN", "Base"],
-      ],
       glyph: (
         <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
           <rect
@@ -747,44 +729,6 @@ function Settlement() {
                   {m.sub}
                 </p>
               </div>
-              <div className="hr" />
-              <ul
-                className="col gap-2"
-                style={{ listStyle: "none", padding: 0, margin: 0 }}
-              >
-                {m.examples.map(([code, ex], j) => (
-                  <li
-                    key={j}
-                    className="row center"
-                    style={{ fontSize: 12.5, gap: 10, minWidth: 0 }}
-                  >
-                    <span
-                      className="font-mono"
-                      style={{
-                        color: "var(--fg-mute)",
-                        letterSpacing: 0.04,
-                        flex: "0 0 auto",
-                      }}
-                    >
-                      {code}
-                    </span>
-                    <span
-                      className="font-mono"
-                      style={{
-                        color: "var(--fg-soft)",
-                        flex: "1 1 0",
-                        minWidth: 0,
-                        textAlign: "right",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {ex}
-                    </span>
-                  </li>
-                ))}
-              </ul>
             </article>
           ))}
         </div>
