@@ -204,14 +204,6 @@ function Hero({ onOpenApp }: OpenApp) {
                 Launch app <Icon.ArrowRight />
               </button>
             </div>
-            <div
-              className="row center gap-4"
-              style={{ marginTop: 28, color: "var(--fg-mute)", fontSize: 12 }}
-            >
-              <span className="row center gap-2">
-                <Icon.Shield /> Stablecoin settlement
-              </span>
-            </div>
           </div>
 
           {/* right: app mockup */}
@@ -439,7 +431,7 @@ function ParseTile({
 /* ───────────────────── EXAMPLE SENTENCE STRIP (slim) ────── */
 function SentenceStrip() {
   const examples = [
-    "Cash out 200 USDC to GTBank",
+    "Cash out 300 USDT to M-Pesa",
     "Send $500 to Tunde's Opay",
     "Swap XRP for USDC on Base",
     "How can I buy USDC on Base?",
@@ -720,8 +712,8 @@ function Settlement() {
   );
 }
 
-/* ───────────────────── SUPPORTED NETWORKS (marquee) ─ */
-function NetworksMarquee() {
+/* ───────────────────── REACH — networks in, corridors out ─ */
+function Reach() {
   // Real branded chain logos via @web3icons/react.
   const chains: { name: string; Icon: W3Icon }[] = [
     { name: "Ethereum", Icon: NetworkEthereum },
@@ -736,6 +728,18 @@ function NetworksMarquee() {
     { name: "Starknet", Icon: NetworkStarknet },
   ];
 
+  // The fiat corridors Railglide actually cashes out to (Paycrest payout set).
+  const corridors: { code: string; flag: string; name: string }[] = [
+    { code: "NGN", flag: "ng", name: "Nigeria" },
+    { code: "KES", flag: "ke", name: "Kenya" },
+    { code: "GHS", flag: "gh", name: "Ghana" },
+    { code: "UGX", flag: "ug", name: "Uganda" },
+    { code: "TZS", flag: "tz", name: "Tanzania" },
+    { code: "ZMW", flag: "zm", name: "Zambia" },
+    { code: "ZAR", flag: "za", name: "South Africa" },
+    { code: "XOF", flag: "ci", name: "West Africa (CFA)" },
+  ];
+
   return (
     <section
       style={{ position: "relative", padding: "76px 0", borderTop: "1px solid var(--line)" }}
@@ -745,7 +749,7 @@ function NetworksMarquee() {
         className="narrow"
         style={{ position: "relative", zIndex: 1, textAlign: "center", marginBottom: 40 }}
       >
-        <span className="eyebrow">Supported networks</span>
+        <span className="eyebrow">Reach</span>
         <h2
           style={{
             fontSize: 25,
@@ -753,11 +757,11 @@ function NetworksMarquee() {
             letterSpacing: "-0.02em",
             lineHeight: 1.3,
             marginTop: 12,
-            maxWidth: "20ch",
+            maxWidth: "22ch",
             marginInline: "auto",
           }}
         >
-          Accept value from anywhere — crypto or cash, instantly.
+          Bring crypto from any major chain. Cash out in local money.
         </h2>
       </div>
 
@@ -770,6 +774,27 @@ function NetworksMarquee() {
           {[...chains, ...chains].map(({ name, Icon }, i) => (
             <span key={i} className="chain-logo" title={name}>
               <Icon variant="branded" size={46} />
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* corridors — real country flags Railglide pays out to */}
+      <div
+        className="narrow"
+        style={{ position: "relative", zIndex: 1, marginTop: 48, textAlign: "center" }}
+      >
+        <span className="eyebrow" style={{ color: "var(--fg-faint)" }}>
+          Cash out across Africa
+        </span>
+        <div className="corridor-row">
+          {corridors.map((c) => (
+            <span key={c.code} className="corridor-pill" title={c.name}>
+              <span
+                className={`fi fis fi-${c.flag} corridor-flag`}
+                aria-hidden
+              />
+              <span className="corridor-code">{c.code}</span>
             </span>
           ))}
         </div>
@@ -832,17 +857,6 @@ function Footer() {
           </a>
         </div>
       </div>
-      {/* technical providers footer — small, monospace, end of page */}
-      <div
-        className="container"
-        style={{
-          padding: "12px 0 28px",
-          fontSize: 10.5,
-          color: "var(--fg-faint)",
-          letterSpacing: 0.04,
-        }}
-      >
-      </div>
     </footer>
   );
 }
@@ -858,7 +872,7 @@ export default function Landing() {
       <SentenceStrip />
       <RailCards />
       <Settlement />
-      <NetworksMarquee />
+      <Reach />
       <FinalCTA onOpenApp={onOpenApp} />
       <Footer />
     </div>

@@ -732,6 +732,58 @@ html {
   }
 }
 
+/* cash-out corridors — soft flag pills, Paycrest-style */
+.corridor-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+.corridor-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px 7px 9px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  box-shadow:
+    inset 0 0 0 1px rgba(20, 18, 14, 0.05),
+    0 4px 14px -8px rgba(20, 18, 14, 0.16);
+  white-space: nowrap;
+  transition:
+    transform 0.22s var(--ease),
+    box-shadow 0.22s var(--ease);
+}
+.corridor-pill:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 0 0 1px var(--accent-line),
+    0 10px 20px -10px rgba(217, 105, 74, 0.45);
+}
+.corridor-flag {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(20, 18, 14, 0.08);
+}
+.corridor-code {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--fg-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+  .corridor-pill:hover {
+    transform: none;
+  }
+}
+
 /* soft atmospheric glow behind the chain row */
 .net-glow {
   position: absolute;
