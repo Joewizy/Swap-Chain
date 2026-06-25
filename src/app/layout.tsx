@@ -6,7 +6,7 @@ import { Toaster } from "react-hot-toast";
 import { StarknetProvider } from "./components/starknet-provider";
 
 export const metadata: Metadata = {
-  title: "Railglide — Crypto in, cash out. Cash in, crypto out.",
+  title: "Railglide — Crypto and cash made easy",
   description:
     "Buy, sell, or swap crypto across chains — or cash out to a bank or mobile money account.",
   icons: {

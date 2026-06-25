@@ -184,9 +184,7 @@ function Hero({ onOpenApp }: OpenApp) {
                 letterSpacing: "-0.02em",
               }}
             >
-              Crypto in. Cash out.
-              <br />
-              <em>Cash in. Crypto out.</em>
+              Crypto and cash made easy
             </h1>
             <p
               style={{
@@ -197,8 +195,8 @@ function Hero({ onOpenApp }: OpenApp) {
                 marginTop: 22,
               }}
             >
-              Buy stablecoins with local currency, swap across chains, or cash
-              out USDC, USDT, and cNGN to a bank or mobile money account.
+              Buy stablecoins, swap tokens, or cash out directly to your bank
+              or mobile wallet.
             </p>
             <HeroAssets />
             <div style={{ marginTop: 28 }}>
@@ -279,13 +277,13 @@ function HeroMockup() {
         }}
       >
         {/* command field */}
-        <div style={{ padding: "26px 24px 18px" }}>
+        <div style={{ padding: "clamp(20px, 5vw, 26px) clamp(18px, 5vw, 24px) 18px" }}>
           <span className="eyebrow">What would you like to do?</span>
           <div
             style={{
               marginTop: 12,
               minHeight: 44,
-              fontSize: 24,
+              fontSize: "clamp(18px, 5.2vw, 24px)",
               fontWeight: 500,
               letterSpacing: "-0.012em",
               color: "var(--fg)",
@@ -299,7 +297,7 @@ function HeroMockup() {
         {/* assistant reply */}
         <div
           style={{
-            margin: "0 24px 18px",
+            margin: "0 clamp(18px, 5vw, 24px) 18px",
             padding: 16,
             borderRadius: 12,
             background: "var(--bg-soft)",
@@ -353,7 +351,7 @@ function HeroMockup() {
         </div>
 
         {/* quick parse summary */}
-        <div style={{ padding: "0 24px 22px" }}>
+        <div style={{ padding: "0 clamp(18px, 5vw, 24px) 22px" }}>
           <div
             style={{
               display: "grid",
@@ -376,13 +374,13 @@ function HeroMockup() {
         <div
           className="row center"
           style={{
-            padding: "12px 24px",
+            padding: "12px clamp(18px, 5vw, 24px)",
             background: "var(--bg-sunk)",
             borderTop: "1px solid var(--line)",
             fontSize: 11,
             color: "var(--fg-mute)",
             flexWrap: "wrap",
-            justifyContent: "space-between",
+            justifyContent: "flex-start",
             gap: "6px 14px",
           }}
         >
@@ -485,23 +483,20 @@ function RailCards() {
       title: "Buy stablecoins.",
       copy: "Pay with fiat from your bank and receive stablecoins in your wallet.",
       glyph: (
-        <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
-          <rect
-            x="6"
-            y="10"
-            width="20"
-            height="14"
-            rx="3"
-            stroke="currentColor"
-            strokeWidth="1.4"
-          />
-          <path
-            d="M16 4v10m-3-3l3 3 3-3"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M12 3v9" />
+          <path d="M8.5 8.5 12 12l3.5-3.5" />
+          <path d="M4 14v3.5A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5V14" />
         </svg>
       ),
     },
@@ -510,22 +505,20 @@ function RailCards() {
       title: "Cash out.",
       copy: "Sell stablecoins and receive fiat in your bank or mobile money account.",
       glyph: (
-        <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
-          <rect
-            x="4"
-            y="10"
-            width="24"
-            height="14"
-            rx="2"
-            stroke="currentColor"
-            strokeWidth="1.4"
-          />
-          <path
-            d="M4 14h24M9 18h4"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M12 12V3" />
+          <path d="M8.5 6.5 12 3l3.5 3.5" />
+          <path d="M4 14v3.5A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5V14" />
         </svg>
       ),
     },
@@ -534,14 +527,21 @@ function RailCards() {
       title: "Swap tokens.",
       copy: "Swap any token across chains — or convert to USDC or USDT before you cash out.",
       glyph: (
-        <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
-          <path
-            d="M6 12h18l-4-4M26 20H8l4 4"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M4 9h13" />
+          <path d="M14 6l3 3-3 3" />
+          <path d="M20 15H7" />
+          <path d="M10 12l-3 3 3 3" />
         </svg>
       ),
     },
@@ -569,36 +569,14 @@ function RailCards() {
           </h2>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 0,
-            border: "1px solid var(--line)",
-            borderRadius: 16,
-            overflow: "hidden",
-            background: "var(--bg-elev)",
-          }}
-        >
-          {rails.map((r, i) => (
-            <div
-              key={r.label}
-              style={{
-                padding: "26px 22px",
-                borderRight:
-                  i < rails.length - 1 ? "1px solid var(--line)" : "none",
-                position: "relative",
-                minHeight: 220,
-                minWidth: 0,
-              }}
-            >
-              <div style={{ marginBottom: 22 }}>
+        <div className="rail-grid">
+          {rails.map((r) => (
+            <div key={r.label} className="card feat-card rail-card">
+              <div className="rail-card-head">
+                <span className="icon-tile">{r.glyph}</span>
                 <span className="chip chip-inline" style={{ fontSize: 10 }}>
                   {r.label}
                 </span>
-              </div>
-              <div style={{ color: "var(--accent)", marginBottom: 14 }}>
-                {r.glyph}
               </div>
               <h3
                 style={{
@@ -631,14 +609,20 @@ function Settlement() {
       title: "Bank account",
       sub: "Direct deposit to your bank account.",
       glyph: (
-        <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
-          <path
-            d="M4 14L16 6l12 8M6 14v12h20V14M10 26v-7M16 26v-7M22 26v-7M3 28h26"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M3 9.5 12 4l9 5.5" />
+          <path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8" />
+          <path d="M3.5 21h17" />
         </svg>
       ),
     },
@@ -646,22 +630,21 @@ function Settlement() {
       title: "Mobile money",
       sub: "Phone-number payouts.",
       glyph: (
-        <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
-          <rect
-            x="10"
-            y="3"
-            width="12"
-            height="26"
-            rx="3"
-            stroke="currentColor"
-            strokeWidth="1.4"
-          />
-          <path
-            d="M14 6h4M16 25h.01"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+          <path d="M10.5 18.5h3" />
+          <path d="M12 13.5V8" />
+          <path d="M9.8 10.2 12 8l2.2 2.2" />
         </svg>
       ),
     },
@@ -669,18 +652,20 @@ function Settlement() {
       title: "Crypto wallet",
       sub: "USDC, USDT, or cNGN on your network.",
       glyph: (
-        <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden>
-          <rect
-            x="4"
-            y="8"
-            width="24"
-            height="18"
-            rx="3"
-            stroke="currentColor"
-            strokeWidth="1.4"
-          />
-          <path d="M4 12h24" stroke="currentColor" strokeWidth="1.4" />
-          <circle cx="23" cy="19" r="1.8" fill="currentColor" />
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <rect x="3.5" y="6" width="17" height="13" rx="3" />
+          <path d="M14.5 11.5h6v4h-6a2 2 0 0 1 0-4Z" />
+          <circle cx="16.4" cy="13.5" r="0.9" fill="currentColor" stroke="none" />
         </svg>
       ),
     },
@@ -707,26 +692,20 @@ function Settlement() {
           </h2>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 16,
-          }}
-        >
+        <div className="settle-grid">
           {methods.map((m) => (
             <article
               key={m.title}
-              className="card"
+              className="card feat-card"
               style={{
-                padding: 20,
+                padding: 22,
                 display: "flex",
                 flexDirection: "column",
-                gap: 16,
+                gap: 18,
                 minWidth: 0,
               }}
             >
-              <div style={{ color: "var(--accent)" }}>{m.glyph}</div>
+              <span className="icon-tile">{m.glyph}</span>
               <div>
                 <h3 style={{ fontSize: 17, fontWeight: 500 }}>{m.title}</h3>
                 <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
@@ -832,23 +811,12 @@ function FinalCTA({ onOpenApp }: OpenApp) {
 function Footer() {
   return (
     <footer style={{ borderTop: "1px solid var(--line)" }}>
-      <div
-        className="container"
-        style={{
-          padding: "32px 0",
-          display: "flex",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-          gap: 24,
-          fontSize: 12,
-          color: "var(--fg-mute)",
-        }}
-      >
+      <div className="container footer-inner">
         <div className="row center gap-3">
           <Icon.Logo size={16} />
           <span>© 2026 Railglide</span>
         </div>
-        <div className="row center gap-6">
+        <div className="footer-links">
           <a
             href="https://x.com/Railglideapp"
             target="_blank"
@@ -884,9 +852,7 @@ export default function Landing() {
   const router = useRouter();
   const onOpenApp = () => router.push("/swap");
   return (
-    <div
-      style={{ position: "relative", minHeight: "100vh", overflow: "hidden" }}
-    >
+    <div style={{ position: "relative", minHeight: "100vh" }}>
       <TopBar onOpenApp={onOpenApp} />
       <Hero onOpenApp={onOpenApp} />
       <SentenceStrip />
