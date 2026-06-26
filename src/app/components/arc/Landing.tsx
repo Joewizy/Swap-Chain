@@ -469,9 +469,11 @@ function SentenceStrip() {
 
 /* ───────────────────── ROUTES WITHOUT PLUMBING (4 cards) ─ */
 function RailCards() {
+  const router = useRouter();
   const rails = [
     {
       label: "Buy",
+      flow: "buy",
       title: "Buy stablecoins.",
       copy: "Pay with fiat from your bank and receive stablecoins in your wallet.",
       glyph: (
@@ -494,6 +496,7 @@ function RailCards() {
     },
     {
       label: "Sell",
+      flow: "cashout",
       title: "Cash out.",
       copy: "Sell stablecoins and receive fiat in your bank or mobile money account.",
       glyph: (
@@ -516,6 +519,7 @@ function RailCards() {
     },
     {
       label: "Swap",
+      flow: "bridge",
       title: "Swap tokens.",
       copy: "Swap any token across chains — or convert to USDC or USDT before you cash out.",
       glyph: (
@@ -563,7 +567,22 @@ function RailCards() {
 
         <div className="rail-grid">
           {rails.map((r) => (
-            <div key={r.label} className="card feat-card rail-card">
+            <button
+              key={r.label}
+              type="button"
+              onClick={() => router.push(`/swap?flow=${r.flow}`)}
+              aria-label={`${r.title} — open the app`}
+              className="card feat-card rail-card"
+              style={{
+                appearance: "none",
+                font: "inherit",
+                color: "inherit",
+                textAlign: "left",
+                cursor: "pointer",
+                display: "block",
+                width: "100%",
+              }}
+            >
               <div className="rail-card-head">
                 <span className="icon-tile">{r.glyph}</span>
                 <span className="chip chip-inline" style={{ fontSize: 10 }}>
@@ -586,7 +605,7 @@ function RailCards() {
               >
                 {r.copy}
               </p>
-            </div>
+            </button>
           ))}
         </div>
       </div>
