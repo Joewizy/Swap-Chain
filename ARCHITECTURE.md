@@ -1,19 +1,20 @@
 # Architecture & roadmap
 
-This document complements [`README.md`](README.md): the README describes **what runs in the repo today** (Relay-centric testnet demo). This file describes the **target multi-rail product** (Chainrails, CCTP, Relay, Paycrest), constraints, and phased rollout. Use both together—nothing here invalidates the README until corresponding code lands.
+This document complements [`README.md`](README.md): the README describes **what runs in the repo today** (Paycrest fiat off-ramp on mainnet, plus Relay swaps and bridges). This file describes the **target multi-rail product** (Chainrails, CCTP, Relay, Paycrest), constraints, and phased rollout. Use both together—nothing here invalidates the README until corresponding code lands.
 
 ---
 
 ## How this fits the README
 
+
 |                     | README (today)                     | This doc (target)                                              |
 | ------------------- | ---------------------------------- | -------------------------------------------------------------- |
 | **Bridge / quotes** | Relay API, EVM testnets + Starknet | Relay retained for outbound edges + quotes; CCTP for USDC↔USDC |
-| **AI intent**       | `/api/intent`, loose parsing       | Structured outputs + route planner                             |
-| **Starknet**        | AutoSwappr + server-involved flows | Client-signed swaps; drop server-held keys                     |
+| **AI intent**       | `/api/chat`, multi-turn parsing    | Structured outputs + route planner                             |
 | **Security stance** | Documents server-side key handling | Target: no server-held signing keys                            |
 
----
+
+
 
 ## Product vision
 
@@ -36,6 +37,8 @@ Users describe intent in plain language or a form (for example: send local fiat 
 - SMB stablecoin payroll into local payout corridors.
 - Merchants settling crypto receipts to fiat.
 
+
+
 ### Constraints (what we are not claiming)
 
 - **Regulatory / KYC:** corridors and limits depend on providers; app-level KYC may be needed above thresholds (see backlog).
@@ -44,22 +47,27 @@ Users describe intent in plain language or a form (for example: send local fiat 
 
 ---
 
+
+
 ## The four rails
 
 High-level roles:
 
-| Rail               | Role                                                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| **Chainrails**     | Crypto **inbound** + fiat **on-ramp**; settles toward configured settlement chain (for example USDC on Base).            |
-| **Circle CCTP v2** | **USDC ↔ USDC** across domains when destination token stays USDC.                                                        |
-| **Relay**          | Non-USDC outbound, Bitcoin, fast quotes, same-chain swaps, executor when wallet is already connected; optional fallback. |
+
+| Rail               | Role                                                                                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Chainrails**     | Crypto **inbound** + fiat **on-ramp**; settles toward configured settlement chain (for example USDC on Base).                                                      |
+| **Circle CCTP v2** | **USDC ↔ USDC** across domains when destination token stays USDC.                                                                                                  |
+| **Relay**          | Non-USDC outbound, Bitcoin, fast quotes, same-chain swaps, executor when wallet is already connected; optional fallback.                                           |
 | **Paycrest**       | **Fiat off-ramp** (USDC → bank / mobile money) and **on-ramp** (fiat → USDC) via the same Sender API for supported corridors. Chainrails remains fallback on-ramp. |
+
 
 **Chainrails inbound scope (reference):** intent flows may fund from multiple assets (for example USDC, USDT, DAI, ETH, WETH, and chain-specific lists) across listed networks; internal bridge/swap lands as USDC on the settlement chain. Fiat on-ramp coverage is provider-defined (many countries). Exact lists live in provider docs—not duplicated here so this table stays readable.
 
 ### When Relay still wins (outbound)
 
 After inbound settles to USDC on the app balance, **outbound** routing uses Relay where CCTP or Paycrest do not apply:
+
 
 | Scenario                         | Why Relay                                                                   |
 | -------------------------------- | --------------------------------------------------------------------------- |
@@ -70,6 +78,7 @@ After inbound settles to USDC on the app balance, **outbound** routing uses Rela
 | Power users                      | Step executor can sign from connected wallet without intent-address bounce. |
 | Same-chain swaps                 | Via Relay instead of a separate aggregator.                                 |
 | Resilience                       | Optional fallback when another rail is degraded.                            |
+
 
 **One-line summary:** Chainrails → inbound; CCTP → USDC↔USDC outbound; Paycrest → fiat outbound; Relay → other outbound + quotes + optional fallback.
 
@@ -89,6 +98,8 @@ intent direction?
 
 ---
 
+
+
 ## System architecture (target)
 
 ```javascript
@@ -100,12 +111,12 @@ intent direction?
 └──────────────────────┬───────────────────────────────────────┘
                        │
               ┌────────▼────────┐
-              │ Intent layer    │   /api/intent
+              │ Intent layer    │   /api/chat
               │ (structured AI) │   strict JSON schema + alias map
               └────────┬────────┘
                        │
               ┌────────▼────────┐
-              │ Route planner   │   /api/route
+              │ Route planner   │   /api/router
               │ Chainrails |    │   pure function over registry
               │ CCTP | Relay |  │   rail, legs[], fee estimates
               │ Paycrest        │
@@ -127,11 +138,15 @@ PaymentModal        (client signs)                       (server order +
                        └────────────────┘
 ```
 
+
+
 ### Signing & custody (target vs README today)
 
 **Target:** remove server-held chain keys (`ARGENT_PRIVATE_KEY`-style paths). Signatures come from the user wallet (RainbowKit / Argent-Braavos / Phantom as applicable). Server keeps provider API keys and read-only RPC configuration only—aligned with README’s eventual security story once migration lands.
 
 ---
+
+
 
 ## Network mode (testnet ⇄ mainnet)
 
@@ -141,15 +156,17 @@ Single flag drives registry and helpers:
 NEXT_PUBLIC_NETWORK=testnet   # | mainnet
 ```
 
+
 | Rail       | Testnet                                           | Mainnet                        |
 | ---------- | ------------------------------------------------- | ------------------------------ |
 | Chainrails | Sessions + manual triggers; **USDC-only** funding | Full token support + fiat ramp |
 | CCTP       | Sepolia family / Fuji / Amoy-style domains        | Production domains             |
-| Relay      | Wired (`utils/relay/testnet.ts`)                  | `utils/relay/mainnet.ts`       |
+| Relay      | Via `@relayprotocol` SDK; config `apps/web/src/config/relay.ts` | Same module, network via `NEXT_PUBLIC_NETWORK` |
 | Paycrest   | Sandbox + test beneficiaries                      | Live API + provider KYC        |
 | Wallets    | Testnet chains in RainbowKit                      | Mainnet chains                 |
 
-Centralise chain lists in something like `src/config/network.ts` instead of scattering `SUPPORTED_CHAINS`. Default **`testnet`** until mainnet providers are funded and a small live path is verified.
+
+Centralise chain lists in something like `apps/web/src/config/network.ts` instead of scattering `SUPPORTED_CHAINS`. Default `testnet` until mainnet providers are funded and a small live path is verified.
 
 ---
 
@@ -157,10 +174,9 @@ Centralise chain lists in something like `src/config/network.ts` instead of scat
 
 **Today (repo):**
 
-- `src/app/api/chat/route.ts` — multi-turn chat; each turn returns a `ChatReply` with optional `launch: FlowLaunch` when ready.
-- `src/assistant/productRules.ts` — product constraints (USDC/USDT settlement, swap-then-cashout, amount optional in chat).
-- `src/app/components/arc/AssistantChat.tsx` — describe-flow UI; `launchFlow()` saves `savePendingLaunch()` then navigates.
-- `src/app/api/intent/route.ts` — legacy single-shot parser (dashboard).
+- `apps/web/src/app/api/chat/route.ts` — multi-turn chat; each turn returns a `ChatReply` with optional `launch: FlowLaunch` when ready.
+- `apps/web/src/assistant/productRules.ts` — product constraints (USDC/USDT settlement, swap-then-cashout, amount optional in chat).
+- `apps/web/src/app/components/arc/AssistantChat.tsx` — describe-flow UI; `launchFlow()` saves `savePendingLaunch()` then navigates.
 
 **Type progression:** `ChatMessage` → `ChatReply` → `FlowLaunch` (pending) → guided flow → `Intent` (quoted) → execution. `Intent` is never used for chat routing.
 
@@ -168,79 +184,7 @@ Centralise chain lists in something like `src/config/network.ts` instead of scat
 
 ---
 
-## Phased roadmap
 
-### Phase 0 — Cleanup (week 1)
-
-Foundation only; no user-facing features.
-
-- [x] Remove `ARGENT_PRIVATE_KEY` and server-side Starknet swap path
-- [x] Migrate `api/intent/route.js` → `route.ts`
-- [x] Add `src/config/network.ts`; dedupe chains across `quote/route.ts`, `SwapInterface.tsx`, `rainbowKitConfig.ts`
-- [x] Trim dead routes from registry until executable again
-- [ ] Delete mock same-chain swap rates
-- [x] Add `NEXT_PUBLIC_NETWORK` (default `testnet`)
-- [x] Tighten intent prompt via structured outputs
-
-### Phase 1 — Local payout MVP (weeks 2–3)
-
-- [ ] Chainrails session API + `<PaymentModal />` on deposit UI
-- [ ] Paycrest order / rate / status APIs
-- [ ] Recipient capture per corridor (bank / mobile money)
-- [ ] E2E: Chainrails → USDC on Base → Paycrest → fiat
-- [ ] Status timeline UI
-- [ ] Sandbox proof, then mainnet toggle
-
-### Phase 2 — Cross-chain outbound (weeks 4–5)
-
-- [ ] CCTP v2 for USDC↔USDC
-- [ ] Relay outbound for non-USDC / exotic legs (reuse cleaned executor)
-- [ ] Quote comparison for assistant flows
-- [ ] Route planner implementing the decision sketch above
-- [ ] Starknet outbound via client-signed flows
-
-### Phase 3 — Local payout UX (weeks 6+)
-
-- [ ] Phone-first recipients (Opay, M-Pesa, Moniepoint, MTN MoMo, …)
-- [ ] Localisation for priority launch markets
-- [ ] PWA / low-connectivity-friendly status
-- [ ] WhatsApp or similar distribution experiments
-- [ ] Recurring payments; bill pay integrations; reverse on-ramp; yield on idle balance; receipts—see backlog for detail
-
----
-
-## Backlog (non-blocking ideas)
-
-- Rate lock windows against FX drift
-- Batch payouts (payroll)
-- App-level Travel Rule / KYC beyond provider defaults
-- Telegram mini-app parity
-- Referral attribution
-- Dispute / reversal UX + ops tooling
-- Merchant SDK (`<PayWithRailglide />`)
-- Alternate off-ramp providers (Yellow Card, Bitnob, FonBNK, …)
-- SMB treasury (Safe, exports)
-- Relay behind feature flag as inbound fallback when Chainrails degrades
-
----
-
-## File-level cleanup map
-
-| Location                               | Action                                              |
-| -------------------------------------- | --------------------------------------------------- |
-| `src/app/api/intent/route.js`          | → `.ts`, structured outputs                         |
-| `src/app/api/quote/route.ts`           | Extract registry; add CCTP path                     |
-| `src/app/api/starknet-swap/route.ts`   | Remove server path; client-side signing             |
-| `src/hooks/useRelayExecutor.ts`        | Moved to `src/hooks/`; slim to outbound-only later  |
-| `src/utils/*` (was `utils.ts`)         | Split by domain: amount, gas, balance, icons, solana |
-| `src/types/*` (was `interfaces.ts`)    | Shared types extracted into a domain-split folder   |
-| `src/app/components/SwapInterface.tsx` | Split panels: deposit / off-ramp / bridge           |
-| `src/app/components/AutoSwap.tsx`      | Client-signed Starknet                              |
-| `src/app/dashboard/transfer/page.tsx`  | Evolve into off-ramp page                           |
-| _new_ `src/config/network.ts`          | Single network + chain source of truth              |
-| _new_ `src/rails/*.ts`                 | `chainrails`, `cctp`, `relay`, `paycrest`, `router` |
-
----
 
 ## Environment variables (target)
 
@@ -274,9 +218,9 @@ NEXT_PUBLIC_BASE_RPC_URL=
 NEXT_PUBLIC_STARKNET_RPC_URL=
 ```
 
-`ARGENT_PRIVATE_KEY` intentionally omitted in the target model.
-
 ---
+
+
 
 ## Doc maintenance
 
