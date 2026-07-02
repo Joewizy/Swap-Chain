@@ -1,14 +1,10 @@
 /**
- * Shared types — single import surface for cross-module type definitions.
+ * Shared domain types — re-exported from the shared package.
  *
- *   import { SwapFormData, QuoteResponse } from "@/types";
- *
- * Types used by exactly one component or route stay co-located with
- * that code; only types shared across modules live here.
+ * The canonical shapes (swap, quote, relay, config, api) now live in
+ * `@railglide/shared/types` so web and mobile stay in lockstep. This file keeps
+ * the `@/types` import path working; add new cross-client types in the shared
+ * package, and keep single-consumer types co-located with their code.
  */
 
-export * from "./swap";
-export * from "./quote";
-export * from "./relay";
-export * from "./config";
-export * from "./api";
+export * from "@railglide/shared/types";

@@ -1,0 +1,24 @@
+{
+  "name": "@railglide/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contracts shared by the Railglide web and mobile clients: chain/token registry, domain types, and chat/flow types. Single source of truth so the two heads can't drift.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./network": "./src/network.ts",
+    "./types": "./src/types/index.ts",
+    "./assistant/types": "./src/assistant/types.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "viem": "^2.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

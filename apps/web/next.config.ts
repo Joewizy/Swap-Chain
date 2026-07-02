@@ -23,6 +23,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // @railglide/shared ships TypeScript source (no build step), so Next must
+  // transpile it like first-party code.
+  transpilePackages: ["@railglide/shared"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Railglide",
+    "slug": "railglide",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "railglide",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "app.railglide.mobile"
+    },
+    "android": {
+      "package": "app.railglide.mobile"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0B0B0F",
+          "resizeMode": "contain"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {}
+    }
+  }
+}

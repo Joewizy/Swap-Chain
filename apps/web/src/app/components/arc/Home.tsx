@@ -14,8 +14,11 @@
 
 import React from "react";
 import { Icon } from "./icons";
+import type { FlowId } from "@/assistant/types";
 
-export type FlowId = "cashout" | "buy" | "bridge";
+// Canonical FlowId now lives in @railglide/shared; re-export it here so the
+// existing `./Home` importers (AppShell, AssistantChat, swapUrl) keep working.
+export type { FlowId };
 
 type Goal = {
   id: FlowId;
