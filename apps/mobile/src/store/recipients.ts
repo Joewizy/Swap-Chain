@@ -1,16 +1,8 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-/**
- * Recipients — a device-local address book of fiat payout targets (bank /
- * mobile money). Mirrors the web app's `recipients.ts`, swapping localStorage
- * for AsyncStorage. Names never leave the device: the intent flow resolves
- * "send to mum" against this store rather than handing PII to the model.
- *
- * The `Recipient` shape is kept identical to web so the two clients stay
- * interchangeable; if it needs to be a hard contract later, hoist it into
- * @railglide/shared.
- */
+// Recipients — device-local address book (AsyncStorage). Mirrors web's
+// recipients.ts; names never leave the device.
 export type Recipient = {
   /** `${institution}:${accountIdentifier}` — also the dedup key. */
   id: string;

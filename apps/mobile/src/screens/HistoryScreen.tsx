@@ -14,11 +14,8 @@ import { fetchOrders, type HistoryOrder } from "@/api/history";
 import { walletReady } from "@/wallet/config";
 import { theme } from "@/theme";
 
-/**
- * Order history — gated behind a SIWE session. Connect a wallet, sign in (a
- * gasless signature), then the authenticated wallet's Paycrest orders load from
- * the backend. No signing = no history, by design (the wallet is the identity).
- */
+// Order history — gated behind a SIWE session: connect, sign in (gasless), then
+// the authenticated wallet's Paycrest orders load.
 export function HistoryScreen() {
   const {
     isConnected,
@@ -183,14 +180,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
   },
-  title: { color: theme.colors.text, fontSize: 22, fontWeight: "700" },
+  title: { color: theme.colors.text, fontSize: 30, fontFamily: theme.serif },
   muted: {
     color: theme.colors.muted,
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
   },
-  error: { color: "#F87171", fontSize: 13, textAlign: "center" },
+  error: { color: theme.colors.err, fontSize: 13, textAlign: "center" },
   signOut: { color: theme.colors.muted, fontSize: 13, fontWeight: "600" },
   pad: { paddingVertical: theme.spacing(2) },
   card: {
@@ -214,12 +211,12 @@ const styles = StyleSheet.create({
     textTransform: "capitalize",
   },
   button: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: 10,
+    backgroundColor: theme.colors.btnBg,
+    borderRadius: theme.radius.input,
     paddingVertical: theme.spacing(1.5),
     paddingHorizontal: theme.spacing(3),
     alignItems: "center",
   },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
+  buttonText: { color: theme.colors.btnFg, fontSize: 15, fontWeight: "600" },
 });

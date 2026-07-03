@@ -2,12 +2,8 @@ import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
 import { getSessionAddress } from "@/api/auth";
 
-/**
- * SIWE session state. The HMAC-signed token from /api/auth/verify lives in
- * expo-secure-store (never a private key — just the session token), and the
- * proven wallet address rides alongside it. Protected API calls read `token`
- * and send it as a Bearer header.
- */
+// SIWE session state. The token from /api/auth/verify lives in expo-secure-store
+// (never a private key); protected calls send it as a Bearer header.
 const TOKEN_KEY = "railglide.session.token";
 
 type AuthStatus = "loading" | "signed-out" | "signed-in";

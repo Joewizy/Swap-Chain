@@ -1,8 +1,4 @@
-/**
- * Paycrest endpoint wrappers → the unchanged backend routes (server holds the
- * API key). Off-ramp path: rate → institutions → verify-account → create order
- * → poll order.
- */
+// Paycrest endpoint wrappers → backend routes (server holds the API key).
 import { apiFetch } from "./client";
 import type {
   PaycrestFiat,

@@ -6,9 +6,7 @@ import { HistoryScreen } from "@/screens/HistoryScreen";
 import { RecipientsScreen } from "@/screens/RecipientsScreen";
 import { theme } from "@/theme";
 
-/**
- * Bottom-tab shell — one tab per core job, mirroring the web app's goals.
- */
+// Bottom-tab shell — one tab per core job.
 export type RootTabParamList = {
   Ask: undefined;
   "Cash out": undefined;
@@ -24,15 +22,21 @@ export function RootNavigator() {
     <Tab.Navigator
       screenOptions={{
         headerStyle: { backgroundColor: theme.colors.bg },
-        headerTitleStyle: { color: theme.colors.text },
+        headerTitleStyle: {
+          color: theme.colors.text,
+          fontFamily: theme.serif,
+          fontSize: 26,
+        },
+        headerTitleAlign: "left",
         headerShadowVisible: false,
         sceneStyle: { backgroundColor: theme.colors.bg },
         tabBarStyle: {
           backgroundColor: theme.colors.surface,
           borderTopColor: theme.colors.border,
         },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
         tabBarActiveTintColor: theme.colors.accent,
-        tabBarInactiveTintColor: theme.colors.muted,
+        tabBarInactiveTintColor: theme.colors.faint,
       }}
     >
       <Tab.Screen name="Ask" component={IntentScreen} />

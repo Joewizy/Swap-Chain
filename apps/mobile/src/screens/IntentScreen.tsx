@@ -36,11 +36,8 @@ const SUGGESTIONS = [
   "Swap ETH to USDC on Base",
 ];
 
-/**
- * Home — natural-language intent chat (Phase 1). Posts the running thread to
- * /api/chat and, when the reply is `ready`, stashes the FlowLaunch in the
- * session store and hands off to the matching flow screen. No signing here.
- */
+// Intent chat. Posts to /api/chat; on a `ready` reply, stashes the FlowLaunch
+// and hands off to the matching flow screen.
 export function IntentScreen() {
   const navigation =
     useNavigation<BottomTabNavigationProp<RootTabParamList>>();
@@ -246,7 +243,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
-  userText: { color: "#FFFFFF", fontSize: 15, lineHeight: 21 },
+  userText: { color: theme.colors.accentFg, fontSize: 15, lineHeight: 21 },
   assistantText: { color: theme.colors.text, fontSize: 15, lineHeight: 21 },
   thinkingRow: {
     flexDirection: "row",
@@ -258,11 +255,11 @@ const styles = StyleSheet.create({
   errorCard: {
     padding: theme.spacing(1.5),
     borderRadius: 12,
-    backgroundColor: "#2A1416",
+    backgroundColor: theme.colors.errSoft,
     borderWidth: 1,
-    borderColor: "#F87171",
+    borderColor: theme.colors.err,
   },
-  errorText: { color: "#F87171", fontSize: 13 },
+  errorText: { color: theme.colors.err, fontSize: 13 },
   handoffCard: {
     padding: theme.spacing(2),
     borderRadius: 12,
@@ -274,12 +271,12 @@ const styles = StyleSheet.create({
   planList: { gap: theme.spacing(0.5) },
   planStep: { color: theme.colors.muted, fontSize: 13, lineHeight: 20 },
   ctaButton: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: 10,
+    backgroundColor: theme.colors.btnBg,
+    borderRadius: theme.radius.input,
     padding: theme.spacing(1.5),
     alignItems: "center",
   },
-  ctaText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
+  ctaText: { color: theme.colors.btnFg, fontSize: 15, fontWeight: "600" },
   inputBar: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -305,5 +302,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sendButtonDisabled: { opacity: 0.4 },
-  sendButtonText: { color: "#FFFFFF", fontSize: 18, fontWeight: "700" },
+  sendButtonText: { color: theme.colors.accentFg, fontSize: 18, fontWeight: "700" },
 });

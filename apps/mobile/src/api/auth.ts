@@ -1,14 +1,5 @@
-/**
- * SIWE auth client. The flow mirrors the web app but is token-based instead of
- * cookie-based (RN has no browser cookie jar):
- *
- *   1. GET  /api/auth/nonce            → { nonce }   (also sets a nonce cookie,
- *      which RN's native cookie store round-trips to /verify)
- *   2. wallet signs a SIWE message embedding that nonce
- *   3. POST /api/auth/verify           → { address, token }
- *   4. token is stored in expo-secure-store and sent as `Authorization: Bearer`
- *      on protected calls (the backend's getSession accepts either transport)
- */
+// SIWE auth client (token-based; RN has no cookie jar):
+//   nonce → wallet signs → verify → store token → send as Bearer on protected calls.
 import { apiFetch } from "./client";
 
 export interface NonceResponse {

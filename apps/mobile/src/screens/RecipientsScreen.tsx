@@ -10,11 +10,8 @@ import {
 import { useRecipients } from "@/store/recipients";
 import { theme } from "@/theme";
 
-/**
- * Saved recipients — a device-local address book (banks, mobile-money
- * providers). Entries normally appear after a completed cash-out (Phase 2);
- * the manual add here keeps the screen exercisable in Phase 1.
- */
+// Saved recipients — device-local address book. Entries also appear after a
+// completed cash-out; the manual add keeps it exercisable.
 export function RecipientsScreen() {
   const { recipients, hydrated, hydrate, upsert, remove } = useRecipients();
   const [adding, setAdding] = useState(false);
@@ -164,7 +161,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  title: { color: theme.colors.text, fontSize: 22, fontWeight: "700" },
+  title: { color: theme.colors.text, fontSize: 30, fontFamily: theme.serif },
   addButton: {
     paddingHorizontal: theme.spacing(1.5),
     paddingVertical: theme.spacing(0.75),
@@ -192,7 +189,7 @@ const styles = StyleSheet.create({
   cardMain: { flex: 1, gap: theme.spacing(0.5) },
   name: { color: theme.colors.text, fontSize: 16, fontWeight: "600" },
   detail: { color: theme.colors.muted, fontSize: 13 },
-  remove: { color: "#F87171", fontSize: 13, fontWeight: "600" },
+  remove: { color: theme.colors.err, fontSize: 13, fontWeight: "600" },
   form: {
     padding: theme.spacing(2),
     borderRadius: 12,
@@ -213,11 +210,11 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing(1),
   },
   saveButton: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: 10,
+    backgroundColor: theme.colors.btnBg,
+    borderRadius: theme.radius.input,
     padding: theme.spacing(1.5),
     alignItems: "center",
   },
   saveButtonDisabled: { opacity: 0.4 },
-  saveButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
+  saveButtonText: { color: theme.colors.btnFg, fontSize: 15, fontWeight: "600" },
 });

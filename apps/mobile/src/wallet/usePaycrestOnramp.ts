@@ -1,12 +1,7 @@
-/**
- * usePaycrestOnramp (mobile) — fiat → stablecoin.
- *
- *   idle → creating → awaiting_deposit → settling → complete   (or error)
- *
- * Creates an order, surfaces virtual-account deposit instructions, then polls
- * until USDC lands in the recipient wallet. No wallet signature — the user
- * transfers fiat externally to the provided account.
- */
+// usePaycrestOnramp — fiat → stablecoin. Creates an order, shows virtual-account
+// deposit instructions, then polls until USDC lands. No signature — the user
+// transfers fiat externally.
+//   idle → creating → awaiting_deposit → settling → complete (or error)
 import { useCallback, useEffect, useState } from "react";
 import { getChain, type ChainId } from "@railglide/shared/network";
 import {

@@ -1,13 +1,8 @@
 import { create } from "zustand";
 import type { FlowLaunch } from "@railglide/shared/assistant/types";
 
-/**
- * Client/UI state (mirrors the web store choice: Zustand).
- *
- * `pendingLaunch` carries a ready `FlowLaunch` from the intent chat into the
- * guided flow screen — the mobile analogue of the web app's chat → flow
- * handoff. Wallet address is set once the wallet step of Phase 0 lands.
- */
+// Client/UI state. `pendingLaunch` carries a ready FlowLaunch from the intent
+// chat into the flow screen (the chat → flow handoff).
 interface SessionState {
   address: string | null;
   pendingLaunch: FlowLaunch | null;

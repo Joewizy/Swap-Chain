@@ -1,13 +1,7 @@
-/**
- * usePaycrestOfframp (mobile) — stablecoin → bank / mobile money.
- *
- * Ported from the web hook. Same model: the backend creates a Paycrest order
- * with a provider `receiveAddress`; the only signature the user makes is the
- * on-chain stablecoin transfer to that address; then we poll the order until
- * the provider settles fiat.
- *
- *   idle → creating → awaiting_funding → funding → settling → complete   (or error)
- */
+// usePaycrestOfframp — stablecoin → fiat. Backend creates an order with a
+// provider receiveAddress; the only signature is the on-chain transfer to it;
+// then poll until settled.
+//   idle → creating → awaiting_funding → funding → settling → complete (or error)
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BaseError,

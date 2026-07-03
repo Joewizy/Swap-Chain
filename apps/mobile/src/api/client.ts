@@ -1,20 +1,10 @@
-/**
- * Base API client → the Railglide backend (unchanged Next.js API routes).
- *
- * On web the app hits relative `/api/*` paths; on mobile there is no same
- * origin, so every call needs an absolute base URL. Point `EXPO_PUBLIC_API_URL`
- * at the running backend (e.g. your LAN dev URL `http://192.168.x.x:3000`, or
- * the deployed origin). See ARCHITECTURE.md — the mobile app is a client, not a
- * fork; it must not add mobile-specific endpoints.
- */
+// Base API client → the Railglide backend. Mobile has no same-origin, so calls
+// need an absolute base URL: set EXPO_PUBLIC_API_URL (LAN dev or deployed).
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
 
-/**
- * Host (authority) of the backend, e.g. "192.168.1.20:3000". The SIWE message
- * must carry this as its `domain` because /api/auth/verify binds the signature
- * to `req.nextUrl.host`. Parsed by hand — RN has no reliable global URL.
- */
+// Backend host (e.g. "192.168.1.20:3000") — the SIWE message's `domain`.
+// Parsed by hand since RN has no reliable global URL.
 export const API_HOST = API_URL.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
 
 export class ApiError extends Error {

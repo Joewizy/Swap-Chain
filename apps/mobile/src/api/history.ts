@@ -1,12 +1,5 @@
-/**
- * Order history — GET /api/paycrest/orders (SIWE-protected).
- *
- * The backend derives the wallet from the verified session, filters Paycrest's
- * sender orders to that wallet, and returns the summarized list. We send the
- * session token as a Bearer header. The order shape mirrors web's
- * `PaycrestHistoryOrder` (rails/paycrest.ts) — kept to the fields History
- * renders; hoist to @railglide/shared if it needs to be a hard contract.
- */
+// Order history — GET /api/paycrest/orders (SIWE-protected, Bearer token).
+// HistoryOrder mirrors web's PaycrestHistoryOrder (display fields only).
 import { apiFetch } from "./client";
 
 export type PaycrestDirection = "offramp" | "onramp";

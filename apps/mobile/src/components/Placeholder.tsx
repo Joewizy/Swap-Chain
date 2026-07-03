@@ -1,11 +1,7 @@
 import { View, Text, StyleSheet } from "react-native";
 import { theme } from "@/theme";
 
-/**
- * Scaffold placeholder for a not-yet-built screen. Each Phase-0 tab renders one
- * so the shell, navigation, and providers can be verified before the real
- * flows land in Phase 1+.
- */
+// Placeholder for a not-yet-built screen.
 export function Placeholder({
   title,
   subtitle,

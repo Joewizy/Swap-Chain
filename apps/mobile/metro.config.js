@@ -1,12 +1,5 @@
-// Metro config for the Railglide mobile app inside the npm-workspaces monorepo.
-//
-// Two jobs:
-//  1. Monorepo resolution — watch the whole workspace and resolve hoisted deps
-//     (including the symlinked `@railglide/shared`) from the root node_modules.
-//  2. (later) Web3 polyfill resolver — when the wallet stack lands, viem and the
-//     WalletConnect libs expect Node built-ins. Map them to RN shims here. Left
-//     staged and commented until Phase 0's wallet step; see src/polyfills.ts.
-
+// Metro config for the monorepo: workspace resolution, Web3 Node-builtin
+// aliases, and dedup of the AppKit/WalletConnect singletons (see notes below).
 const { getDefaultConfig } = require("expo/metro-config");
 const path = require("path");
 
@@ -15,13 +8,9 @@ const workspaceRoot = path.resolve(projectRoot, "../..");
 
 const config = getDefaultConfig(projectRoot);
 
-// 1. Monorepo: watch the whole workspace so Metro sees the symlinked
-//    `@railglide/shared` source at packages/shared, and give the resolver BOTH
-//    node_modules roots. The Reown AppKit packages install split across
-//    apps/mobile/node_modules and the root, and several import siblings from
-//    their `src/` entry — without both search paths Metro can't resolve them
-//    (e.g. @reown/appkit-common-react-native, react-native-modal). expo-doctor
-//    flags this override, but the split layout genuinely requires it.
+// 1. Monorepo: watch the workspace and search both node_modules roots. The
+//    AppKit packages install split across mobile/ and root and import siblings
+//    from their src/ entry, so both paths are needed (expo-doctor flags this).
 config.watchFolders = [workspaceRoot];
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),
@@ -38,20 +27,17 @@ config.resolver.extraNodeModules = {
   buffer: require.resolve("@craftzdog/react-native-buffer"),
 };
 
-// 3. valtio singleton dedup. Reown AppKit's controllers are valtio-proxy state
-//    singletons; every @reown package must share ONE valtio instance or the
-//    state written by createAppKit is invisible to <AppKit/>. The RN packages
-//    want valtio 1.13.2, but `@reown/appkit-scaffold-react-native` (which holds
-//    <AppKit/>) declares no valtio dep and falls through to the root valtio 2.x
-//    that the web app's @chainrails/react pulls in — a 1.x/2.x split that crashes
-//    <AppKit/> with "Cannot convert undefined value to object". Force every
-//    @reown importer to the same 1.13.2 copy.
+// 3. Force every @reown package onto one valtio 1.13.2 instance. AppKit's
+//    controllers are valtio-proxy singletons; a 1.x/2.x split (scaffold-rn falls
+//    through to the web app's root valtio 2.x) crashes <AppKit/> with "Cannot
+//    convert undefined value to object".
 const reownValtioBase = path.resolve(
   workspaceRoot,
   "node_modules/@reown/appkit-core-react-native"
 );
-// The stateful WalletConnect relay singletons to force to a single root copy,
-// and a fake root-level module path to anchor their resolution there.
+// 4. WalletConnect relay singletons — anchor at root so every importer shares
+//    one copy, else the sign response lands on a different `core` than the one
+//    awaiting it ("session_request without any listeners" → sign hangs).
 const WC_SINGLETONS = [
   "@walletconnect/core",
   "@walletconnect/sign-client",
@@ -74,15 +60,8 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     }
   }
 
-  // 4. WalletConnect singleton dedup. @walletconnect/core, sign-client, and
-  //    universal-provider are stateful relay singletons. npm left duplicate
-  //    copies (root 2.21.1 + nested 2.21.0 under @reown/appkit*), so the sign
-  //    response can land on a different `core` than the one signMessageAsync
-  //    awaits — "emitting session_request without any listeners", and the sign
-  //    hangs forever. Anchor these three at the root so every importer shares
-  //    one copy. Resolve through Metro (not require.resolve) so it still picks
-  //    each package's `react-native` build — a blanket require.resolve grabbed
-  //    the Node/fs build of @walletconnect/keyvaluestorage and broke the bundle.
+  // Anchor via Metro (not require.resolve) so it still picks each package's
+  // react-native build.
   if (
     WC_SINGLETONS.some(
       (p) => moduleName === p || moduleName.startsWith(`${p}/`)

@@ -10,12 +10,8 @@
 import type { ChatMessage, ChatReply } from "@railglide/shared/assistant/types";
 import { apiFetch, ApiError } from "./client";
 
-/**
- * Post the running conversation to the assistant. The backend returns a
- * `ChatReply` directly (not an envelope); on error it returns `{ error }` with
- * a non-2xx status, which `apiFetch` throws as an `ApiError` carrying that JSON
- * body — unwrap it to a plain message for the UI.
- */
+// Post the conversation to the assistant; unwrap the backend's { error } body
+// into a plain ApiError message.
 export async function sendChat(messages: ChatMessage[]): Promise<ChatReply> {
   try {
     return await apiFetch<ChatReply>("/api/chat", {

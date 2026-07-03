@@ -6,15 +6,8 @@ import { getNonce, verifySiwe } from "@/api/auth";
 import { API_HOST, API_URL, ApiError } from "@/api/client";
 import { useAuth } from "@/store/auth";
 
-/**
- * Ties the connected wallet (wagmi) to the SIWE session (backend + secure
- * store). Two user actions:
- *   - `connect()` opens the Reown modal to pick/connect a wallet.
- *   - `signIn()` runs the SIWE round trip: nonce → sign → verify → store token.
- *
- * Signing is a deep-link round trip to the wallet app; on return the promise
- * from `signMessageAsync` resolves and we exchange the signature for a session.
- */
+// Ties the connected wallet (wagmi) to the SIWE session. connect() opens the
+// Reown modal; signIn() runs the round trip: nonce → sign → verify → store token.
 export function useWalletAuth() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();

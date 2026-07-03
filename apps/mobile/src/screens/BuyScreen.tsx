@@ -399,6 +399,6 @@ const styles = StyleSheet.create({
   },
   instName: { color: theme.colors.text, fontSize: 14, flex: 1 },
   instType: { color: theme.colors.muted, fontSize: 12 },
-  accountName: { color: "#34D399", fontSize: 15, fontWeight: "600" },
+  accountName: { color: theme.colors.ok, fontSize: 15, fontWeight: "600" },
   pad: { paddingVertical: theme.spacing(2) },
 });

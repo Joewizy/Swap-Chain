@@ -1,9 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 
-/**
- * Server-state cache. Order-status polling (deposit → bridge → payout) will
- * lean on this in Phase 2 — retries and background refetch out of the box.
- */
+// Server-state cache (retries + background refetch for order-status polling).
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

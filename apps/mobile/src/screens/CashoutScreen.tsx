@@ -530,7 +530,7 @@ function Secondary({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.bg },
   content: { padding: theme.spacing(2), gap: theme.spacing(1.5) },
-  title: { color: theme.colors.text, fontSize: 22, fontWeight: "700" },
+  title: { color: theme.colors.text, fontSize: 30, fontFamily: theme.serif },
   steps: { flexDirection: "row", gap: theme.spacing(1), marginBottom: theme.spacing(1) },
   stepChip: {
     color: theme.colors.muted,
@@ -542,7 +542,10 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     overflow: "hidden",
   },
-  stepChipActive: { color: "#FFFFFF", backgroundColor: theme.colors.accent },
+  stepChipActive: {
+    color: theme.colors.accentFg,
+    backgroundColor: theme.colors.accent,
+  },
   field: { gap: theme.spacing(0.75) },
   fieldLabel: { color: theme.colors.muted, fontSize: 13 },
   input: {
@@ -573,7 +576,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.accent,
   },
   segmentText: { color: theme.colors.muted, fontSize: 14, fontWeight: "600" },
-  segmentTextActive: { color: "#FFFFFF" },
+  segmentTextActive: { color: theme.colors.accentFg },
   estimate: { color: theme.colors.muted, fontSize: 13, lineHeight: 19 },
   instList: { gap: theme.spacing(0.5) },
   instRow: {
@@ -588,7 +591,7 @@ const styles = StyleSheet.create({
   },
   instName: { color: theme.colors.text, fontSize: 14, flex: 1 },
   instType: { color: theme.colors.muted, fontSize: 12 },
-  accountName: { color: "#34D399", fontSize: 15, fontWeight: "600" },
+  accountName: { color: theme.colors.ok, fontSize: 15, fontWeight: "600" },
   card: {
     padding: theme.spacing(2),
     borderRadius: 12,
@@ -613,13 +616,13 @@ const styles = StyleSheet.create({
   },
   pad: { paddingVertical: theme.spacing(2) },
   primary: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: 10,
+    backgroundColor: theme.colors.btnBg,
+    borderRadius: theme.radius.input,
     padding: theme.spacing(1.5),
     alignItems: "center",
     flex: 1,
   },
-  primaryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
+  primaryText: { color: theme.colors.btnFg, fontSize: 15, fontWeight: "600" },
   disabled: { opacity: 0.4 },
   secondary: {
     borderRadius: 10,
@@ -630,5 +633,5 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   secondaryText: { color: theme.colors.text, fontSize: 15, fontWeight: "600" },
-  error: { color: "#F87171", fontSize: 13 },
+  error: { color: theme.colors.err, fontSize: 13 },
 });

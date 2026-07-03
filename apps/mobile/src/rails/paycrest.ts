@@ -1,11 +1,5 @@
-/**
- * Paycrest contracts — pure types + helpers the off-ramp flow needs.
- *
- * Mirrors the pure (non-server) parts of the web app's `src/rails/paycrest.ts`.
- * Kept mobile-local for now; hoist into @railglide/shared when we unify the
- * rail contracts across clients. The backend routes (holding the API key) are
- * unchanged — the app is a client, not a fork.
- */
+// Paycrest pure types + helpers. Mirrors web's rails/paycrest.ts (non-server
+// parts); hoist to @railglide/shared when unifying rail contracts.
 import type { ChainId } from "@railglide/shared/network";
 
 export const PAYCREST_FIAT = [

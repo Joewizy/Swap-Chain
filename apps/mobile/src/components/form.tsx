@@ -115,8 +115,12 @@ export const formStyles = StyleSheet.create({
     gap: theme.spacing(1),
   },
   estimate: { color: theme.colors.muted, fontSize: 13, lineHeight: 19 },
-  error: { color: "#F87171", fontSize: 13 },
-  title: { color: theme.colors.text, fontSize: 22, fontWeight: "700" },
+  error: { color: theme.colors.err, fontSize: 13 },
+  title: {
+    color: theme.colors.text,
+    fontSize: 30,
+    fontFamily: theme.serif,
+  },
   rowButtons: {
     flexDirection: "row",
     gap: theme.spacing(1),
@@ -141,7 +145,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.accent,
   },
   segmentText: { color: theme.colors.muted, fontSize: 14, fontWeight: "600" },
-  segmentTextActive: { color: "#FFFFFF" },
+  segmentTextActive: { color: theme.colors.accentFg },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -156,13 +160,13 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   primary: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: 10,
+    backgroundColor: theme.colors.btnBg,
+    borderRadius: theme.radius.input,
     padding: theme.spacing(1.5),
     alignItems: "center",
     flex: 1,
   },
-  primaryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
+  primaryText: { color: theme.colors.btnFg, fontSize: 15, fontWeight: "600" },
   disabled: { opacity: 0.4 },
   secondary: {
     borderRadius: 10,

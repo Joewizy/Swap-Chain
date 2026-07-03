@@ -5,8 +5,12 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";
 import { AppKit } from "@reown/appkit-wagmi-react-native";
 import {
+  useFonts,
+  InstrumentSerif_400Regular,
+} from "@expo-google-fonts/instrument-serif";
+import {
   NavigationContainer,
-  DarkTheme,
+  DefaultTheme,
   type Theme,
 } from "@react-navigation/native";
 import { RootNavigator } from "@/navigation/RootNavigator";
@@ -15,10 +19,11 @@ import { wagmiConfig } from "@/wallet/config";
 import { useAuth } from "@/store/auth";
 import { theme } from "@/theme";
 
+// Light navigation theme, matching the warm off-white website.
 const navTheme: Theme = {
-  ...DarkTheme,
+  ...DefaultTheme,
   colors: {
-    ...DarkTheme.colors,
+    ...DefaultTheme.colors,
     background: theme.colors.bg,
     card: theme.colors.surface,
     text: theme.colors.text,
@@ -27,23 +32,23 @@ const navTheme: Theme = {
   },
 };
 
-/**
- * Root: providers wrap the tab shell. Wallet transport (wagmi + Reown AppKit)
- * is outermost so wallet state is available everywhere; TanStack Query sits
- * inside it (AppKit and wagmi share the query client). `<AppKit />` renders the
- * connect modal once. On launch we rehydrate any stored SIWE session.
- */
+// Root providers: wallet (wagmi) → Query → navigation, with <AppKit/> once.
+// Loads the display font and rehydrates any stored SIWE session on launch.
 export default function App() {
+  const [fontsLoaded] = useFonts({ InstrumentSerif_400Regular });
+
   useEffect(() => {
     void useAuth.getState().hydrate();
   }, []);
+
+  if (!fontsLoaded) return null;
 
   return (
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <SafeAreaProvider>
           <NavigationContainer theme={navTheme}>
-            <StatusBar style="light" />
+            <StatusBar style="dark" />
             <RootNavigator />
           </NavigationContainer>
           <AppKit />
