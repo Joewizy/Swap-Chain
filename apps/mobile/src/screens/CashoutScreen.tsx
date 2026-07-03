@@ -1,75 +1,529 @@
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  ScrollView,
+  ActivityIndicator,
+  StyleSheet,
+  type ViewProps,
+} from "react-native";
+import { useAccount } from "wagmi";
+import {
+  ACTIVE_CHAINS,
+  getChain,
+  resolveChain,
+  type ChainId,
+} from "@railglide/shared/network";
 import { useSession } from "@/store/session";
+import { useWalletAuth } from "@/wallet/useWalletAuth";
+import { usePaycrestOfframp } from "@/wallet/usePaycrestOfframp";
+import {
+  getInstitutions,
+  getRate,
+  verifyAccount,
+} from "@/api/paycrest";
+import {
+  PAYCREST_CHAIN_IDS,
+  PAYCREST_FIAT,
+  type PaycrestFiat,
+  type PaycrestInstitution,
+  type PaycrestToken,
+} from "@/rails/paycrest";
+import { ApiError } from "@/api/client";
 import { theme } from "@/theme";
-import { Placeholder } from "@/components/Placeholder";
 
-/**
- * Off-ramp — the Phase-2 money path (Paycrest order → sign → status).
- *
- * In Phase 1 it has no signing yet; it renders whatever `FlowLaunch` the intent
- * chat handed off, so the chat → flow pipeline is verifiable end to end. The
- * guided quote/confirm/execute UI replaces this in Phase 2.
- */
+const TOKENS: PaycrestToken[] = ["USDC", "USDT"];
+
+/** Chains that are both in the active network universe and Paycrest-supported. */
+function offrampChains(): ChainId[] {
+  return PAYCREST_CHAIN_IDS.filter((id) =>
+    ACTIVE_CHAINS.some((c) => c.id === id)
+  );
+}
+
+type Step = "compose" | "recipient" | "review";
+
 export function CashoutScreen() {
   const launch = useSession((s) => s.pendingLaunch);
+  const setPendingLaunch = useSession((s) => s.setPendingLaunch);
+  const { address, isConnected } = useAccount();
+  const { connect } = useWalletAuth();
+  const offramp = usePaycrestOfframp();
 
-  if (!launch) {
+  const chains = useMemo(offrampChains, []);
+  const [step, setStep] = useState<Step>("compose");
+
+  // Compose
+  const [amount, setAmount] = useState(launch?.amount ?? "");
+  const [token, setToken] = useState<PaycrestToken>(
+    (launch?.token as PaycrestToken) === "USDT" ? "USDT" : "USDC"
+  );
+  const [chain, setChain] = useState<ChainId>(
+    (launch?.chain && resolveChain(launch.chain)) || chains[0]
+  );
+  const [currency, setCurrency] = useState<PaycrestFiat>(
+    (launch?.currency as PaycrestFiat) &&
+      PAYCREST_FIAT.includes(launch!.currency as PaycrestFiat)
+      ? (launch!.currency as PaycrestFiat)
+      : "NGN"
+  );
+  const [rate, setRate] = useState<number | null>(null);
+
+  // Recipient
+  const [institutions, setInstitutions] = useState<PaycrestInstitution[]>([]);
+  const [search, setSearch] = useState(launch?.institutionName ?? "");
+  const [institution, setInstitution] = useState<PaycrestInstitution | null>(
+    null
+  );
+  const [account, setAccount] = useState("");
+  const [accountName, setAccountName] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [recipientError, setRecipientError] = useState<string | null>(null);
+
+  // Clear the one-shot handoff so leaving and returning starts fresh.
+  useEffect(() => {
+    return () => setPendingLaunch(null);
+  }, [setPendingLaunch]);
+
+  // Live unit rate for the estimate.
+  useEffect(() => {
+    let cancelled = false;
+    getRate(currency, token)
+      .then((r) => !cancelled && setRate(r.rate))
+      .catch(() => !cancelled && setRate(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [currency, token]);
+
+  // Institutions for the chosen currency.
+  useEffect(() => {
+    let cancelled = false;
+    setInstitutions([]);
+    getInstitutions(currency)
+      .then((list) => !cancelled && setInstitutions(list))
+      .catch(() => !cancelled && setInstitutions([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [currency]);
+
+  const estimate =
+    rate && Number(amount) > 0
+      ? (Number(amount) * rate).toLocaleString("en-US", {
+          maximumFractionDigits: 2,
+        })
+      : null;
+
+  const filteredInstitutions = institutions.filter((i) =>
+    i.name.toLowerCase().includes(search.trim().toLowerCase())
+  );
+
+  const doVerify = async () => {
+    if (!institution || !account.trim()) return;
+    setVerifying(true);
+    setRecipientError(null);
+    setAccountName(null);
+    try {
+      const name = await verifyAccount(institution.code, account.trim());
+      setAccountName(name);
+    } catch (err) {
+      setRecipientError(
+        err instanceof ApiError ? err.message : "Couldn't verify that account."
+      );
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const createOrder = async () => {
+    if (!institution || !accountName || !address) return;
+    try {
+      await offramp.offramp({
+        fromChain: chain,
+        token,
+        amount: amount.trim(),
+        fiatCurrency: currency,
+        recipient: {
+          institution: institution.code,
+          accountIdentifier: account.trim(),
+          accountName,
+        },
+        refundAddress: address as `0x${string}`,
+      });
+    } catch {
+      // error surfaced via offramp.error
+    }
+  };
+
+  // ---- Order in flight: funding / settling / done ----------------------
+  if (offramp.status !== "idle") {
     return (
-      <Placeholder
-        title="Cash out"
-        subtitle="Ask on the first tab (e.g. “Cash out 200 USDC to GTBank”) and the parsed request lands here. Signing arrives in Phase 2."
-      />
+      <OrderStatus offramp={offramp} token={token} currency={currency} />
     );
   }
 
-  const seedRows: [string, string | undefined][] = [
-    ["Flow", launch.flow],
-    ["Token", launch.token ?? launch.fromToken],
-    ["Amount", launch.amount],
-    ["Chain", launch.chain],
-    ["Currency", launch.currency],
-    ["Recipient", launch.recipientHint],
-    ["Provider", launch.institutionHint],
-  ];
-
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-    >
-      <Text style={styles.title}>Handoff received</Text>
-      <Text style={styles.subtitle}>
-        Parsed from your request — Phase 2 turns this into a signed cash-out.
-      </Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Steps step={step} />
 
-      {launch.chatSummary && (
-        <View style={styles.quoteCard}>
-          <Text style={styles.quoteText}>“{launch.chatSummary}”</Text>
-        </View>
+      {step === "compose" && (
+        <>
+          <Field label="Amount">
+            <TextInput
+              style={styles.input}
+              value={amount}
+              onChangeText={setAmount}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+              placeholderTextColor={theme.colors.muted}
+            />
+          </Field>
+
+          <Field label="Token">
+            <Segmented
+              options={TOKENS}
+              value={token}
+              onChange={(t) => setToken(t as PaycrestToken)}
+            />
+          </Field>
+
+          <Field label="From chain">
+            <Segmented
+              options={chains}
+              value={chain}
+              labels={chains.map((c) => getChain(c)?.name ?? c)}
+              onChange={(c) => setChain(c as ChainId)}
+            />
+          </Field>
+
+          <Field label="Payout currency">
+            <Segmented
+              options={PAYCREST_FIAT as unknown as string[]}
+              value={currency}
+              onChange={(c) => setCurrency(c as PaycrestFiat)}
+            />
+          </Field>
+
+          <Text style={styles.estimate}>
+            {estimate
+              ? `≈ ${estimate} ${currency}  (rate locks when you create the order)`
+              : "Enter an amount to see the estimate"}
+          </Text>
+
+          <Primary
+            label="Continue"
+            disabled={!(Number(amount) > 0)}
+            onPress={() => setStep("recipient")}
+          />
+        </>
       )}
 
-      <View style={styles.card}>
-        {seedRows
-          .filter(([, v]) => v)
-          .map(([label, value]) => (
-            <View key={label} style={styles.row}>
-              <Text style={styles.rowLabel}>{label}</Text>
-              <Text style={styles.rowValue}>{value}</Text>
-            </View>
-          ))}
-      </View>
+      {step === "recipient" && (
+        <>
+          <Field label="Bank / mobile money">
+            <TextInput
+              style={styles.input}
+              value={search}
+              onChangeText={(t) => {
+                setSearch(t);
+                setInstitution(null);
+                setAccountName(null);
+              }}
+              placeholder="Search provider…"
+              placeholderTextColor={theme.colors.muted}
+            />
+          </Field>
 
-      {launch.plan && launch.plan.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.rowLabel}>Plan</Text>
-          {launch.plan.map((step, i) => (
-            <Text key={i} style={styles.planStep}>
-              {i + 1}. {step}
-            </Text>
-          ))}
-        </View>
+          {!institution && (
+            <View style={styles.instList}>
+              {institutions.length === 0 && (
+                <ActivityIndicator color={theme.colors.accent} />
+              )}
+              {filteredInstitutions.slice(0, 8).map((i) => (
+                <Pressable
+                  key={i.code}
+                  style={styles.instRow}
+                  onPress={() => {
+                    setInstitution(i);
+                    setSearch(i.name);
+                  }}
+                >
+                  <Text style={styles.instName}>{i.name}</Text>
+                  <Text style={styles.instType}>
+                    {i.type === "mobile_money" ? "mobile" : "bank"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {institution && (
+            <>
+              <Field label="Account number">
+                <TextInput
+                  style={styles.input}
+                  value={account}
+                  onChangeText={(t) => {
+                    setAccount(t);
+                    setAccountName(null);
+                  }}
+                  keyboardType="number-pad"
+                  placeholder="Account / phone number"
+                  placeholderTextColor={theme.colors.muted}
+                />
+              </Field>
+
+              {accountName ? (
+                <Text style={styles.accountName}>✓ {accountName}</Text>
+              ) : (
+                <Primary
+                  label={verifying ? "Verifying…" : "Verify account"}
+                  disabled={!account.trim() || verifying}
+                  onPress={() => void doVerify()}
+                />
+              )}
+              {recipientError && (
+                <Text style={styles.error}>{recipientError}</Text>
+              )}
+            </>
+          )}
+
+          <View style={styles.rowButtons}>
+            <Secondary label="Back" onPress={() => setStep("compose")} />
+            <Primary
+              label="Review"
+              disabled={!accountName}
+              onPress={() => setStep("review")}
+            />
+          </View>
+        </>
+      )}
+
+      {step === "review" && (
+        <>
+          <View style={styles.card}>
+            <Row l="You send" r={`${amount} ${token}`} />
+            <Row l="On" r={getChain(chain)?.name ?? chain} />
+            <Row
+              l="Recipient gets"
+              r={estimate ? `≈ ${estimate} ${currency}` : `— ${currency}`}
+            />
+            <Row l="To" r={institution?.name ?? ""} />
+            <Row l="Name" r={accountName ?? ""} />
+            <Row l="Account" r={account} />
+          </View>
+          <Text style={styles.estimate}>
+            Estimate · the final rate locks when you create the order.
+          </Text>
+
+          {!isConnected ? (
+            <Primary label="Connect wallet" onPress={connect} />
+          ) : (
+            <Primary label="Create order" onPress={() => void createOrder()} />
+          )}
+          {offramp.error && <Text style={styles.error}>{offramp.error}</Text>}
+
+          <Secondary label="Back" onPress={() => setStep("recipient")} />
+        </>
       )}
     </ScrollView>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Order status (funding → settling → complete / error)
+// ---------------------------------------------------------------------------
+
+function OrderStatus({
+  offramp,
+  token,
+  currency,
+}: {
+  offramp: ReturnType<typeof usePaycrestOfframp>;
+  token: PaycrestToken;
+  currency: PaycrestFiat;
+}) {
+  const { status, order, error, fund, reset, transferTxHash } = offramp;
+
+  const phase =
+    status === "awaiting_funding"
+      ? "Fund your order"
+      : status === "funding"
+        ? "Sending…"
+        : status === "settling"
+          ? "Paying the recipient…"
+          : status === "complete"
+            ? "Done 🎉"
+            : status === "error"
+              ? "Something went wrong"
+              : "Working…";
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.title}>{phase}</Text>
+
+      {order && (
+        <View style={styles.card}>
+          <Row l="Send exactly" r={`${order.amount} ${token}`} />
+          {order.rate && <Row l="Locked rate" r={`${order.rate} ${currency}`} />}
+          <Row l="Status" r={order.status} />
+          {order.receiveAddress && (
+            <Row
+              l="Deposit address"
+              r={`${order.receiveAddress.slice(0, 6)}…${order.receiveAddress.slice(-4)}`}
+            />
+          )}
+        </View>
+      )}
+
+      {status === "awaiting_funding" && (
+        <>
+          <Text style={styles.estimate}>
+            Send {order?.amount} {token} to the provider to complete the
+            cash-out. This is the only signature you make.
+          </Text>
+          <Primary label="Send from wallet" onPress={() => void fund()} />
+        </>
+      )}
+
+      {(status === "funding" || status === "settling") && (
+        <ActivityIndicator color={theme.colors.accent} style={styles.pad} />
+      )}
+
+      {transferTxHash && (
+        <Text style={styles.estimate}>
+          Payment tx {transferTxHash.slice(0, 10)}…
+        </Text>
+      )}
+
+      {status === "complete" && (
+        <Text style={styles.estimate}>
+          The recipient has been paid in {currency}. You can start another
+          cash-out.
+        </Text>
+      )}
+
+      {error && <Text style={styles.error}>{error}</Text>}
+
+      {(status === "complete" || status === "error") && (
+        <Primary label="New cash-out" onPress={reset} />
+      )}
+    </ScrollView>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Small UI atoms
+// ---------------------------------------------------------------------------
+
+function Steps({ step }: { step: Step }) {
+  const order: Step[] = ["compose", "recipient", "review"];
+  const labels = { compose: "Amount", recipient: "Recipient", review: "Review" };
+  return (
+    <View style={styles.steps}>
+      {order.map((s) => (
+        <Text
+          key={s}
+          style={[styles.stepChip, step === s && styles.stepChipActive]}
+        >
+          {labels[s]}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: ViewProps["children"];
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+function Segmented({
+  options,
+  value,
+  labels,
+  onChange,
+}: {
+  options: string[];
+  value: string;
+  labels?: string[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <View style={styles.segmented}>
+      {options.map((o, i) => (
+        <Pressable
+          key={o}
+          style={[styles.segment, value === o && styles.segmentActive]}
+          onPress={() => onChange(o)}
+        >
+          <Text
+            style={[
+              styles.segmentText,
+              value === o && styles.segmentTextActive,
+            ]}
+          >
+            {labels ? labels[i] : o}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function Row({ l, r }: { l: string; r: string }) {
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowLabel}>{l}</Text>
+      <Text style={styles.rowValue}>{r}</Text>
+    </View>
+  );
+}
+
+function Primary({
+  label,
+  onPress,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      style={[styles.primary, disabled && styles.disabled]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Text style={styles.primaryText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function Secondary({
+  label,
+  onPress,
+}: {
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={styles.secondary} onPress={onPress}>
+      <Text style={styles.secondaryText}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -77,15 +531,64 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.bg },
   content: { padding: theme.spacing(2), gap: theme.spacing(1.5) },
   title: { color: theme.colors.text, fontSize: 22, fontWeight: "700" },
-  subtitle: { color: theme.colors.muted, fontSize: 14, lineHeight: 20 },
-  quoteCard: {
-    padding: theme.spacing(1.5),
-    borderRadius: 12,
+  steps: { flexDirection: "row", gap: theme.spacing(1), marginBottom: theme.spacing(1) },
+  stepChip: {
+    color: theme.colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 999,
     backgroundColor: theme.colors.surface,
+    overflow: "hidden",
+  },
+  stepChipActive: { color: "#FFFFFF", backgroundColor: theme.colors.accent },
+  field: { gap: theme.spacing(0.75) },
+  fieldLabel: { color: theme.colors.muted, fontSize: 13 },
+  input: {
+    color: theme.colors.text,
+    fontSize: 16,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    borderRadius: 10,
+    paddingHorizontal: theme.spacing(1.5),
+    paddingVertical: theme.spacing(1.25),
+    backgroundColor: theme.colors.surface,
   },
-  quoteText: { color: theme.colors.text, fontSize: 15, fontStyle: "italic" },
+  segmented: {
+    flexDirection: "row",
+    gap: theme.spacing(0.75),
+    flexWrap: "wrap",
+  },
+  segment: {
+    paddingVertical: theme.spacing(1),
+    paddingHorizontal: theme.spacing(1.5),
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+  segmentActive: {
+    borderColor: theme.colors.accent,
+    backgroundColor: theme.colors.accent,
+  },
+  segmentText: { color: theme.colors.muted, fontSize: 14, fontWeight: "600" },
+  segmentTextActive: { color: "#FFFFFF" },
+  estimate: { color: theme.colors.muted, fontSize: 13, lineHeight: 19 },
+  instList: { gap: theme.spacing(0.5) },
+  instRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: theme.spacing(1.5),
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+  instName: { color: theme.colors.text, fontSize: 14, flex: 1 },
+  instType: { color: theme.colors.muted, fontSize: 12 },
+  accountName: { color: "#34D399", fontSize: 15, fontWeight: "600" },
   card: {
     padding: theme.spacing(2),
     borderRadius: 12,
@@ -94,8 +597,38 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     gap: theme.spacing(1),
   },
-  row: { flexDirection: "row", justifyContent: "space-between" },
+  row: { flexDirection: "row", justifyContent: "space-between", gap: theme.spacing(2) },
   rowLabel: { color: theme.colors.muted, fontSize: 14 },
-  rowValue: { color: theme.colors.text, fontSize: 14, fontWeight: "600" },
-  planStep: { color: theme.colors.text, fontSize: 14, lineHeight: 20 },
+  rowValue: {
+    color: theme.colors.text,
+    fontSize: 14,
+    fontWeight: "600",
+    flexShrink: 1,
+    textAlign: "right",
+  },
+  rowButtons: {
+    flexDirection: "row",
+    gap: theme.spacing(1),
+    marginTop: theme.spacing(1),
+  },
+  pad: { paddingVertical: theme.spacing(2) },
+  primary: {
+    backgroundColor: theme.colors.accent,
+    borderRadius: 10,
+    padding: theme.spacing(1.5),
+    alignItems: "center",
+    flex: 1,
+  },
+  primaryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
+  disabled: { opacity: 0.4 },
+  secondary: {
+    borderRadius: 10,
+    padding: theme.spacing(1.5),
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    flex: 1,
+  },
+  secondaryText: { color: theme.colors.text, fontSize: 15, fontWeight: "600" },
+  error: { color: "#F87171", fontSize: 13 },
 });
