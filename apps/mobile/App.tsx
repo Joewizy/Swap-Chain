@@ -1,6 +1,9 @@
+import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { WagmiProvider } from "wagmi";
+import { AppKit } from "@reown/appkit-wagmi-react-native";
 import {
   NavigationContainer,
   DarkTheme,
@@ -8,6 +11,8 @@ import {
 } from "@react-navigation/native";
 import { RootNavigator } from "@/navigation/RootNavigator";
 import { queryClient } from "@/lib/queryClient";
+import { wagmiConfig } from "@/wallet/config";
+import { useAuth } from "@/store/auth";
 import { theme } from "@/theme";
 
 const navTheme: Theme = {
@@ -23,20 +28,27 @@ const navTheme: Theme = {
 };
 
 /**
- * Root: providers wrap the tab shell. Order matches the system map in
- * todo/MOBILE_ARCHITECTURE.md §3 — server-state cache (TanStack Query) and
- * navigation. The wallet provider (Reown AppKit) slots in here in Phase 0's
- * wallet step, above the navigator.
+ * Root: providers wrap the tab shell. Wallet transport (wagmi + Reown AppKit)
+ * is outermost so wallet state is available everywhere; TanStack Query sits
+ * inside it (AppKit and wagmi share the query client). `<AppKit />` renders the
+ * connect modal once. On launch we rehydrate any stored SIWE session.
  */
 export default function App() {
+  useEffect(() => {
+    void useAuth.getState().hydrate();
+  }, []);
+
   return (
-    <SafeAreaProvider>
+    <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <NavigationContainer theme={navTheme}>
-          <StatusBar style="light" />
-          <RootNavigator />
-        </NavigationContainer>
+        <SafeAreaProvider>
+          <NavigationContainer theme={navTheme}>
+            <StatusBar style="light" />
+            <RootNavigator />
+          </NavigationContainer>
+          <AppKit />
+        </SafeAreaProvider>
       </QueryClientProvider>
-    </SafeAreaProvider>
+    </WagmiProvider>
   );
 }

@@ -10,6 +10,13 @@
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
 
+/**
+ * Host (authority) of the backend, e.g. "192.168.1.20:3000". The SIWE message
+ * must carry this as its `domain` because /api/auth/verify binds the signature
+ * to `req.nextUrl.host`. Parsed by hand — RN has no reliable global URL.
+ */
+export const API_HOST = API_URL.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+
 export class ApiError extends Error {
   constructor(
     message: string,

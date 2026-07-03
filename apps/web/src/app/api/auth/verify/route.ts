@@ -66,13 +66,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Bind the domain to the Host the client actually addressed. The web client
+  // signs for its browser origin; the mobile client signs for the LAN/deployed
+  // host it connects to. `req.nextUrl.host` gets normalized to "localhost" by
+  // the Next dev server on LAN requests, so use the raw Host header (identical
+  // to nextUrl.host in production) — otherwise mobile SIWE never matches.
+  const expectedDomain = req.headers.get("host") ?? req.nextUrl.host;
+
   let valid = false;
   try {
     valid = await verifySiweMessage(clientForChain(fields.chainId), {
       message,
       signature: signature as `0x${string}`,
       nonce,
-      domain: req.nextUrl.host,
+      domain: expectedDomain,
     });
   } catch {
     valid = false;
@@ -86,8 +93,12 @@ export async function POST(req: NextRequest) {
   }
 
   const address = fields.address.toLowerCase();
-  const res = NextResponse.json({ address });
-  res.cookies.set(SESSION_COOKIE, createSessionToken(address), {
+  const token = createSessionToken(address);
+  // Web reads the session from the httpOnly cookie below; the mobile client has
+  // no cookie jar, so it also gets the token in the body to stash in
+  // expo-secure-store and send as `Authorization: Bearer`. Web ignores it.
+  const res = NextResponse.json({ address, token });
+  res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",

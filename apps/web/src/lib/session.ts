@@ -82,9 +82,21 @@ export interface Session {
   address: string;
 }
 
-/** Reads + verifies the SIWE session from request cookies. */
+/**
+ * Reads + verifies the SIWE session.
+ *
+ * The web client sends it as an httpOnly cookie; the mobile client, which has
+ * no browser cookie jar, sends the same HMAC-signed token as
+ * `Authorization: Bearer <token>`. Accept either — both are minted by
+ * /api/auth/verify and verified identically, so this is purely additive.
+ */
 export function getSession(req: NextRequest): Session | null {
-  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  const header = req.headers.get("authorization");
+  const bearer =
+    header && header.toLowerCase().startsWith("bearer ")
+      ? header.slice(7).trim()
+      : undefined;
+  const token = bearer ?? req.cookies.get(SESSION_COOKIE)?.value;
   const address = verifySessionToken(token);
   return address ? { address } : null;
 }

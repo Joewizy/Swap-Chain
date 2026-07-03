@@ -22,7 +22,9 @@
           "backgroundColor": "#0B0B0F",
           "resizeMode": "contain"
         }
-      ]
+      ],
+      "react-native-quick-crypto",
+      "expo-build-properties"
     ],
     "extra": {
       "eas": {}
