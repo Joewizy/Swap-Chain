@@ -32,6 +32,14 @@ import {
   type PaycrestToken,
 } from "@/rails/paycrest";
 import { ApiError } from "@/api/client";
+import { Intro } from "@/components/form";
+import { Picker } from "@/components/Picker";
+import {
+  chainOptions,
+  currencyOptions,
+  institutionOptions,
+  tokenOptions,
+} from "@/components/options";
 import { theme } from "@/theme";
 
 const TOKENS: PaycrestToken[] = ["USDC", "USDT"];
@@ -73,7 +81,6 @@ export function CashoutScreen() {
 
   // Recipient
   const [institutions, setInstitutions] = useState<PaycrestInstitution[]>([]);
-  const [search, setSearch] = useState(launch?.institutionName ?? "");
   const [institution, setInstitution] = useState<PaycrestInstitution | null>(
     null
   );
@@ -116,10 +123,6 @@ export function CashoutScreen() {
           maximumFractionDigits: 2,
         })
       : null;
-
-  const filteredInstitutions = institutions.filter((i) =>
-    i.name.toLowerCase().includes(search.trim().toLowerCase())
-  );
 
   const doVerify = async () => {
     if (!institution || !account.trim()) return;
@@ -167,6 +170,7 @@ export function CashoutScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Intro>Send stablecoins to a bank or mobile money account.</Intro>
       <Steps step={step} />
 
       {step === "compose" && (
@@ -183,26 +187,28 @@ export function CashoutScreen() {
           </Field>
 
           <Field label="Token">
-            <Segmented
-              options={TOKENS}
+            <Picker
+              title="Token"
               value={token}
+              options={tokenOptions(TOKENS)}
               onChange={(t) => setToken(t as PaycrestToken)}
             />
           </Field>
 
           <Field label="From chain">
-            <Segmented
-              options={chains}
+            <Picker
+              title="From chain"
               value={chain}
-              labels={chains.map((c) => getChain(c)?.name ?? c)}
+              options={chainOptions(chains)}
               onChange={(c) => setChain(c as ChainId)}
             />
           </Field>
 
           <Field label="Payout currency">
-            <Segmented
-              options={PAYCREST_FIAT as unknown as string[]}
+            <Picker
+              title="Payout currency"
               value={currency}
+              options={currencyOptions(PAYCREST_FIAT)}
               onChange={(c) => setCurrency(c as PaycrestFiat)}
             />
           </Field>
@@ -224,41 +230,20 @@ export function CashoutScreen() {
       {step === "recipient" && (
         <>
           <Field label="Bank / mobile money">
-            <TextInput
-              style={styles.input}
-              value={search}
-              onChangeText={(t) => {
-                setSearch(t);
-                setInstitution(null);
+            <Picker
+              title="Choose provider"
+              searchable
+              placeholder={
+                institutions.length ? "Select provider" : "Loading providers…"
+              }
+              value={institution?.code}
+              options={institutionOptions(institutions)}
+              onChange={(code) => {
+                setInstitution(institutions.find((i) => i.code === code) ?? null);
                 setAccountName(null);
               }}
-              placeholder="Search provider…"
-              placeholderTextColor={theme.colors.muted}
             />
           </Field>
-
-          {!institution && (
-            <View style={styles.instList}>
-              {institutions.length === 0 && (
-                <ActivityIndicator color={theme.colors.accent} />
-              )}
-              {filteredInstitutions.slice(0, 8).map((i) => (
-                <Pressable
-                  key={i.code}
-                  style={styles.instRow}
-                  onPress={() => {
-                    setInstitution(i);
-                    setSearch(i.name);
-                  }}
-                >
-                  <Text style={styles.instName}>{i.name}</Text>
-                  <Text style={styles.instType}>
-                    {i.type === "mobile_money" ? "mobile" : "bank"}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
 
           {institution && (
             <>
@@ -451,39 +436,6 @@ function Field({
   );
 }
 
-function Segmented({
-  options,
-  value,
-  labels,
-  onChange,
-}: {
-  options: string[];
-  value: string;
-  labels?: string[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <View style={styles.segmented}>
-      {options.map((o, i) => (
-        <Pressable
-          key={o}
-          style={[styles.segment, value === o && styles.segmentActive]}
-          onPress={() => onChange(o)}
-        >
-          <Text
-            style={[
-              styles.segmentText,
-              value === o && styles.segmentTextActive,
-            ]}
-          >
-            {labels ? labels[i] : o}
-          </Text>
-        </Pressable>
-      ))}
-    </View>
-  );
-}
-
 function Row({ l, r }: { l: string; r: string }) {
   return (
     <View style={styles.row}>
@@ -529,7 +481,7 @@ function Secondary({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.bg },
-  content: { padding: theme.spacing(2), gap: theme.spacing(1.5) },
+  content: { padding: theme.spacing(2.5), gap: theme.spacing(1.75) },
   title: { color: theme.colors.text, fontSize: 30, fontFamily: theme.serif },
   steps: { flexDirection: "row", gap: theme.spacing(1), marginBottom: theme.spacing(1) },
   stepChip: {
@@ -558,47 +510,16 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing(1.25),
     backgroundColor: theme.colors.surface,
   },
-  segmented: {
-    flexDirection: "row",
-    gap: theme.spacing(0.75),
-    flexWrap: "wrap",
-  },
-  segment: {
-    paddingVertical: theme.spacing(1),
-    paddingHorizontal: theme.spacing(1.5),
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-  },
-  segmentActive: {
-    borderColor: theme.colors.accent,
-    backgroundColor: theme.colors.accent,
-  },
-  segmentText: { color: theme.colors.muted, fontSize: 14, fontWeight: "600" },
-  segmentTextActive: { color: theme.colors.accentFg },
   estimate: { color: theme.colors.muted, fontSize: 13, lineHeight: 19 },
-  instList: { gap: theme.spacing(0.5) },
-  instRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: theme.spacing(1.5),
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-  },
-  instName: { color: theme.colors.text, fontSize: 14, flex: 1 },
-  instType: { color: theme.colors.muted, fontSize: 12 },
   accountName: { color: theme.colors.ok, fontSize: 15, fontWeight: "600" },
   card: {
-    padding: theme.spacing(2),
-    borderRadius: 12,
+    padding: theme.spacing(2.25),
+    borderRadius: theme.radius.card,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    gap: theme.spacing(1),
+    gap: theme.spacing(1.25),
+    ...theme.shadow,
   },
   row: { flexDirection: "row", justifyContent: "space-between", gap: theme.spacing(2) },
   rowLabel: { color: theme.colors.muted, fontSize: 14 },
@@ -618,11 +539,17 @@ const styles = StyleSheet.create({
   primary: {
     backgroundColor: theme.colors.btnBg,
     borderRadius: theme.radius.input,
-    padding: theme.spacing(1.5),
+    minHeight: 54,
     alignItems: "center",
+    justifyContent: "center",
     flex: 1,
   },
-  primaryText: { color: theme.colors.btnFg, fontSize: 15, fontWeight: "600" },
+  primaryText: {
+    color: theme.colors.btnFg,
+    fontSize: 16,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
   disabled: { opacity: 0.4 },
   secondary: {
     borderRadius: 10,

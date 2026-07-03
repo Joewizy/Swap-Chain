@@ -7,6 +7,11 @@ import {
 } from "react-native";
 import { theme } from "@/theme";
 
+// One-line screen description under the header, matching the website.
+export function Intro({ children }: { children: string }) {
+  return <Text style={formStyles.intro}>{children}</Text>;
+}
+
 export function Field({
   label,
   children,
@@ -72,7 +77,11 @@ export function Primary({
 }) {
   return (
     <Pressable
-      style={[styles.primary, disabled && styles.disabled]}
+      style={({ pressed }) => [
+        styles.primary,
+        pressed && styles.pressed,
+        disabled && styles.disabled,
+      ]}
       onPress={onPress}
       disabled={disabled}
     >
@@ -89,7 +98,10 @@ export function Secondary({
   onPress: () => void;
 }) {
   return (
-    <Pressable style={styles.secondary} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
+      onPress={onPress}
+    >
       <Text style={styles.secondaryText}>{label}</Text>
     </Pressable>
   );
@@ -101,41 +113,49 @@ export const formStyles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    borderRadius: 10,
-    paddingHorizontal: theme.spacing(1.5),
-    paddingVertical: theme.spacing(1.25),
+    borderRadius: theme.radius.input,
+    paddingHorizontal: theme.spacing(1.75),
+    paddingVertical: theme.spacing(1.5),
     backgroundColor: theme.colors.surface,
   },
   card: {
-    padding: theme.spacing(2),
-    borderRadius: 12,
+    padding: theme.spacing(2.25),
+    borderRadius: theme.radius.card,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    gap: theme.spacing(1),
+    gap: theme.spacing(1.25),
+    ...theme.shadow,
   },
-  estimate: { color: theme.colors.muted, fontSize: 13, lineHeight: 19 },
-  error: { color: theme.colors.err, fontSize: 13 },
-  title: {
-    color: theme.colors.text,
-    fontSize: 30,
-    fontFamily: theme.serif,
+  estimate: { color: theme.colors.muted, fontSize: 13, lineHeight: 20 },
+  intro: {
+    color: theme.colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: theme.spacing(0.5),
   },
+  error: { color: theme.colors.err, fontSize: 13, lineHeight: 18 },
+  title: { color: theme.colors.text, fontSize: 32, fontFamily: theme.serif },
   rowButtons: {
     flexDirection: "row",
-    gap: theme.spacing(1),
-    marginTop: theme.spacing(1),
+    gap: theme.spacing(1.25),
+    marginTop: theme.spacing(0.5),
   },
 });
 
 const styles = StyleSheet.create({
-  field: { gap: theme.spacing(0.75) },
-  fieldLabel: { color: theme.colors.muted, fontSize: 13 },
-  segmented: { flexDirection: "row", gap: theme.spacing(0.75), flexWrap: "wrap" },
+  field: { gap: theme.spacing(1) },
+  fieldLabel: {
+    color: theme.colors.muted,
+    fontSize: 13,
+    fontWeight: "500",
+    letterSpacing: 0.2,
+  },
+  segmented: { flexDirection: "row", gap: theme.spacing(1), flexWrap: "wrap" },
   segment: {
     paddingVertical: theme.spacing(1),
-    paddingHorizontal: theme.spacing(1.5),
-    borderRadius: 999,
+    paddingHorizontal: theme.spacing(1.75),
+    borderRadius: theme.radius.pill,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
@@ -162,19 +182,34 @@ const styles = StyleSheet.create({
   primary: {
     backgroundColor: theme.colors.btnBg,
     borderRadius: theme.radius.input,
-    padding: theme.spacing(1.5),
+    minHeight: 54,
+    paddingHorizontal: theme.spacing(2),
     alignItems: "center",
+    justifyContent: "center",
     flex: 1,
   },
-  primaryText: { color: theme.colors.btnFg, fontSize: 15, fontWeight: "600" },
-  disabled: { opacity: 0.4 },
+  primaryText: {
+    color: theme.colors.btnFg,
+    fontSize: 16,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
+  pressed: { opacity: 0.85 },
+  disabled: { opacity: 0.35 },
   secondary: {
-    borderRadius: 10,
-    padding: theme.spacing(1.5),
+    borderRadius: theme.radius.input,
+    minHeight: 54,
+    paddingHorizontal: theme.spacing(2),
     alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: theme.colors.border2,
     flex: 1,
   },
-  secondaryText: { color: theme.colors.text, fontSize: 15, fontWeight: "600" },
+  secondaryText: {
+    color: theme.colors.text,
+    fontSize: 16,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
 });

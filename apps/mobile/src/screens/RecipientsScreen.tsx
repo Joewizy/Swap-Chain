@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { useRecipients } from "@/store/recipients";
+import { Intro } from "@/components/form";
 import { theme } from "@/theme";
 
 // Saved recipients — device-local address book. Entries also appear after a
@@ -22,15 +23,13 @@ export function RecipientsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Recipients</Text>
-        <Pressable
-          style={styles.addButton}
-          onPress={() => setAdding((v) => !v)}
-        >
-          <Text style={styles.addButtonText}>{adding ? "Close" : "+ Add"}</Text>
-        </Pressable>
-      </View>
+      <Intro>Banks, mobile money and wallets you pay out to.</Intro>
+      <Pressable
+        style={styles.addButton}
+        onPress={() => setAdding((v) => !v)}
+      >
+        <Text style={styles.addButtonText}>{adding ? "Close" : "+ Add"}</Text>
+      </Pressable>
 
       {adding && (
         <AddRecipientForm
@@ -155,19 +154,15 @@ function FormField({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.bg },
-  content: { padding: theme.spacing(2), gap: theme.spacing(1.5) },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  title: { color: theme.colors.text, fontSize: 30, fontFamily: theme.serif },
+  content: { padding: theme.spacing(2.5), gap: theme.spacing(1.75) },
   addButton: {
-    paddingHorizontal: theme.spacing(1.5),
-    paddingVertical: theme.spacing(0.75),
-    borderRadius: 8,
+    alignSelf: "flex-end",
+    paddingHorizontal: theme.spacing(1.75),
+    paddingVertical: theme.spacing(1),
+    borderRadius: theme.radius.pill,
     borderWidth: 1,
-    borderColor: theme.colors.accent,
+    borderColor: theme.colors.accentLine,
+    backgroundColor: theme.colors.accentSoft,
   },
   addButtonText: { color: theme.colors.accent, fontSize: 14, fontWeight: "600" },
   empty: {
@@ -180,23 +175,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: theme.spacing(2),
-    borderRadius: 12,
+    padding: theme.spacing(2.25),
+    borderRadius: theme.radius.card,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    ...theme.shadow,
   },
   cardMain: { flex: 1, gap: theme.spacing(0.5) },
   name: { color: theme.colors.text, fontSize: 16, fontWeight: "600" },
   detail: { color: theme.colors.muted, fontSize: 13 },
   remove: { color: theme.colors.err, fontSize: 13, fontWeight: "600" },
   form: {
-    padding: theme.spacing(2),
-    borderRadius: 12,
+    padding: theme.spacing(2.25),
+    borderRadius: theme.radius.card,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.border,
     gap: theme.spacing(1.5),
+    ...theme.shadow,
   },
   field: { gap: theme.spacing(0.5) },
   fieldLabel: { color: theme.colors.muted, fontSize: 13 },

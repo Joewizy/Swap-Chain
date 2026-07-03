@@ -80,14 +80,11 @@ export function HistoryScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.title}>History</Text>
-          {sessionAddress && (
-            <Text style={styles.muted}>
-              {sessionAddress.slice(0, 6)}…{sessionAddress.slice(-4)}
-            </Text>
-          )}
-        </View>
+        <Text style={styles.muted}>
+          {sessionAddress
+            ? `Signed in as ${sessionAddress.slice(0, 6)}…${sessionAddress.slice(-4)}`
+            : ""}
+        </Text>
         <Pressable onPress={() => void signOut()} hitSlop={8}>
           <Text style={styles.signOut}>Sign out</Text>
         </Pressable>
@@ -166,7 +163,7 @@ function PrimaryButton({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.bg },
-  content: { padding: theme.spacing(2), gap: theme.spacing(1.5) },
+  content: { padding: theme.spacing(2.5), gap: theme.spacing(1.75) },
   centered: {
     flex: 1,
     backgroundColor: theme.colors.bg,
@@ -191,12 +188,13 @@ const styles = StyleSheet.create({
   signOut: { color: theme.colors.muted, fontSize: 13, fontWeight: "600" },
   pad: { paddingVertical: theme.spacing(2) },
   card: {
-    padding: theme.spacing(2),
-    borderRadius: 12,
+    padding: theme.spacing(2.25),
+    borderRadius: theme.radius.card,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    gap: theme.spacing(0.5),
+    gap: theme.spacing(0.75),
+    ...theme.shadow,
   },
   cardTop: {
     flexDirection: "row",
@@ -213,7 +211,8 @@ const styles = StyleSheet.create({
   button: {
     backgroundColor: theme.colors.btnBg,
     borderRadius: theme.radius.input,
-    paddingVertical: theme.spacing(1.5),
+    minHeight: 54,
+    justifyContent: "center",
     paddingHorizontal: theme.spacing(3),
     alignItems: "center",
   },

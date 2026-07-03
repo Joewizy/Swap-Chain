@@ -12,6 +12,7 @@
   "dependencies": {
     "@craftzdog/react-native-buffer": "^6.1.2",
     "@expo-google-fonts/instrument-serif": "^0.4.1",
+    "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "12.0.1",
     "@react-navigation/bottom-tabs": "^7.18.5",
@@ -20,6 +21,7 @@
     "@reown/appkit-wagmi-react-native": "^1.3.2",
     "@tanstack/react-query": "^5.101.2",
     "@walletconnect/react-native-compat": "^2.23.10",
+    "@web3icons/core": "^4.0.51",
     "expo": "^57.0.0",
     "expo-build-properties": "~57.0.3",
     "expo-dev-client": "~57.0.5",

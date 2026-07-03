@@ -41,10 +41,18 @@ export const theme = {
     errSoft: "rgba(178, 58, 42, 0.10)",
   },
   radius: {
-    input: 8,
-    card: 14,
-    cardLg: 18,
+    input: 10,
+    card: 16,
+    cardLg: 20,
     pill: 999,
+  },
+  // One soft elevation, as the website's tokens prescribe.
+  shadow: {
+    shadowColor: "#14120E",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 20,
+    elevation: 2,
   },
   /** Editorial display face — loaded in App.tsx (Instrument Serif, the site's). */
   serif: "InstrumentSerif_400Regular",

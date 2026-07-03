@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TextInput,
-  Pressable,
   ScrollView,
   ActivityIndicator,
   StyleSheet,
@@ -28,12 +27,19 @@ import {
 import { ApiError } from "@/api/client";
 import {
   Field,
+  Intro,
   Primary,
   Row,
   Secondary,
-  Segmented,
   formStyles as f,
 } from "@/components/form";
+import { Picker } from "@/components/Picker";
+import {
+  chainOptions,
+  currencyOptions,
+  institutionOptions,
+  tokenOptions,
+} from "@/components/options";
 import { theme } from "@/theme";
 
 const TOKENS: PaycrestToken[] = ["USDC", "USDT"];
@@ -68,7 +74,6 @@ export function BuyScreen() {
   const [rate, setRate] = useState<number | null>(null);
 
   const [institutions, setInstitutions] = useState<PaycrestInstitution[]>([]);
-  const [search, setSearch] = useState(launch?.institutionName ?? "");
   const [institution, setInstitution] = useState<PaycrestInstitution | null>(
     null
   );
@@ -107,10 +112,6 @@ export function BuyScreen() {
           maximumFractionDigits: 2,
         })
       : null;
-
-  const filtered = institutions.filter((i) =>
-    i.name.toLowerCase().includes(search.trim().toLowerCase())
-  );
 
   const doVerify = async () => {
     if (!institution || !account.trim()) return;
@@ -154,7 +155,7 @@ export function BuyScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={f.estimate}>Buy crypto with local currency.</Text>
+      <Intro>Pay with local currency, receive USDC or USDT in your wallet.</Intro>
 
       {step === "compose" && (
         <>
@@ -169,24 +170,26 @@ export function BuyScreen() {
             />
           </Field>
           <Field label="Pay with">
-            <Segmented
-              options={PAYCREST_FIAT as unknown as string[]}
+            <Picker
+              title="Pay with"
               value={currency}
+              options={currencyOptions(PAYCREST_FIAT)}
               onChange={(c) => setCurrency(c as PaycrestFiat)}
             />
           </Field>
           <Field label="Receive token">
-            <Segmented
-              options={TOKENS}
+            <Picker
+              title="Receive token"
               value={token}
+              options={tokenOptions(TOKENS)}
               onChange={(t) => setToken(t as PaycrestToken)}
             />
           </Field>
           <Field label="On chain">
-            <Segmented
-              options={chains}
+            <Picker
+              title="Receive on"
               value={chain}
-              labels={chains.map((c) => getChain(c)?.name ?? c)}
+              options={chainOptions(chains)}
               onChange={(c) => setChain(c as ChainId)}
             />
           </Field>
@@ -222,41 +225,20 @@ export function BuyScreen() {
           )}
 
           <Field label="Refund account — bank / mobile money">
-            <TextInput
-              style={f.input}
-              value={search}
-              onChangeText={(t) => {
-                setSearch(t);
-                setInstitution(null);
+            <Picker
+              title="Choose provider"
+              searchable
+              placeholder={
+                institutions.length ? "Select provider" : "Loading providers…"
+              }
+              value={institution?.code}
+              options={institutionOptions(institutions)}
+              onChange={(code) => {
+                setInstitution(institutions.find((i) => i.code === code) ?? null);
                 setAccountName(null);
               }}
-              placeholder="Search provider…"
-              placeholderTextColor={theme.colors.muted}
             />
           </Field>
-
-          {!institution && (
-            <View style={styles.instList}>
-              {institutions.length === 0 && (
-                <ActivityIndicator color={theme.colors.accent} />
-              )}
-              {filtered.slice(0, 8).map((i) => (
-                <Pressable
-                  key={i.code}
-                  style={styles.instRow}
-                  onPress={() => {
-                    setInstitution(i);
-                    setSearch(i.name);
-                  }}
-                >
-                  <Text style={styles.instName}>{i.name}</Text>
-                  <Text style={styles.instType}>
-                    {i.type === "mobile_money" ? "mobile" : "bank"}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
 
           {institution && (
             <>
@@ -386,19 +368,6 @@ function OnrampStatus({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.bg },
   content: { padding: theme.spacing(2), gap: theme.spacing(1.5) },
-  instList: { gap: theme.spacing(0.5) },
-  instRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: theme.spacing(1.5),
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-  },
-  instName: { color: theme.colors.text, fontSize: 14, flex: 1 },
-  instType: { color: theme.colors.muted, fontSize: 12 },
   accountName: { color: theme.colors.ok, fontSize: 15, fontWeight: "600" },
   pad: { paddingVertical: theme.spacing(2) },
 });
