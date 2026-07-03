@@ -97,9 +97,14 @@ export function IntentScreen() {
       plan: lastReply.plan.length ? lastReply.plan : lastReply.launch.plan,
       chatSummary: firstUser,
     });
-    // Only the cash-out flow has a screen today; buy/swap land there too for
-    // now and show the parsed handoff until their flows are built.
-    navigation.navigate("Cash out");
+    // Route to the screen for the ready flow. Bridge/Swap isn't built yet, so
+    // it falls back to Cash out until that screen lands.
+    const tab: Record<FlowId, keyof RootTabParamList> = {
+      cashout: "Cash out",
+      buy: "Buy",
+      bridge: "Cash out",
+    };
+    navigation.navigate(tab[lastReply.launch.flow]);
   };
 
   const empty = messages.length === 0 && !thinking;

@@ -74,6 +74,27 @@ export function createOfframpOrder(
   });
 }
 
+export interface CreateOnrampBody {
+  direction: "onramp";
+  amount: string;
+  amountIn?: "fiat" | "crypto";
+  fiatCurrency: PaycrestFiat;
+  refundAccount: PaycrestRecipient;
+  token: PaycrestToken;
+  network: string;
+  recipientAddress: `0x${string}`;
+  reference?: string;
+}
+
+export function createOnrampOrder(
+  body: CreateOnrampBody
+): Promise<PaycrestOrder> {
+  return apiFetch<PaycrestOrder>("/api/paycrest/order", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export function getOrder(id: string): Promise<PaycrestOrder> {
   return apiFetch<PaycrestOrder>(`/api/paycrest/order/${id}`);
 }

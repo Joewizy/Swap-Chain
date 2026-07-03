@@ -85,6 +85,15 @@ export interface PaycrestOrder {
   rate?: string;
   /** Off-ramp: on-chain address the user funds with stablecoin. */
   receiveAddress?: string;
+  /** On-ramp: virtual account / mobile number to deposit fiat into. */
+  depositInstitution?: string;
+  depositAccountIdentifier?: string;
+  depositAccountName?: string;
+  /** On-ramp: exact fiat amount the user must transfer. */
+  amountToTransfer?: string;
+  depositCurrency?: string;
+  /** On-ramp: wallet that receives the stablecoin. */
+  recipientAddress?: string;
   validUntil?: string;
   amountPaid?: string;
   senderFee?: string;
@@ -95,6 +104,13 @@ export interface PaycrestOrder {
 }
 
 export type PaycrestOutcome = "success" | "failed" | "expired" | "pending";
+
+/** True once the provider has started paying out (on-ramp timeline → settling). */
+export function paycrestPayoutInFlight(order: PaycrestOrder): boolean {
+  return ["processing", "validated", "settling", "fulfilled", "settled"].includes(
+    order.status
+  );
+}
 
 /** Direction-aware terminal check for the client poller. */
 export function classifyPaycrestOrder(

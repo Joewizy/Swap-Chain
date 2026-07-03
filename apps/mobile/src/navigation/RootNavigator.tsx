@@ -1,17 +1,18 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { IntentScreen } from "@/screens/IntentScreen";
 import { CashoutScreen } from "@/screens/CashoutScreen";
+import { BuyScreen } from "@/screens/BuyScreen";
 import { HistoryScreen } from "@/screens/HistoryScreen";
 import { RecipientsScreen } from "@/screens/RecipientsScreen";
 import { theme } from "@/theme";
 
 /**
- * Bottom-tab shell. Deposit and Status screens will sit in a stack above these
- * tabs (Phase 1/2). Kept to four tabs to match the web app's core jobs.
+ * Bottom-tab shell — one tab per core job, mirroring the web app's goals.
  */
 export type RootTabParamList = {
   Ask: undefined;
   "Cash out": undefined;
+  Buy: undefined;
   History: undefined;
   Recipients: undefined;
 };
@@ -36,6 +37,7 @@ export function RootNavigator() {
     >
       <Tab.Screen name="Ask" component={IntentScreen} />
       <Tab.Screen name="Cash out" component={CashoutScreen} />
+      <Tab.Screen name="Buy" component={BuyScreen} />
       <Tab.Screen name="History" component={HistoryScreen} />
       <Tab.Screen name="Recipients" component={RecipientsScreen} />
     </Tab.Navigator>
