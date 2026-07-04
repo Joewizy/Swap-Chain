@@ -6,12 +6,17 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "scheme": "railglide",
+    "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "app.railglide.mobile"
     },
     "android": {
-      "package": "app.railglide.mobile"
+      "package": "app.railglide.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#F8F6F1"
+      }
     },
     "plugins": [
       "expo-secure-store",
@@ -19,6 +24,8 @@
       [
         "expo-splash-screen",
         {
+          "image": "./assets/icon.png",
+          "imageWidth": 220,
           "backgroundColor": "#F8F6F1",
           "resizeMode": "contain"
         }
