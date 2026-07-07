@@ -35,6 +35,10 @@ import {
   type PaycrestToken,
 } from "@/rails/paycrest";
 import { createOfframpOrder, getOrder } from "@/api/paycrest";
+import {
+  ensureNotificationPermission,
+  notifyOrderComplete,
+} from "@/lib/notifications";
 
 export type PaycrestOfframpStatus =
   | "idle"
@@ -94,6 +98,10 @@ export function usePaycrestOfframp() {
   // context, so the user sends to the deposit address manually instead.
   const [fundable, setFundable] = useState(false);
 
+  // Once-guard for the "sale complete" notification. The payout amount/currency
+  // come straight off the settled order, so no other detail needs capturing.
+  const notifiedRef = useRef(false);
+
   const reset = useCallback(() => {
     setStatus("idle");
     setError(null);
@@ -103,6 +111,7 @@ export function usePaycrestOfframp() {
     setFundable(false);
     fundingRef.current = null;
     fundedRef.current = false;
+    notifiedRef.current = false;
   }, []);
 
   // --- Step 1: create the order, then wait for the user to confirm -------
@@ -123,6 +132,7 @@ export function usePaycrestOfframp() {
         setTransferTxHash(null);
         fundingRef.current = null;
         fundedRef.current = false;
+        notifiedRef.current = false;
 
         if (!isPaycrestFiat(fiatCurrency)) {
           throw new Error(`Unsupported payout currency "${fiatCurrency}".`);
@@ -189,6 +199,9 @@ export function usePaycrestOfframp() {
         };
         setFundable(true);
         setStatus("awaiting_funding");
+        // Ask now so the banner can fire the moment the payout settles, rather
+        // than surfacing the OS prompt at that (worse) moment.
+        void ensureNotificationPermission();
         return created;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Off-ramp failed.";
@@ -250,11 +263,14 @@ export function usePaycrestOfframp() {
         setTransferTxHash(null);
         fundingRef.current = null;
         fundedRef.current = false;
+        notifiedRef.current = false;
         setStatus("creating");
         const fetched = await getOrder(orderId);
         setOrder(fetched);
         const outcome = classifyPaycrestOrder(fetched, "offramp");
         if (outcome === "success") {
+          // Already settled before we resumed — don't fire a stale banner.
+          notifiedRef.current = true;
           setStatus("complete");
           return;
         }
@@ -339,6 +355,21 @@ export function usePaycrestOfframp() {
         const outcome = classifyPaycrestOrder(latest, "offramp");
         if (outcome === "success") {
           setStatus("complete");
+          if (!notifiedRef.current) {
+            notifiedRef.current = true;
+            const rate = Number(latest.rate);
+            const payout =
+              latest.rate && Number(latest.amount) > 0 && rate > 0
+                ? (Number(latest.amount) * rate).toLocaleString("en-US", {
+                    maximumFractionDigits: 2,
+                  })
+                : undefined;
+            void notifyOrderComplete({
+              kind: "sell",
+              amount: payout,
+              currency: latest.currency,
+            });
+          }
           return;
         }
         if (outcome === "failed" || outcome === "expired") {

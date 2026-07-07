@@ -2,8 +2,12 @@
 // deposit instructions, then polls until USDC lands. No signature — the user
 // transfers fiat externally.
 //   idle → creating → awaiting_deposit → settling → complete (or error)
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getChain, type ChainId } from "@railglide/shared/network";
+import {
+  ensureNotificationPermission,
+  notifyOrderComplete,
+} from "@/lib/notifications";
 import {
   classifyPaycrestOrder,
   humanizePaycrestError,
@@ -45,6 +49,11 @@ export function usePaycrestOnramp() {
   // avoids hammering the API through the whole (open-ended) awaiting window.
   const [depositSent, setDepositSent] = useState(false);
 
+  // Details for the "buy complete" notification (token/chain aren't on the order
+  // object) plus a guard so we notify at most once per order.
+  const notifyRef = useRef<{ token?: PaycrestToken; chainName?: string }>({});
+  const notifiedRef = useRef(false);
+
   const markSent = useCallback(() => setDepositSent(true), []);
 
   const reset = useCallback(() => {
@@ -52,6 +61,7 @@ export function usePaycrestOnramp() {
     setError(null);
     setOrder(null);
     setDepositSent(false);
+    notifiedRef.current = false;
   }, []);
 
   const onramp = useCallback(
@@ -68,6 +78,8 @@ export function usePaycrestOnramp() {
       try {
         setError(null);
         setOrder(null);
+        notifiedRef.current = false;
+        notifyRef.current = { token, chainName: getChain(toChain)?.name };
 
         if (!isPaycrestFiat(fiatCurrency)) {
           throw new Error(`Unsupported fiat currency "${fiatCurrency}".`);
@@ -103,6 +115,9 @@ export function usePaycrestOnramp() {
           throw new Error("We didn't get deposit instructions for this order.");
         }
         setStatus("awaiting_deposit");
+        // Ask now so the banner can fire the moment the deposit is confirmed,
+        // rather than surfacing the OS prompt at that (worse) moment.
+        void ensureNotificationPermission();
         return created;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Buy failed.";
@@ -123,11 +138,18 @@ export function usePaycrestOnramp() {
     try {
       setError(null);
       setDepositSent(false);
+      // We don't know the token/chain for a resumed order; a still-in-flight one
+      // can still notify (with just the amount) once polling sees it settle.
+      notifiedRef.current = false;
+      notifyRef.current = {};
       setStatus("creating");
       const fetched = await getOrder(orderId);
       setOrder(fetched);
       const outcome = classifyPaycrestOrder(fetched, "onramp");
       if (outcome === "success") {
+        // Already settled before we resumed — surfacing a "complete" banner for
+        // an old order would be noise, so mark it handled without notifying.
+        notifiedRef.current = true;
         setStatus("complete");
         return;
       }
@@ -176,6 +198,15 @@ export function usePaycrestOnramp() {
         const outcome = classifyPaycrestOrder(latest, "onramp");
         if (outcome === "success") {
           setStatus("complete");
+          if (!notifiedRef.current) {
+            notifiedRef.current = true;
+            void notifyOrderComplete({
+              kind: "buy",
+              amount: latest.amount,
+              token: notifyRef.current.token,
+              chainName: notifyRef.current.chainName,
+            });
+          }
         } else if (outcome === "failed" || outcome === "expired") {
           setError(
             humanizePaycrestError(

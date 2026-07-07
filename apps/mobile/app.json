@@ -31,7 +31,13 @@
         }
       ],
       "react-native-quick-crypto",
-      "expo-build-properties"
+      "expo-build-properties",
+      [
+        "expo-notifications",
+        {
+          "color": "#D9694A"
+        }
+      ]
     ],
     "extra": {
       "eas": {}
