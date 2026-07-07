@@ -17,7 +17,7 @@ export const walletReady = projectId.length > 0;
 
 const metadata = {
   name: "Railglide",
-  description: "Send stablecoins and cash out to local fiat, from any chain.",
+  description: "Buy and sell stablecoins for local fiat, from any chain.",
   url: "https://railglide.app",
   icons: ["https://railglide.app/icon.png"],
   redirect: {

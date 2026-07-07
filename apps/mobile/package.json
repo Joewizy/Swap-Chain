@@ -24,6 +24,7 @@
     "@web3icons/core": "^4.0.51",
     "expo": "^57.0.0",
     "expo-build-properties": "~57.0.3",
+    "expo-clipboard": "~57.0.0",
     "expo-dev-client": "~57.0.5",
     "expo-secure-store": "~57.0.0",
     "expo-splash-screen": "~57.0.1",

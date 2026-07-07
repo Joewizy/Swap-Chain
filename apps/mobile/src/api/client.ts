@@ -1,7 +1,18 @@
-// Base API client → the Railglide backend. Mobile has no same-origin, so calls
-// need an absolute base URL: set EXPO_PUBLIC_API_URL (LAN dev or deployed).
+import Constants from "expo-constants";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+/** The dev machine's host (e.g. "192.168.18.2") from Metro, without the port. */
+function metroHost(): string | null {
+  const hostUri =
+    Constants.expoConfig?.hostUri ??
+    // Fallback for older manifest shapes.
+    (Constants as unknown as { manifest2?: { extra?: { expoGo?: { debuggerHost?: string } } } })
+      .manifest2?.extra?.expoGo?.debuggerHost;
+  return hostUri ? hostUri.split(":")[0] : null;
+}
+
+const API_URL =
+  process.env.EXPO_PUBLIC_API_URL ??
+  (__DEV__ && metroHost() ? `http://${metroHost()}:3000` : "http://localhost:3000");
 
 // Backend host (e.g. "192.168.1.20:3000") — the SIWE message's `domain`.
 // Parsed by hand since RN has no reliable global URL.

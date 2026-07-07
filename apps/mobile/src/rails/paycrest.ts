@@ -22,6 +22,28 @@ export function isPaycrestFiat(code: string): code is PaycrestFiat {
 export type PaycrestToken = "USDC" | "USDT";
 export type PaycrestDirection = "offramp" | "onramp";
 
+/**
+ * Paycrest rejects an order if the reference runs long (empirically past ~70
+ * chars). Keep ours under this so the encoded wallet always fits.
+ */
+export const PAYCREST_REFERENCE_MAX_LENGTH = 70;
+
+/**
+ * Encodes the wallet into the order `reference` so History can tie the order
+ * back to it. Paycrest overrides the off-ramp refundAddress to its own account
+ * default, so the wallet isn't otherwise recoverable — `orderMatchesWallet`
+ * (server) keys off the address embedded here. Mirrors web's builder; the "sw-"
+ * prefix and short tag keep it under PAYCREST_REFERENCE_MAX_LENGTH.
+ */
+export function buildPaycrestReference(
+  direction: PaycrestDirection,
+  address: string | undefined
+): string {
+  const wallet = address ? address.toLowerCase() : "anon";
+  const tag = direction === "offramp" ? "off" : "on";
+  return `sw-${tag}-${wallet}-${Date.now()}`;
+}
+
 /** App ChainId → Paycrest network slug (mainnet only — Paycrest has no sandbox). */
 export const PAYCREST_NETWORK_SLUGS: Partial<Record<ChainId, string>> = {
   base: "base",
@@ -33,6 +55,14 @@ export const PAYCREST_NETWORK_SLUGS: Partial<Record<ChainId, string>> = {
 
 export function paycrestNetworkSlug(chainId: ChainId): string | null {
   return PAYCREST_NETWORK_SLUGS[chainId] ?? null;
+}
+
+/** Paycrest network slug → app ChainId (reverse of paycrestNetworkSlug). */
+export function chainIdFromPaycrestSlug(slug: string): ChainId | null {
+  const entry = Object.entries(PAYCREST_NETWORK_SLUGS).find(
+    ([, s]) => s === slug
+  );
+  return entry ? (entry[0] as ChainId) : null;
 }
 
 /** ChainIds Paycrest can off-ramp, for the source-chain picker. */

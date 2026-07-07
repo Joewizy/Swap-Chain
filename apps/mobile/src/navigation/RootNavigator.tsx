@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { IntentScreen } from "@/screens/IntentScreen";
 import { CashoutScreen } from "@/screens/CashoutScreen";
@@ -7,10 +8,42 @@ import { HistoryScreen } from "@/screens/HistoryScreen";
 import { RecipientsScreen } from "@/screens/RecipientsScreen";
 import { theme } from "@/theme";
 
+// No nav header — each screen owns its title, so the tab name isn't repeated
+// above the content. Wrap in a top safe-area so content clears the notch.
+// (Written as concrete components, not an HOC — a generic ComponentType return
+// trips the monorepo's duplicate @types/react.)
+const safeArea = { flex: 1, backgroundColor: theme.colors.bg } as const;
+
+const AskTab = () => (
+  <SafeAreaView style={safeArea} edges={["top"]}>
+    <IntentScreen />
+  </SafeAreaView>
+);
+const CashoutTab = () => (
+  <SafeAreaView style={safeArea} edges={["top"]}>
+    <CashoutScreen />
+  </SafeAreaView>
+);
+const BuyTab = () => (
+  <SafeAreaView style={safeArea} edges={["top"]}>
+    <BuyScreen />
+  </SafeAreaView>
+);
+const HistoryTab = () => (
+  <SafeAreaView style={safeArea} edges={["top"]}>
+    <HistoryScreen />
+  </SafeAreaView>
+);
+const RecipientsTab = () => (
+  <SafeAreaView style={safeArea} edges={["top"]}>
+    <RecipientsScreen />
+  </SafeAreaView>
+);
+
 // Bottom-tab shell — one tab per core job.
 export type RootTabParamList = {
   Ask: undefined;
-  "Cash out": undefined;
+  Sell: undefined;
   Buy: undefined;
   History: undefined;
   Recipients: undefined;
@@ -18,7 +51,7 @@ export type RootTabParamList = {
 
 const ICONS: Record<keyof RootTabParamList, keyof typeof Feather.glyphMap> = {
   Ask: "message-circle",
-  "Cash out": "arrow-down-circle",
+  Sell: "arrow-down-circle",
   Buy: "credit-card",
   History: "clock",
   Recipients: "users",
@@ -30,14 +63,7 @@ export function RootNavigator() {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        headerStyle: { backgroundColor: theme.colors.bg },
-        headerTitleStyle: {
-          color: theme.colors.text,
-          fontFamily: theme.serif,
-          fontSize: 28,
-        },
-        headerTitleAlign: "left",
-        headerShadowVisible: false,
+        headerShown: false,
         sceneStyle: { backgroundColor: theme.colors.bg },
         tabBarStyle: {
           backgroundColor: theme.colors.surface,
@@ -59,11 +85,11 @@ export function RootNavigator() {
         ),
       })}
     >
-      <Tab.Screen name="Ask" component={IntentScreen} />
-      <Tab.Screen name="Cash out" component={CashoutScreen} />
-      <Tab.Screen name="Buy" component={BuyScreen} />
-      <Tab.Screen name="History" component={HistoryScreen} />
-      <Tab.Screen name="Recipients" component={RecipientsScreen} />
+      <Tab.Screen name="Ask" component={AskTab} />
+      <Tab.Screen name="Sell" component={CashoutTab} />
+      <Tab.Screen name="Buy" component={BuyTab} />
+      <Tab.Screen name="History" component={HistoryTab} />
+      <Tab.Screen name="Recipients" component={RecipientsTab} />
     </Tab.Navigator>
   );
 }

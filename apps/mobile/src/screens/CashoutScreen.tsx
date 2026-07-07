@@ -9,10 +9,11 @@ import {
   StyleSheet,
   type ViewProps,
 } from "react-native";
-import { useAccount } from "wagmi";
+import { useAccount, useBalance } from "wagmi";
 import {
   ACTIVE_CHAINS,
   getChain,
+  getTokenAddress,
   resolveChain,
   type ChainId,
 } from "@railglide/shared/network";
@@ -25,6 +26,7 @@ import {
   verifyAccount,
 } from "@/api/paycrest";
 import {
+  buildPaycrestReference,
   PAYCREST_CHAIN_IDS,
   PAYCREST_FIAT,
   type PaycrestFiat,
@@ -32,7 +34,8 @@ import {
   type PaycrestToken,
 } from "@/rails/paycrest";
 import { ApiError } from "@/api/client";
-import { Intro } from "@/components/form";
+import { Intro, PageTitle } from "@/components/form";
+import { clipboardAvailable, copyToClipboard } from "@/lib/clipboard";
 import { Picker } from "@/components/Picker";
 import {
   chainOptions,
@@ -56,6 +59,8 @@ type Step = "compose" | "recipient" | "review";
 export function CashoutScreen() {
   const launch = useSession((s) => s.pendingLaunch);
   const setPendingLaunch = useSession((s) => s.setPendingLaunch);
+  const resumeOrder = useSession((s) => s.resumeOrder);
+  const setResumeOrder = useSession((s) => s.setResumeOrder);
   const { address, isConnected } = useAccount();
   const { connect } = useWalletAuth();
   const offramp = usePaycrestOfframp();
@@ -94,6 +99,18 @@ export function CashoutScreen() {
     return () => setPendingLaunch(null);
   }, [setPendingLaunch]);
 
+  // Resume a sell order tapped in History.
+  useEffect(() => {
+    if (resumeOrder?.direction === "offramp") {
+      void offramp.resume(resumeOrder.id, {
+        token: resumeOrder.token === "USDT" ? "USDT" : "USDC",
+        network: resumeOrder.network,
+      });
+      setResumeOrder(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeOrder]);
+
   // Live unit rate for the estimate.
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +140,24 @@ export function CashoutScreen() {
           maximumFractionDigits: 2,
         })
       : null;
+
+  // Connected wallet's balance of the selected token on the selected chain, so
+  // the user can't try to sell more than they hold (the transfer would revert).
+  const tokenAddress = getTokenAddress(token, chain);
+  const viemChainId = getChain(chain)?.viemChain?.id;
+  const balanceQuery = useBalance({
+    address,
+    token: tokenAddress ? (tokenAddress as `0x${string}`) : undefined,
+    chainId: viemChainId,
+    query: {
+      enabled: isConnected && !!tokenAddress && !!viemChainId,
+    },
+  });
+  const balance = balanceQuery.data
+    ? Number(balanceQuery.data.formatted)
+    : null;
+  const insufficient =
+    balance != null && Number(amount) > 0 && Number(amount) > balance;
 
   const doVerify = async () => {
     if (!institution || !account.trim()) return;
@@ -155,6 +190,7 @@ export function CashoutScreen() {
           accountName,
         },
         refundAddress: address as `0x${string}`,
+        reference: buildPaycrestReference("offramp", address),
       });
     } catch {
       // error surfaced via offramp.error
@@ -170,20 +206,42 @@ export function CashoutScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Intro>Send stablecoins to a bank or mobile money account.</Intro>
+      <PageTitle>Sell</PageTitle>
+      <Intro>Sell stablecoins to a bank or mobile money account.</Intro>
       <Steps step={step} />
 
       {step === "compose" && (
         <>
           <Field label="Amount">
             <TextInput
-              style={styles.input}
+              style={[styles.input, insufficient && styles.inputError]}
               value={amount}
               onChangeText={setAmount}
               keyboardType="decimal-pad"
               placeholder="0.00"
               placeholderTextColor={theme.colors.muted}
             />
+            {isConnected && (
+              <View style={styles.balanceRow}>
+                <Text style={insufficient ? styles.error : styles.balance}>
+                  {balanceQuery.isLoading
+                    ? "Checking balance…"
+                    : balance != null
+                      ? `Balance: ${balance.toLocaleString("en-US", {
+                          maximumFractionDigits: 4,
+                        })} ${token}`
+                      : "Balance unavailable"}
+                </Text>
+                {balance != null && balance > 0 && (
+                  <Pressable
+                    onPress={() => setAmount(String(balance))}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.maxLink}>Max</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
           </Field>
 
           <Field label="Token">
@@ -219,9 +277,16 @@ export function CashoutScreen() {
               : "Enter an amount to see the estimate"}
           </Text>
 
+          {insufficient && (
+            <Text style={styles.error}>
+              Not enough {token} on {getChain(chain)?.name ?? chain}. Add funds
+              or lower the amount.
+            </Text>
+          )}
+
           <Primary
             label="Continue"
-            disabled={!(Number(amount) > 0)}
+            disabled={!(Number(amount) > 0) || insufficient}
             onPress={() => setStep("recipient")}
           />
         </>
@@ -331,7 +396,24 @@ function OrderStatus({
   token: PaycrestToken;
   currency: PaycrestFiat;
 }) {
-  const { status, order, error, fund, reset, transferTxHash } = offramp;
+  const {
+    status,
+    order,
+    error,
+    fund,
+    reset,
+    transferTxHash,
+    manualCheck,
+    markSent,
+    fundable,
+  } = offramp;
+  const [copied, setCopied] = useState(false);
+  const copyAddr = async () => {
+    if (order?.receiveAddress && (await copyToClipboard(order.receiveAddress))) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    }
+  };
 
   const phase =
     status === "awaiting_funding"
@@ -355,22 +437,48 @@ function OrderStatus({
           <Row l="Send exactly" r={`${order.amount} ${token}`} />
           {order.rate && <Row l="Locked rate" r={`${order.rate} ${currency}`} />}
           <Row l="Status" r={order.status} />
-          {order.receiveAddress && (
-            <Row
-              l="Deposit address"
-              r={`${order.receiveAddress.slice(0, 6)}…${order.receiveAddress.slice(-4)}`}
-            />
+        </View>
+      )}
+
+      {order?.receiveAddress && (
+        <View style={styles.addrBlock}>
+          <Text style={styles.addrLabel}>Deposit address — send {token} here</Text>
+          <Text style={styles.addrText} selectable>
+            {order.receiveAddress}
+          </Text>
+          {clipboardAvailable && (
+            <Pressable onPress={() => void copyAddr()} hitSlop={8}>
+              <Text style={styles.copyLink}>
+                {copied ? "Copied ✓" : "Copy address"}
+              </Text>
+            </Pressable>
           )}
         </View>
       )}
 
       {status === "awaiting_funding" && (
         <>
-          <Text style={styles.estimate}>
-            Send {order?.amount} {token} to the provider to complete the
-            cash-out. This is the only signature you make.
-          </Text>
-          <Primary label="Send from wallet" onPress={() => void fund()} />
+          {fundable ? (
+            <>
+              <Text style={styles.estimate}>
+                Send {order?.amount} {token} to the provider to complete the
+                sale. Tap Send from wallet, or send to the deposit address above
+                from another wallet (long-press it to copy).
+              </Text>
+              <Primary label="Send from wallet" onPress={() => void fund()} />
+            </>
+          ) : (
+            <Text style={styles.estimate}>
+              To finish this order, send {order?.amount} {token} to the deposit
+              address above (long-press it to copy). Then tap the button below so
+              we start checking.
+            </Text>
+          )}
+          {manualCheck ? (
+            <Text style={styles.estimate}>Checking for your transfer…</Text>
+          ) : (
+            <Secondary label="I've sent the payment" onPress={markSent} />
+          )}
         </>
       )}
 
@@ -386,15 +494,14 @@ function OrderStatus({
 
       {status === "complete" && (
         <Text style={styles.estimate}>
-          The recipient has been paid in {currency}. You can start another
-          cash-out.
+          The recipient has been paid in {currency}. You can start another sale.
         </Text>
       )}
 
       {error && <Text style={styles.error}>{error}</Text>}
 
       {(status === "complete" || status === "error") && (
-        <Primary label="New cash-out" onPress={reset} />
+        <Primary label="Sell again" onPress={reset} />
       )}
     </ScrollView>
   );
@@ -440,7 +547,9 @@ function Row({ l, r }: { l: string; r: string }) {
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{l}</Text>
-      <Text style={styles.rowValue}>{r}</Text>
+      <Text style={styles.rowValue} selectable>
+        {r}
+      </Text>
     </View>
   );
 }
@@ -483,6 +592,33 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.bg },
   content: { padding: theme.spacing(2.5), gap: theme.spacing(1.75) },
   title: { color: theme.colors.text, fontSize: 30, fontFamily: theme.serif },
+  addrBlock: {
+    padding: theme.spacing(2),
+    borderRadius: theme.radius.card,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    gap: theme.spacing(0.75),
+    ...theme.shadow,
+  },
+  addrLabel: {
+    color: theme.colors.muted,
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  addrText: {
+    color: theme.colors.text,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "600",
+  },
+  copyLink: {
+    color: theme.colors.accent,
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: theme.spacing(0.5),
+  },
   steps: { flexDirection: "row", gap: theme.spacing(1), marginBottom: theme.spacing(1) },
   stepChip: {
     color: theme.colors.muted,
@@ -500,6 +636,14 @@ const styles = StyleSheet.create({
   },
   field: { gap: theme.spacing(0.75) },
   fieldLabel: { color: theme.colors.muted, fontSize: 13 },
+  balanceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: theme.spacing(0.25),
+  },
+  balance: { color: theme.colors.muted, fontSize: 13 },
+  maxLink: { color: theme.colors.accent, fontSize: 13, fontWeight: "700" },
   input: {
     color: theme.colors.text,
     fontSize: 16,
@@ -510,6 +654,7 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing(1.25),
     backgroundColor: theme.colors.surface,
   },
+  inputError: { borderColor: theme.colors.err },
   estimate: { color: theme.colors.muted, fontSize: 13, lineHeight: 19 },
   accountName: { color: theme.colors.ok, fontSize: 15, fontWeight: "600" },
   card: {

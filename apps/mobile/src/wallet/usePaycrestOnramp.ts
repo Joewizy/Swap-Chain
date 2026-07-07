@@ -40,11 +40,18 @@ export function usePaycrestOnramp() {
   const [status, setStatus] = useState<PaycrestOnrampStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [order, setOrder] = useState<PaycrestOrder | null>(null);
+  // The rate locks at creation, so there's nothing to watch until the user has
+  // actually sent their fiat. Polling only starts once they confirm — this flag
+  // avoids hammering the API through the whole (open-ended) awaiting window.
+  const [depositSent, setDepositSent] = useState(false);
+
+  const markSent = useCallback(() => setDepositSent(true), []);
 
   const reset = useCallback(() => {
     setStatus("idle");
     setError(null);
     setOrder(null);
+    setDepositSent(false);
   }, []);
 
   const onramp = useCallback(
@@ -107,7 +114,52 @@ export function usePaycrestOnramp() {
     []
   );
 
-  const isPolling = status === "awaiting_deposit" || status === "settling";
+  // Poll only after the user says they've paid (or once the provider is already
+  // moving), and at a relaxed cadence — a fiat transfer takes minutes to land.
+  // Adopt an existing order (from History) — fetch it and jump straight to the
+  // right phase: deposit instructions if still open, settling if the provider
+  // is moving, or a terminal state.
+  const resume = useCallback(async (orderId: string): Promise<void> => {
+    try {
+      setError(null);
+      setDepositSent(false);
+      setStatus("creating");
+      const fetched = await getOrder(orderId);
+      setOrder(fetched);
+      const outcome = classifyPaycrestOrder(fetched, "onramp");
+      if (outcome === "success") {
+        setStatus("complete");
+        return;
+      }
+      if (outcome === "failed") {
+        setError(humanizePaycrestError("This order was refunded."));
+        setStatus("error");
+        return;
+      }
+      if (outcome === "expired") {
+        setError(
+          humanizePaycrestError(
+            "This order expired before your payment arrived."
+          )
+        );
+        setStatus("error");
+        return;
+      }
+      setStatus(
+        paycrestPayoutInFlight(fetched) ? "settling" : "awaiting_deposit"
+      );
+    } catch (err) {
+      setError(
+        humanizePaycrestError(
+          err instanceof Error ? err.message : "Couldn't load this order."
+        )
+      );
+      setStatus("error");
+    }
+  }, []);
+
+  const isPolling =
+    (depositSent && status === "awaiting_deposit") || status === "settling";
   useEffect(() => {
     if (!isPolling || !order?.id) return;
     const orderId = order.id;
@@ -140,7 +192,7 @@ export function usePaycrestOnramp() {
     };
 
     void tick();
-    const handle = setInterval(tick, 5000);
+    const handle = setInterval(tick, 12000);
     return () => {
       stopped = true;
       clearInterval(handle);
@@ -151,9 +203,12 @@ export function usePaycrestOnramp() {
     status,
     error,
     order,
+    depositSent,
     isRunning:
       status !== "idle" && status !== "complete" && status !== "error",
     onramp,
+    markSent,
+    resume,
     reset,
   };
 }

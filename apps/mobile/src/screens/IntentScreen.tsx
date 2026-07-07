@@ -25,13 +25,13 @@ import { theme } from "@/theme";
 import type { RootTabParamList } from "@/navigation/RootNavigator";
 
 const FLOW_CTA: Record<FlowId, string> = {
-  cashout: "Continue to cash out",
+  cashout: "Continue to sell",
   buy: "Buy crypto",
   bridge: "Continue",
 };
 
 const SUGGESTIONS = [
-  "Cash out 300 USDT to M-Pesa",
+  "Sell 300 USDT for M-Pesa",
   "Swap XRP for USDC on Base",
   "How can I buy USDC on Arbitrum?",
 ];
@@ -89,9 +89,9 @@ export function IntentScreen() {
       chatSummary: firstUser,
     });
     const tab: Record<FlowId, keyof RootTabParamList> = {
-      cashout: "Cash out",
+      cashout: "Sell",
       buy: "Buy",
-      bridge: "Cash out",
+      bridge: "Sell",
     };
     navigation.navigate(tab[lastReply.launch.flow]);
   };
@@ -125,8 +125,8 @@ export function IntentScreen() {
             <View style={styles.hero}>
               <Text style={styles.heroTitle}>What do you{"\n"}want to do?</Text>
               <Text style={styles.heroSub}>
-                Send money, cash out to a bank or mobile money, or buy crypto —
-                just say it in plain words.
+                Sell crypto to a bank or mobile money, or buy crypto — just say
+                it in plain words.
               </Text>
               <View style={styles.pills}>
                 {SUGGESTIONS.map((s) => (

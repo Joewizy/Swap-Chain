@@ -23,10 +23,12 @@ import {
   type ChainId,
 } from "@railglide/shared/network";
 import {
+  chainIdFromPaycrestSlug,
   classifyPaycrestOrder,
   humanizePaycrestError,
   isPaycrestFiat,
   paycrestNetworkSlug,
+  paycrestPayoutInFlight,
   type PaycrestFiat,
   type PaycrestOrder,
   type PaycrestRecipient,
@@ -82,12 +84,23 @@ export function usePaycrestOfframp() {
     orderId: string;
   } | null>(null);
   const fundedRef = useRef(false);
+  // Set when the user says they funded the order from an external wallet (not
+  // via "Send from wallet"). Lets them opt into polling without us hammering the
+  // API through the whole awaiting-funding window.
+  const [manualCheck, setManualCheck] = useState(false);
+  const markSent = useCallback(() => setManualCheck(true), []);
+  // Whether "Send from wallet" can run — true only when we hold the funding
+  // context from creating the order this session. A resumed order has no
+  // context, so the user sends to the deposit address manually instead.
+  const [fundable, setFundable] = useState(false);
 
   const reset = useCallback(() => {
     setStatus("idle");
     setError(null);
     setOrder(null);
     setTransferTxHash(null);
+    setManualCheck(false);
+    setFundable(false);
     fundingRef.current = null;
     fundedRef.current = false;
   }, []);
@@ -174,6 +187,7 @@ export function usePaycrestOfframp() {
           srcChainId,
           orderId: created.id,
         };
+        setFundable(true);
         setStatus("awaiting_funding");
         return created;
       } catch (err) {
@@ -220,11 +234,98 @@ export function usePaycrestOfframp() {
     }
   }, [config]);
 
-  // Poll the order across the funding → settling lifecycle until terminal.
+  // Adopt an existing order (from History). Given the order's token + source
+  // network we rebuild the wallet funding context so "Send from wallet" works on
+  // a resumed order too; if we can't, the user sends to the deposit address
+  // manually and taps "I've sent the payment".
+  const resume = useCallback(
+    async (
+      orderId: string,
+      opts?: { token?: PaycrestToken; network?: string }
+    ): Promise<void> => {
+      try {
+        setError(null);
+        setManualCheck(false);
+        setFundable(false);
+        setTransferTxHash(null);
+        fundingRef.current = null;
+        fundedRef.current = false;
+        setStatus("creating");
+        const fetched = await getOrder(orderId);
+        setOrder(fetched);
+        const outcome = classifyPaycrestOrder(fetched, "offramp");
+        if (outcome === "success") {
+          setStatus("complete");
+          return;
+        }
+        if (outcome === "failed") {
+          setError(
+            humanizePaycrestError(
+              "This order was refunded — funds are returning to your refund address."
+            )
+          );
+          setStatus("error");
+          return;
+        }
+        if (outcome === "expired") {
+          setError(
+            humanizePaycrestError("This order expired. Start a new sale.")
+          );
+          setStatus("error");
+          return;
+        }
+
+        // Rebuild the funding context so the user can fund from their wallet.
+        const inFlight = paycrestPayoutInFlight(fetched);
+        if (!inFlight && opts?.token && opts.network && fetched.receiveAddress) {
+          const fromChain = chainIdFromPaycrestSlug(opts.network);
+          const rawToken = fromChain
+            ? getTokenAddress(opts.token, fromChain)
+            : null;
+          const decimals = getToken(opts.token)?.decimals;
+          const srcChainId = fromChain
+            ? getChain(fromChain)?.viemChain?.id
+            : undefined;
+          if (fromChain && rawToken && decimals !== undefined && srcChainId) {
+            try {
+              const units = parseUnits(fetched.amount, decimals);
+              if (units > 0n) {
+                fundingRef.current = {
+                  tokenAddress: getAddress(rawToken.toLowerCase()),
+                  receiveAddress: getAddress(
+                    fetched.receiveAddress.toLowerCase()
+                  ),
+                  units,
+                  srcChainId,
+                  orderId: fetched.id,
+                };
+                setFundable(true);
+              }
+            } catch {
+              // Fall back to manual send.
+            }
+          }
+        }
+        setStatus(inFlight ? "settling" : "awaiting_funding");
+      } catch (err) {
+        setError(
+          humanizePaycrestError(
+            err instanceof Error ? err.message : "Couldn't load this order."
+          )
+        );
+        setStatus("error");
+      }
+    },
+    []
+  );
+
+  // Poll only once funds are actually on the way: "Send from wallet" moves us to
+  // funding/settling, or the user confirms an external transfer. No polling while
+  // the order just sits at awaiting_funding — the rate is already locked.
   const isPolling =
-    status === "awaiting_funding" ||
     status === "funding" ||
-    status === "settling";
+    status === "settling" ||
+    (manualCheck && status === "awaiting_funding");
   useEffect(() => {
     if (!isPolling || !order?.id) return;
     const orderId = order.id;
@@ -259,7 +360,7 @@ export function usePaycrestOfframp() {
     };
 
     void tick();
-    const handle = setInterval(tick, 5000);
+    const handle = setInterval(tick, 10000);
     return () => {
       stopped = true;
       clearInterval(handle);
@@ -271,10 +372,14 @@ export function usePaycrestOfframp() {
     error,
     order,
     transferTxHash,
+    manualCheck,
+    fundable,
     isRunning:
       status !== "idle" && status !== "complete" && status !== "error",
     offramp,
     fund,
+    markSent,
+    resume,
     reset,
   };
 }

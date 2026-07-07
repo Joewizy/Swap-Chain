@@ -7,7 +7,13 @@ import {
 } from "react-native";
 import { theme } from "@/theme";
 
-// One-line screen description under the header, matching the website.
+// The screen's single serif title. The nav header is hidden, so each screen
+// renders this once at the top instead of repeating the tab name in a bar.
+export function PageTitle({ children }: { children: string }) {
+  return <Text style={formStyles.pageTitle}>{children}</Text>;
+}
+
+// One-line screen description under the title, matching the website.
 export function Intro({ children }: { children: string }) {
   return <Text style={formStyles.intro}>{children}</Text>;
 }
@@ -128,6 +134,12 @@ export const formStyles = StyleSheet.create({
     ...theme.shadow,
   },
   estimate: { color: theme.colors.muted, fontSize: 13, lineHeight: 20 },
+  pageTitle: {
+    color: theme.colors.text,
+    fontSize: 34,
+    fontFamily: theme.serif,
+    marginBottom: theme.spacing(0.25),
+  },
   intro: {
     color: theme.colors.muted,
     fontSize: 15,
