@@ -20,11 +20,7 @@ import {
 import { useSession } from "@/store/session";
 import { useWalletAuth } from "@/wallet/useWalletAuth";
 import { usePaycrestOfframp } from "@/wallet/usePaycrestOfframp";
-import {
-  getInstitutions,
-  getRate,
-  verifyAccount,
-} from "@/api/paycrest";
+import { getInstitutions, getRate, verifyAccount } from "@/api/paycrest";
 import {
   buildPaycrestReference,
   PAYCREST_CHAIN_IDS,
@@ -35,7 +31,10 @@ import {
 } from "@/rails/paycrest";
 import { ApiError } from "@/api/client";
 import { Intro, PageTitle } from "@/components/form";
-import { clipboardAvailable, copyToClipboard } from "@/lib/clipboard";
+import { copyToClipboard } from "@/lib/clipboard";
+import { formatFiat } from "@/lib/format";
+import { PrefixedAmountInput } from "@/components/PrefixedAmountInput";
+import { Feather } from "@expo/vector-icons";
 import { Picker } from "@/components/Picker";
 import {
   chainOptions,
@@ -199,9 +198,7 @@ export function CashoutScreen() {
 
   // ---- Order in flight: funding / settling / done ----------------------
   if (offramp.status !== "idle") {
-    return (
-      <OrderStatus offramp={offramp} token={token} currency={currency} />
-    );
+    return <OrderStatus offramp={offramp} token={token} currency={currency} />;
   }
 
   return (
@@ -213,13 +210,11 @@ export function CashoutScreen() {
       {step === "compose" && (
         <>
           <Field label="Amount">
-            <TextInput
-              style={[styles.input, insufficient && styles.inputError]}
-              value={amount}
-              onChangeText={setAmount}
-              keyboardType="decimal-pad"
-              placeholder="0.00"
-              placeholderTextColor={theme.colors.muted}
+            <PrefixedAmountInput
+              amount={amount}
+              onChange={setAmount}
+              prefix="$"
+              error={insufficient}
             />
             {isConnected && (
               <View style={styles.balanceRow}>
@@ -273,7 +268,7 @@ export function CashoutScreen() {
 
           <Text style={styles.estimate}>
             {estimate
-              ? `≈ ${estimate} ${currency}  (rate locks when you create the order)`
+              ? `≈ ${formatFiat(currency, estimate)}  (rate locks when you create the order)`
               : "Enter an amount to see the estimate"}
           </Text>
 
@@ -304,7 +299,9 @@ export function CashoutScreen() {
               value={institution?.code}
               options={institutionOptions(institutions)}
               onChange={(code) => {
-                setInstitution(institutions.find((i) => i.code === code) ?? null);
+                setInstitution(
+                  institutions.find((i) => i.code === code) ?? null
+                );
                 setAccountName(null);
               }}
             />
@@ -359,7 +356,11 @@ export function CashoutScreen() {
             <Row l="On" r={getChain(chain)?.name ?? chain} />
             <Row
               l="Recipient gets"
-              r={estimate ? `≈ ${estimate} ${currency}` : `— ${currency}`}
+              r={
+                estimate
+                  ? `≈ ${formatFiat(currency, estimate)}`
+                  : `— ${currency}`
+              }
             />
             <Row l="To" r={institution?.name ?? ""} />
             <Row l="Name" r={accountName ?? ""} />
@@ -409,24 +410,82 @@ function OrderStatus({
   } = offramp;
   const [copied, setCopied] = useState(false);
   const copyAddr = async () => {
-    if (order?.receiveAddress && (await copyToClipboard(order.receiveAddress))) {
+    if (
+      order?.receiveAddress &&
+      (await copyToClipboard(order.receiveAddress))
+    ) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1400);
     }
   };
 
+  if (status === "creating") {
+    return (
+      <View style={styles.centeredPhase}>
+        <View style={styles.phaseIconRing}>
+          <ActivityIndicator size="large" color={theme.colors.accent} />
+        </View>
+        <Text style={styles.phaseTitle}>Creating order</Text>
+        <Text style={styles.phaseSub}>
+          Locking your rate and preparing the deposit…
+        </Text>
+      </View>
+    );
+  }
+
+  if (status === "funding") {
+    return (
+      <View style={styles.centeredPhase}>
+        <View style={styles.phaseIconRing}>
+          <ActivityIndicator size="large" color={theme.colors.accent} />
+        </View>
+        <Text style={styles.phaseTitle}>Sending {token}</Text>
+        <Text style={styles.phaseSub}>
+          Confirm the transfer in your wallet if prompted.
+        </Text>
+      </View>
+    );
+  }
+
+  if (status === "settling") {
+    return (
+      <View style={styles.centeredPhase}>
+        <View style={styles.phaseIconRing}>
+          <ActivityIndicator size="large" color={theme.colors.accent} />
+        </View>
+        <Text style={styles.phaseTitle}>Paying the recipient</Text>
+        <Text style={styles.phaseSub}>
+          Your {token} is confirmed — sending {currency} to their account.
+        </Text>
+      </View>
+    );
+  }
+
+  if (status === "error" && !order) {
+    return (
+      <View style={styles.centeredPhase}>
+        <View style={[styles.phaseIconRing, styles.phaseIconError]}>
+          <Feather name="alert-circle" size={28} color={theme.colors.err} />
+        </View>
+        <Text style={styles.phaseTitle}>Something went wrong</Text>
+        <Text style={styles.phaseError}>
+          {error ?? "We couldn't create this order. Please try again."}
+        </Text>
+        <View style={styles.phaseActions}>
+          <Primary label="Try again" onPress={reset} />
+        </View>
+      </View>
+    );
+  }
+
   const phase =
     status === "awaiting_funding"
       ? "Fund your order"
-      : status === "funding"
-        ? "Sending…"
-        : status === "settling"
-          ? "Paying the recipient…"
-          : status === "complete"
-            ? "Done 🎉"
-            : status === "error"
-              ? "Something went wrong"
-              : "Working…";
+      : status === "complete"
+        ? "Done 🎉"
+        : status === "error"
+          ? "Something went wrong"
+          : "Working…";
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -435,24 +494,26 @@ function OrderStatus({
       {order && (
         <View style={styles.card}>
           <Row l="Send exactly" r={`${order.amount} ${token}`} />
-          {order.rate && <Row l="Locked rate" r={`${order.rate} ${currency}`} />}
+          {order.rate && (
+            <Row l="Locked rate" r={`${order.rate} ${currency}`} />
+          )}
           <Row l="Status" r={order.status} />
         </View>
       )}
 
       {order?.receiveAddress && (
         <View style={styles.addrBlock}>
-          <Text style={styles.addrLabel}>Deposit address — send {token} here</Text>
+          <Text style={styles.addrLabel}>
+            Deposit address — send {token} here
+          </Text>
           <Text style={styles.addrText} selectable>
             {order.receiveAddress}
           </Text>
-          {clipboardAvailable && (
-            <Pressable onPress={() => void copyAddr()} hitSlop={8}>
-              <Text style={styles.copyLink}>
-                {copied ? "Copied ✓" : "Copy address"}
-              </Text>
-            </Pressable>
-          )}
+          <Pressable onPress={() => void copyAddr()} hitSlop={8}>
+            <Text style={styles.copyLink}>
+              {copied ? "Copied ✓" : "Copy address"}
+            </Text>
+          </Pressable>
         </View>
       )}
 
@@ -470,8 +531,8 @@ function OrderStatus({
           ) : (
             <Text style={styles.estimate}>
               To finish this order, send {order?.amount} {token} to the deposit
-              address above (long-press it to copy). Then tap the button below so
-              we start checking.
+              address above (long-press it to copy). Then tap the button below
+              so we start checking.
             </Text>
           )}
           {manualCheck ? (
@@ -480,10 +541,6 @@ function OrderStatus({
             <Secondary label="I've sent the payment" onPress={markSent} />
           )}
         </>
-      )}
-
-      {(status === "funding" || status === "settling") && (
-        <ActivityIndicator color={theme.colors.accent} style={styles.pad} />
       )}
 
       {transferTxHash && (
@@ -513,7 +570,11 @@ function OrderStatus({
 
 function Steps({ step }: { step: Step }) {
   const order: Step[] = ["compose", "recipient", "review"];
-  const labels = { compose: "Amount", recipient: "Recipient", review: "Review" };
+  const labels = {
+    compose: "Amount",
+    recipient: "Recipient",
+    review: "Review",
+  };
   return (
     <View style={styles.steps}>
       {order.map((s) => (
@@ -574,13 +635,7 @@ function Primary({
   );
 }
 
-function Secondary({
-  label,
-  onPress,
-}: {
-  label: string;
-  onPress: () => void;
-}) {
+function Secondary({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <Pressable style={styles.secondary} onPress={onPress}>
       <Text style={styles.secondaryText}>{label}</Text>
@@ -619,7 +674,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: theme.spacing(0.5),
   },
-  steps: { flexDirection: "row", gap: theme.spacing(1), marginBottom: theme.spacing(1) },
+  steps: {
+    flexDirection: "row",
+    gap: theme.spacing(1),
+    marginBottom: theme.spacing(1),
+  },
   stepChip: {
     color: theme.colors.muted,
     fontSize: 12,
@@ -666,7 +725,11 @@ const styles = StyleSheet.create({
     gap: theme.spacing(1.25),
     ...theme.shadow,
   },
-  row: { flexDirection: "row", justifyContent: "space-between", gap: theme.spacing(2) },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: theme.spacing(2),
+  },
   rowLabel: { color: theme.colors.muted, fontSize: 14 },
   rowValue: {
     color: theme.colors.text,
@@ -681,6 +744,56 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing(1),
   },
   pad: { paddingVertical: theme.spacing(2) },
+
+  centeredPhase: {
+    flex: 1,
+    backgroundColor: theme.colors.bg,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing(3),
+    gap: theme.spacing(1.25),
+  },
+  phaseIconRing: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: theme.spacing(1),
+  },
+  phaseIconError: {
+    backgroundColor: "#FDF2F0",
+    borderColor: "#F5C4BC",
+  },
+  phaseTitle: {
+    color: theme.colors.text,
+    fontFamily: theme.serif,
+    fontSize: 28,
+    lineHeight: 34,
+    textAlign: "center",
+  },
+  phaseSub: {
+    color: theme.colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    maxWidth: 280,
+  },
+  phaseError: {
+    color: theme.colors.err,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    maxWidth: 300,
+  },
+  phaseActions: {
+    alignSelf: "stretch",
+    marginTop: theme.spacing(2),
+  },
+
   primary: {
     backgroundColor: theme.colors.btnBg,
     borderRadius: theme.radius.input,

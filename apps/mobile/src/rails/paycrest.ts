@@ -131,9 +131,13 @@ export type PaycrestOutcome = "success" | "failed" | "expired" | "pending";
 
 /** True once the provider has started paying out (on-ramp timeline → settling). */
 export function paycrestPayoutInFlight(order: PaycrestOrder): boolean {
-  return ["processing", "validated", "settling", "fulfilled", "settled"].includes(
-    order.status
-  );
+  return [
+    "processing",
+    "validated",
+    "settling",
+    "fulfilled",
+    "settled",
+  ].includes(order.status);
 }
 
 /** Direction-aware terminal check for the client poller. */
@@ -152,9 +156,34 @@ export function classifyPaycrestOrder(
   return "pending";
 }
 
+/** Unwrap `{ "error": "…" }` if a caller passed the raw API body through. */
+function unwrapErrorMessage(message: string): string {
+  const trimmed = message.trim();
+  if (!trimmed.startsWith("{")) return trimmed;
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      error?: unknown;
+      message?: unknown;
+    };
+    if (typeof parsed.error === "string" && parsed.error.trim()) {
+      return parsed.error.trim();
+    }
+    if (typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message.trim();
+    }
+  } catch {
+    // keep original
+  }
+  return trimmed;
+}
+
 /** Turns a raw Paycrest error into something a non-technical user can act on. */
 export function humanizePaycrestError(message: string): string {
-  const m = message.toLowerCase();
+  const raw = unwrapErrorMessage(message);
+  const m = raw.toLowerCase();
+  if (m.includes("failed to create virtual account")) {
+    return "We couldn't create a payment account for this order. Try again in a moment, or pick a different amount.";
+  }
   if (m.includes("no provider available")) {
     return "No provider can fill an order this size right now. Try a smaller amount, or check back shortly.";
   }
@@ -167,7 +196,7 @@ export function humanizePaycrestError(message: string): string {
   if (m.includes("failed to initiate payment order")) {
     return "We couldn't start this payout — please try again in a moment.";
   }
-  const cleaned = message
+  const cleaned = raw
     .replace(/^failed to validate payload\s*\[[^\]]*\]\s*/i, "")
     .replace(/\bpaycrest\b/gi, "")
     .replace(/\s{2,}/g, " ")

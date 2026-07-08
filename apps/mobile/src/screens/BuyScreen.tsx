@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
+  type ViewProps,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { isAddress } from "viem";
@@ -39,7 +40,10 @@ import {
   formStyles as f,
 } from "@/components/form";
 import { Picker } from "@/components/Picker";
-import { clipboardAvailable, copyToClipboard } from "@/lib/clipboard";
+import { ChainLogo } from "@/components/Logo";
+import { copyToClipboard } from "@/lib/clipboard";
+import { fiatSymbol, formatFiat } from "@/lib/format";
+import { PrefixedAmountInput } from "@/components/PrefixedAmountInput";
 import {
   chainOptions,
   currencyOptions,
@@ -215,19 +219,20 @@ export function BuyScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <PageTitle>Buy</PageTitle>
-      <Intro>Pay with local currency, receive USDC or USDT in your wallet.</Intro>
+      {step !== "review" && (
+        <>
+          <PageTitle>Buy</PageTitle>
+          <Intro>{`Pay with local currency, receive ${token} in your wallet.`}</Intro>
+        </>
+      )}
 
       {step === "compose" && (
         <>
           <Field label={`Amount (${currency})`}>
-            <TextInput
-              style={f.input}
-              value={amount}
-              onChangeText={setAmount}
-              keyboardType="decimal-pad"
-              placeholder="0.00"
-              placeholderTextColor={theme.colors.muted}
+            <PrefixedAmountInput
+              amount={amount}
+              onChange={setAmount}
+              prefix={fiatSymbol(currency)}
             />
           </Field>
           <Field label="Pay with">
@@ -270,8 +275,8 @@ export function BuyScreen() {
       {step === "recipient" && (
         <>
           <Text style={f.estimate}>
-            Your {token} lands in the receiving wallet below. A refund account is
-            required in case the order can&apos;t be filled.
+            Your {token} lands in the receiving wallet below. A refund account
+            is required in case the order can&apos;t be filled.
           </Text>
 
           {!isConnected ? (
@@ -290,12 +295,11 @@ export function BuyScreen() {
                 placeholder="0x…"
                 placeholderTextColor={theme.colors.muted}
               />
-              {address &&
-                recipient.toLowerCase() !== address.toLowerCase() && (
-                  <Pressable onPress={() => setRecipient(address)}>
-                    <Text style={styles.useConnected}>Use connected wallet</Text>
-                  </Pressable>
-                )}
+              {address && recipient.toLowerCase() !== address.toLowerCase() && (
+                <Pressable onPress={() => setRecipient(address)}>
+                  <Text style={styles.useConnected}>Use connected wallet</Text>
+                </Pressable>
+              )}
               {recipient.length > 0 && !recipientValid && (
                 <Text style={f.error}>Enter a valid wallet address.</Text>
               )}
@@ -312,7 +316,9 @@ export function BuyScreen() {
               value={institution?.code}
               options={institutionOptions(institutions)}
               onChange={(code) => {
-                setInstitution(institutions.find((i) => i.code === code) ?? null);
+                setInstitution(
+                  institutions.find((i) => i.code === code) ?? null
+                );
                 setAccountName(null);
               }}
             />
@@ -360,32 +366,125 @@ export function BuyScreen() {
 
       {step === "review" && (
         <>
-          <View style={f.card}>
-            <Row l="You pay" r={`${amount} ${currency}`} />
-            <Row
-              l="You receive"
-              r={estimate ? `≈ ${estimate} ${token}` : `— ${token}`}
+          <View style={styles.reviewHeader}>
+            <Text style={styles.reviewTitle}>Buy {token}</Text>
+            <Text style={styles.reviewSubtitle}>
+              Pay with {currency}, receive {token} in your wallet
+            </Text>
+          </View>
+
+          <View style={styles.reviewCard}>
+            <ReviewRow
+              label="You pay"
+              value={amount ? formatFiat(currency, amount) : `— ${currency}`}
             />
-            <Row l="On" r={getChain(chain)?.name ?? chain} />
-            <Row
-              l="Wallet"
-              r={
+            <ReviewRow
+              label="You receive"
+              value={estimate ? `≈ ${estimate} ${token}` : `— ${token}`}
+              accentLabel
+            />
+            <ReviewRow
+              label="On"
+              value={getChain(chain)?.name ?? chain}
+              icon={<ChainLogo id={chain} size={18} />}
+            />
+            <CopyableShort
+              label="Wallet"
+              value={recipient}
+              display={
                 recipient
                   ? `${recipient.slice(0, 6)}…${recipient.slice(-4)}`
                   : ""
               }
             />
-            <Row l="Refund to" r={accountName ?? ""} />
+            <ReviewRow label="Refund to" value={accountName ?? ""} />
           </View>
-          <Text style={f.estimate}>
-            Estimate · the final rate locks when you create the order.
+
+          <Text style={styles.lockNote}>
+            <Text style={styles.lockNoteStrong}>Final rate</Text> locks when you
+            create the order.
           </Text>
+
           <Primary label="Create order" onPress={() => void createOrder()} />
           {onramp.error && <Text style={f.error}>{onramp.error}</Text>}
           <Secondary label="Back" onPress={() => setStep("recipient")} />
         </>
       )}
     </ScrollView>
+  );
+}
+
+/** Review-card row: muted label (coral when highlighted) + bold right value,
+ *  with an optional leading logo — matches the airier confirm-screen layout. */
+function ReviewRow({
+  label,
+  value,
+  accentLabel,
+  icon,
+}: {
+  label: string;
+  value: string;
+  accentLabel?: boolean;
+  icon?: ViewProps["children"];
+}) {
+  return (
+    <View style={styles.reviewRow}>
+      <Text
+        style={[
+          styles.reviewRowLabel,
+          accentLabel && styles.reviewRowLabelAccent,
+        ]}
+      >
+        {label}
+      </Text>
+      <View style={styles.reviewRowRight}>
+        {icon}
+        <Text style={styles.reviewRowValue}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
+/** Truncated value that matches Row layout; tap copies the full `value`. */
+function CopyableShort({
+  label,
+  value,
+  display,
+}: {
+  label: string;
+  value: string;
+  display: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return <Row l={label} r="" />;
+  const copy = async () => {
+    if (await copyToClipboard(value)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    }
+  };
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.copyableShort,
+        pressed && styles.copyRowPressed,
+      ]}
+      onPress={() => void copy()}
+      accessibilityRole="button"
+      accessibilityHint="Copies the full wallet address"
+    >
+      <Text style={styles.copyableShortLabel}>{label}</Text>
+      <View style={styles.copyableShortRight}>
+        <Text style={styles.copyableShortValue}>
+          {copied ? "Copied" : display}
+        </Text>
+        <Feather
+          name={copied ? "check" : "copy"}
+          size={14}
+          color={copied ? theme.colors.ok : theme.colors.muted}
+        />
+      </View>
+    </Pressable>
   );
 }
 
@@ -403,10 +502,9 @@ function CopyRow({ label, value }: { label: string; value: string }) {
     <Pressable
       style={({ pressed }) => [
         styles.copyRow,
-        pressed && clipboardAvailable && styles.copyRowPressed,
+        pressed && styles.copyRowPressed,
       ]}
       onPress={() => void copy()}
-      disabled={!clipboardAvailable}
     >
       <View style={styles.copyMain}>
         <Text style={styles.copyLabel}>{label}</Text>
@@ -414,13 +512,11 @@ function CopyRow({ label, value }: { label: string; value: string }) {
           {value}
         </Text>
       </View>
-      {clipboardAvailable && (
-        <Feather
-          name={copied ? "check" : "copy"}
-          size={16}
-          color={copied ? theme.colors.ok : theme.colors.muted}
-        />
-      )}
+      <Feather
+        name={copied ? "check" : "copy"}
+        size={16}
+        color={copied ? theme.colors.ok : theme.colors.muted}
+      />
     </Pressable>
   );
 }
@@ -443,7 +539,10 @@ function OnrampStatus({
   // --- Success: the hero moment, with delivery details --------------------
   if (status === "complete") {
     return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+      >
         <View style={styles.successCard}>
           <View style={styles.successBadge}>
             <Feather name="check" size={24} color={theme.colors.surface} />
@@ -475,7 +574,10 @@ function OnrampStatus({
   // --- Awaiting deposit: details first, then confirm ----------------------
   if (status === "awaiting_deposit" && order) {
     return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+      >
         <Text style={f.title}>Send your payment</Text>
         <Text style={f.estimate}>
           Transfer exactly this amount to the account below — tap any field to
@@ -484,7 +586,14 @@ function OnrampStatus({
         <View style={styles.copyCard}>
           <CopyRow
             label="Amount"
-            value={`${order.amountToTransfer} ${order.depositCurrency ?? ""}`.trim()}
+            value={
+              order.depositCurrency
+                ? formatFiat(
+                    order.depositCurrency,
+                    order.amountToTransfer ?? ""
+                  )
+                : String(order.amountToTransfer ?? "")
+            }
           />
           <CopyRow
             label="Account number"
@@ -519,23 +628,50 @@ function OnrampStatus({
     );
   }
 
-  // --- Settling / creating / error ---------------------------------------
-  const phase =
-    status === "settling"
-      ? `Delivering your ${token}…`
-      : status === "error"
-        ? "Something went wrong"
-        : "Working…";
+  // --- Creating: centered spinner while the order is being placed ----------
+  if (status === "creating") {
+    return (
+      <View style={styles.centeredPhase}>
+        <View style={styles.phaseIconRing}>
+          <ActivityIndicator size="large" color={theme.colors.accent} />
+        </View>
+        <Text style={styles.phaseTitle}>Creating order</Text>
+        <Text style={styles.phaseSub}>
+          Locking your rate and setting up payment details…
+        </Text>
+      </View>
+    );
+  }
 
+  // --- Settling ------------------------------------------------------------
+  if (status === "settling") {
+    return (
+      <View style={styles.centeredPhase}>
+        <View style={styles.phaseIconRing}>
+          <ActivityIndicator size="large" color={theme.colors.accent} />
+        </View>
+        <Text style={styles.phaseTitle}>Delivering your {token}</Text>
+        <Text style={styles.phaseSub}>
+          Payment confirmed — sending {token} to your wallet.
+        </Text>
+      </View>
+    );
+  }
+
+  // --- Error ---------------------------------------------------------------
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={f.title}>{phase}</Text>
-      {status === "settling" && (
-        <ActivityIndicator color={theme.colors.accent} style={styles.pad} />
-      )}
-      {error && <Text style={f.error}>{error}</Text>}
-      {status === "error" && <Primary label="New order" onPress={onNewOrder} />}
-    </ScrollView>
+    <View style={styles.centeredPhase}>
+      <View style={[styles.phaseIconRing, styles.phaseIconError]}>
+        <Feather name="alert-circle" size={28} color={theme.colors.err} />
+      </View>
+      <Text style={styles.phaseTitle}>Something went wrong</Text>
+      <Text style={styles.phaseError}>
+        {error ?? "We couldn't create this order. Please try again."}
+      </Text>
+      <View style={styles.phaseActions}>
+        <Primary label="Try again" onPress={onNewOrder} />
+      </View>
+    </View>
   );
 }
 
@@ -551,6 +687,139 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing(0.75),
   },
   pad: { paddingVertical: theme.spacing(2) },
+
+  // Centered creating / settling / error phases
+  centeredPhase: {
+    flex: 1,
+    backgroundColor: theme.colors.bg,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing(3),
+    gap: theme.spacing(1.25),
+  },
+  phaseIconRing: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: theme.spacing(1),
+  },
+  phaseIconError: {
+    backgroundColor: "#FDF2F0",
+    borderColor: "#F5C4BC",
+  },
+  phaseTitle: {
+    color: theme.colors.text,
+    fontFamily: theme.serif,
+    fontSize: 28,
+    lineHeight: 34,
+    textAlign: "center",
+  },
+  phaseSub: {
+    color: theme.colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    maxWidth: 280,
+  },
+  phaseError: {
+    color: theme.colors.err,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    maxWidth: 300,
+  },
+  phaseActions: {
+    alignSelf: "stretch",
+    marginTop: theme.spacing(2),
+  },
+
+  // Confirm screen — centered header over the summary card
+  reviewHeader: {
+    alignItems: "center",
+    gap: theme.spacing(0.5),
+    marginBottom: theme.spacing(0.5),
+  },
+  reviewTitle: {
+    color: theme.colors.text,
+    fontFamily: theme.serif,
+    fontSize: 38,
+    lineHeight: 42,
+    textAlign: "center",
+  },
+  reviewSubtitle: {
+    color: theme.colors.muted,
+    fontSize: 15,
+    lineHeight: 21,
+    textAlign: "center",
+  },
+  reviewCard: {
+    padding: theme.spacing(2.5),
+    borderRadius: theme.radius.cardLg,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    gap: theme.spacing(1.75),
+    ...theme.shadow,
+  },
+  reviewRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: theme.spacing(2),
+  },
+  reviewRowLabel: { color: theme.colors.muted, fontSize: 15 },
+  reviewRowLabelAccent: { color: theme.colors.accent, fontWeight: "600" },
+  reviewRowRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+  },
+  reviewRowValue: {
+    color: theme.colors.text,
+    fontSize: 15,
+    fontWeight: "600",
+    flexShrink: 1,
+    textAlign: "right",
+  },
+  lockNote: {
+    color: theme.colors.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: theme.spacing(0.25),
+  },
+  lockNoteStrong: { color: theme.colors.textSoft, fontWeight: "600" },
+
+  // Truncated row that copies the full value on tap (same footprint as Row)
+  copyableShort: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: theme.spacing(2),
+    borderRadius: 6,
+    marginHorizontal: -4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  copyableShortLabel: { color: theme.colors.muted, fontSize: 15 },
+  copyableShortRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+  },
+  copyableShortValue: {
+    color: theme.colors.text,
+    fontSize: 15,
+    fontWeight: "600",
+    flexShrink: 1,
+    textAlign: "right",
+  },
 
   // Copyable deposit fields
   copyCard: {

@@ -13,15 +13,13 @@ import { Feather } from "@expo/vector-icons";
 import { useNavigation, type NavigationProp } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
 import type { RootTabParamList } from "@/navigation/RootNavigator";
+import { formatFiat } from "@/lib/format";
 import { useWalletAuth } from "@/wallet/useWalletAuth";
 import { useSession } from "@/store/session";
 import { useAuth } from "@/store/auth";
 import { fetchOrders, type HistoryOrder } from "@/api/history";
 import { getOrder } from "@/api/paycrest";
-import {
-  classifyPaycrestOrder,
-  type PaycrestOrder,
-} from "@/rails/paycrest";
+import { classifyPaycrestOrder, type PaycrestOrder } from "@/rails/paycrest";
 import { walletReady } from "@/wallet/config";
 import { PageTitle } from "@/components/form";
 import { theme } from "@/theme";
@@ -162,7 +160,7 @@ function OrderRow({
   const verb = order.direction === "offramp" ? "Sell" : "Buy";
   const fiat =
     order.fiatAmount != null && order.currency
-      ? `${order.fiatAmount.toLocaleString()} ${order.currency}`
+      ? formatFiat(order.currency, order.fiatAmount)
       : null;
   return (
     <Pressable
@@ -256,7 +254,10 @@ function OrderDetailBody({ order }: { order: PaycrestOrder }) {
     <>
       <View style={styles.card}>
         {order.rate && (
-          <DetailRow l="Rate" r={`${order.rate} ${order.currency ?? ""}`.trim()} />
+          <DetailRow
+            l="Rate"
+            r={`${order.rate} ${order.currency ?? ""}`.trim()}
+          />
         )}
         {order.currency && <DetailRow l="Currency" r={order.currency} />}
         {order.createdAt && (

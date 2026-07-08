@@ -54,18 +54,40 @@ function idempotencyDigest(
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
+/**
+ * Turns a Paycrest error into user-facing copy. Paycrest's raw messages are
+ * technical and leak internals (chain slug, exact micro-amount), so map the
+ * cases we recognise to clean copy — the raw body is already logged for us.
+ */
+function friendlyPaycrestError(text: string): string | null {
+  const t = text.toLowerCase();
+  // No liquidity provider for this corridor/amount. This fires most often when
+  // the amount is outside every provider's min/max, so steer to a new amount
+  // rather than assuming "smaller".
+  if (t.includes("no provider")) {
+    return "No provider can fill an order this size right now. Try a different amount, or check back shortly.";
+  }
+  return null;
+}
+
 function paycrestErrorResponse(raw: unknown, res: Response) {
-  let message = `Couldn't create this order (${res.status}).`;
+  let rawMessage = `Couldn't create this order (${res.status}).`;
+  let detailField = "";
+  let detailMessage = "";
   if (raw && typeof raw === "object") {
     const r = raw as Record<string, unknown>;
-    message = String(r.message ?? r.error ?? message);
-    const detail = r.data as
-      | { field?: unknown; message?: unknown }
-      | undefined;
+    rawMessage = String(r.message ?? r.error ?? rawMessage);
+    const detail = r.data as { field?: unknown; message?: unknown } | undefined;
     if (detail && typeof detail.message === "string") {
-      message += ` ${detail.field ? `[${String(detail.field)}] ` : ""}${detail.message}`;
+      detailMessage = detail.message;
+      if (detail.field) detailField = String(detail.field);
     }
   }
+  const message =
+    friendlyPaycrestError(`${rawMessage} ${detailMessage}`) ??
+    (detailMessage
+      ? `${rawMessage} ${detailField ? `[${detailField}] ` : ""}${detailMessage}`
+      : rawMessage);
   return NextResponse.json(
     { error: message },
     { status: res.status === 401 ? 401 : 502 }
@@ -105,8 +127,7 @@ export async function POST(req: NextRequest) {
   if (!isPaycrestConfigured() || !apiKey) {
     return NextResponse.json(
       {
-        error:
-          "Fiat payouts aren't available right now. Try again later.",
+        error: "Fiat payouts aren't available right now. Try again later.",
       },
       { status: 501 }
     );
@@ -186,8 +207,7 @@ export async function POST(req: NextRequest) {
     await releaseClaim();
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Request failed",
+        error: error instanceof Error ? error.message : "Request failed",
       },
       { status: 502 }
     );
@@ -196,6 +216,10 @@ export async function POST(req: NextRequest) {
   const raw: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     await releaseClaim();
+    console.error(
+      `[paycrest] order create failed (${direction}, ${res.status})`,
+      raw
+    );
     return paycrestErrorResponse(raw, res);
   }
 
@@ -237,9 +261,7 @@ export async function POST(req: NextRequest) {
 
 function buildOfframpBody(
   body: Record<string, unknown>
-):
-  | { body: Record<string, unknown>; currency: string }
-  | { error: string } {
+): { body: Record<string, unknown>; currency: string } | { error: string } {
   const { amount, token, network, refundAddress, currency, reference } = body;
   const recipient = body.recipient as
     | {
@@ -310,9 +332,7 @@ function buildOfframpBody(
 
 function buildOnrampBody(
   body: Record<string, unknown>
-):
-  | { body: Record<string, unknown>; fiatCurrency: string }
-  | { error: string } {
+): { body: Record<string, unknown>; fiatCurrency: string } | { error: string } {
   const {
     amount,
     token,
