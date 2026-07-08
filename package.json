@@ -7,6 +7,10 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "npm run web:dev",
+    "android": "npm run android -w mobile",
+    "ios": "npm run ios -w mobile",
+    "mobile": "npm run start -w mobile",
     "web:dev": "npm run dev -w web",
     "web:build": "npm run build -w web",
     "web:lint": "npm run lint -w web",
@@ -14,7 +18,9 @@
     "web:check": "npm run check -w web"
   },
   "overrides": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "@relayprotocol/relay-kit-ui": {
+      "react": "^18.3.1",
+      "react-dom": "^18.3.1"
+    }
   }
 }

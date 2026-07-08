@@ -50,13 +50,24 @@ Set `NEXT_PUBLIC_NETWORK=testnet` or `mainnet` to switch the chain registry app-
 
 ## Scripts
 
+This is an npm-workspaces monorepo (`apps/web`, `apps/mobile`, `packages/*`). Run all scripts from the repo root.
+
+**Web** (`apps/web`):
+
 ```bash
-npm run dev        # local Next.js dev server
-npm run build      # production build
-npm run start      # production server
-npm run lint       # ESLint
-npm run typecheck  # TypeScript
-npm run check      # format + lint + typecheck
+npm run dev            # local Next.js dev server (alias for web:dev)
+npm run web:build      # production build
+npm run web:lint       # ESLint
+npm run web:typecheck  # TypeScript
+npm run web:check      # format + lint + typecheck
+```
+
+**Mobile** (`apps/mobile`, Expo):
+
+```bash
+npm run mobile         # start the Expo dev server
+npm run android        # run on Android
+npm run ios            # run on iOS
 ```
 
 ## API routes
@@ -97,7 +108,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for phased rollout, constraints, and fi
 Contributions are welcome — especially rail integrations, corridor UX, and test coverage.
 
 1. Fork the repo and create a branch from `main`
-2. Run `npm run check` before opening a PR
+2. Run `npm run web:check` before opening a PR
 3. Keep provider keys server-side; do not commit `.env` or local API scratch files
 4. Update README and `ARCHITECTURE.md` when you add or change a route or rail
 
