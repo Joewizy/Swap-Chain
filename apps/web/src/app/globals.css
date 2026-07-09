@@ -312,6 +312,33 @@ h1 {
   width: 100%;
 }
 
+/* Dashboard filter controls (selects + search). */
+.dash-input {
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  outline: none;
+}
+.dash-input:focus-visible {
+  border-color: var(--accent);
+}
+
+/* Small status pill in the dashboard orders table. */
+.dash-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: capitalize;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  color: var(--fg-soft);
+}
+
 /* chips --------------------------------------------------------- */
 .chip {
   display: inline-flex;
