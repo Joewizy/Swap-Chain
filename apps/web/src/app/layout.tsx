@@ -8,7 +8,7 @@ import { StarknetProvider } from "./components/starknet-provider";
 export const metadata: Metadata = {
   title: "Railglide — Crypto and cash made easy",
   description:
-    "Buy, sell, or swap crypto across chains — or cash out to a bank or mobile money account.",
+    "Buy, sell, or swap crypto across chains — with payouts straight to a bank or mobile money account.",
   icons: {
     icon: "/railglidelogo.png",
     shortcut: "/railglidelogo.png",

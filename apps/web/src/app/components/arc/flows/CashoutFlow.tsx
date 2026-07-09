@@ -114,7 +114,7 @@ export function CashoutFlow({
   const overBalance = balanceNum !== undefined && amountNum > balanceNum;
 
   const canContinue = Number(amount) > 0;
-  const label = `Cash out ${amount} ${token} to ${currency}`;
+  const label = `Sell ${amount} ${token} for ${currency}`;
 
   useEffect(() => {
     if (step !== "review") {
@@ -293,7 +293,7 @@ export function CashoutFlow({
           <Icon.Arrow rotate={180} size={12} /> Back
         </button>
         <h1 style={{ fontSize: 28, lineHeight: 1.1, letterSpacing: "-0.02em", fontWeight: 500 }}>
-          Cash out
+          Sell
         </h1>
         <span className="muted" style={{ fontSize: 14 }}>
           Send stablecoins to a bank or mobile money account.

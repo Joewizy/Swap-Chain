@@ -13,7 +13,7 @@ import { Icon } from "./icons";
 import { clearChatState, loadChatState, storeChatState } from "./swapUrl";
 
 const FLOW_CTA: Record<FlowId, string> = {
-  cashout: "Continue to cash out",
+  cashout: "Continue to sell",
   buy: "Buy crypto",
   bridge: "Open swap",
 };
@@ -157,8 +157,8 @@ export function AssistantChat({ onLaunch }: Props) {
               <span style={{ fontSize: 13, fontWeight: 500 }}>Try saying</span>
             </span>
             <span className="muted" style={{ fontSize: 14, lineHeight: 1.5 }}>
-              &ldquo;Sell my PENGU and cash out to naira&rdquo; · &ldquo;Cash out
-              200 USDC to GTBank&rdquo; · &ldquo;Swap ETH to USDC on Base&rdquo;
+              &ldquo;Sell my PENGU for naira&rdquo; · &ldquo;Sell 200 USDC to
+              GTBank&rdquo; · &ldquo;Swap ETH to USDC on Base&rdquo;
             </span>
           </div>
         )}

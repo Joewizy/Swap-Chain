@@ -195,7 +195,7 @@ function Hero({ onOpenApp }: OpenApp) {
                 marginTop: 22,
               }}
             >
-              Buy stablecoins, swap tokens, or cash out directly to your bank
+              Buy stablecoins, swap tokens, or sell them for cash in your bank
               or mobile wallet.
             </p>
             <HeroAssets />
@@ -353,7 +353,7 @@ function HeroMockup() {
               transition: "opacity .35s var(--ease)",
             }}
           >
-            <ParseTile label="You cash out" value="200 USDC" sub="Base" />
+            <ParseTile label="You sell" value="200 USDC" sub="Base" />
             <ParseTile
               label="You receive ≈"
               value="₦318,420"
@@ -431,7 +431,7 @@ function ParseTile({
 /* ───────────────────── EXAMPLE SENTENCE STRIP (slim) ────── */
 function SentenceStrip() {
   const examples = [
-    "Cash out 300 USDT to M-Pesa",
+    "Sell 300 USDT to M-Pesa",
     "Send $500 to Tunde's Opay",
     "Swap XRP for USDC on Base",
     "How can I buy USDC on Base?",
@@ -497,7 +497,7 @@ function RailCards() {
     {
       label: "Sell",
       flow: "cashout",
-      title: "Cash out.",
+      title: "Sell.",
       copy: "Sell stablecoins and receive fiat in your bank or mobile money account.",
       glyph: (
         <svg
@@ -521,7 +521,7 @@ function RailCards() {
       label: "Swap",
       flow: "bridge",
       title: "Swap tokens.",
-      copy: "Swap any token across chains — or convert to USDC or USDT before you cash out.",
+      copy: "Swap any token across chains — or convert to USDC or USDT before you sell.",
       glyph: (
         <svg
           viewBox="0 0 24 24"
@@ -780,7 +780,7 @@ function Reach() {
             marginInline: "auto",
           }}
         >
-          Bring crypto from any major chain. Cash out in local money.
+          Bring crypto from any major chain. Sell for local money.
         </h2>
       </div>
 
@@ -804,7 +804,7 @@ function Reach() {
         style={{ position: "relative", zIndex: 1, marginTop: 48, textAlign: "center" }}
       >
         <span className="eyebrow" style={{ color: "var(--fg-faint)" }}>
-          Cash out across Africa
+          Sell across Africa
         </span>
         <div className="corridor-row">
           {corridors.map((c) => (
@@ -839,7 +839,7 @@ function FinalCTA({ onOpenApp }: OpenApp) {
         >
           Stop bridging.
           <br />
-          <em>Buy or cash out.</em>
+          <em>Buy or sell.</em>
         </h2>
         <div style={{ marginTop: 28, textAlign: "center" }}>
           <button className="btn btn-primary btn-big" onClick={onOpenApp}>

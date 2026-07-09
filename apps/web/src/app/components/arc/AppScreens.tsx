@@ -243,7 +243,7 @@ function OrderCard({
       <div className="row between center" style={{ gap: 12 }}>
         <div className="col" style={{ gap: 2, minWidth: 0 }}>
           <span style={{ fontSize: 15, fontWeight: 500 }}>
-            {isOfframp ? "Cash out" : "Buy crypto"} ·{" "}
+            {isOfframp ? "Sell" : "Buy crypto"} ·{" "}
             <span className="font-mono">
               {cryptoAmount} {order.token}
             </span>
@@ -585,7 +585,7 @@ function EmptyRecipients({ onAdd }: { onAdd: () => void }) {
       <div className="col gap-1">
         <span style={{ fontSize: 15, fontWeight: 500 }}>No recipients yet</span>
         <span className="muted" style={{ fontSize: 13 }}>
-          Accounts you cash out to are saved here automatically — or add one now.
+          Payout accounts are saved here automatically — or add one now.
         </span>
       </div>
       <button className="btn btn-primary btn-sm" onClick={onAdd}>
@@ -729,7 +729,7 @@ function AddRecipientModal({ onClose }: { onClose: () => void }) {
             </button>
           </div>
           <span className="muted" style={{ fontSize: 13 }}>
-            A bank or mobile money account you can cash out to.
+            A bank or mobile money account to receive your payout.
           </span>
         </div>
 

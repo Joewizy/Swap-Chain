@@ -30,8 +30,8 @@ type Goal = {
 const GOALS: Goal[] = [
   {
     id: "cashout",
-    title: "Cash out",
-    sub: "To a bank or mobile money",
+    title: "Sell",
+    sub: "Paid out to your bank or mobile money",
     glyph: (
       <svg viewBox="0 0 32 32" width="24" height="24" fill="none" aria-hidden>
         <path

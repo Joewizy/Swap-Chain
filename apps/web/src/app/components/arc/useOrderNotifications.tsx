@@ -76,7 +76,7 @@ export function useOrderNotifications(onView: (order: Order) => void): void {
       outcome === "success"
         ? isBuy
           ? "Buy complete"
-          : "Cashout complete"
+          : "Sell complete"
         : outcome === "expired"
           ? "Order expired"
           : "Order refunded";

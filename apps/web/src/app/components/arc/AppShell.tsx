@@ -121,7 +121,7 @@ function intentFromOrder(o: Order): Intent {
       : `Paid out in ${fiat}`;
   const name = o.recipientName ? titleCase(o.recipientName) : "";
   return {
-    text: `Cash out ${cryptoAmt} ${o.token} to ${fiat}`,
+    text: `Sell ${cryptoAmt} ${o.token} for ${fiat}`,
     resumeOrderId: o.id,
     quote: {
       from: { token: o.token, chain: chainName, amount: Number(o.amount) },
