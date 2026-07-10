@@ -338,6 +338,21 @@ h1 {
   border: 1px solid var(--line);
   color: var(--fg-soft);
 }
+.dash-chip-ok {
+  background: var(--ok-soft);
+  border-color: transparent;
+  color: var(--ok);
+}
+.dash-chip-err {
+  background: var(--err-soft);
+  border-color: transparent;
+  color: var(--err);
+}
+.dash-chip-pend {
+  background: var(--pend-soft);
+  border-color: transparent;
+  color: var(--pend);
+}
 
 /* chips --------------------------------------------------------- */
 .chip {

@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAccount, useChainId, useSignMessage } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
+import { TokenUSDC, TokenUSDT } from "@web3icons/react";
 import { signInWithEthereum } from "@/lib/siweClient";
 import type { DashboardResponse, DashboardOrderRow } from "@/lib/dashboardTypes";
 
@@ -222,6 +223,12 @@ export default function DashboardClient() {
 function Summary({ data }: { data: DashboardResponse }) {
   const s = data.summary;
   const rate = s.successRate != null ? `${Math.round(s.successRate * 100)}%` : "—";
+
+  const primaryFiat = s.settledFiatByCurrency[0] ?? null;
+  const fiatOrders = s.settledFiatByCurrency.reduce((n, c) => n + c.count, 0);
+  const totalFees = s.cryptoByToken.reduce((sum, t) => sum + t.fees, 0);
+  const hasVolume = primaryFiat != null || s.cryptoByToken.length > 0;
+
   return (
     <div className="col gap-4" style={{ marginBottom: 28 }}>
       <div
@@ -242,58 +249,152 @@ function Summary({ data }: { data: DashboardResponse }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
           gap: 12,
         }}
       >
-        <div className="card" style={{ padding: 18 }}>
-          <span className="eyebrow">Volume settled (fiat)</span>
-          <div className="col gap-2" style={{ marginTop: 12 }}>
-            {s.settledFiatByCurrency.length === 0 ? (
-              <span className="muted" style={{ fontSize: 14 }}>No settled orders yet.</span>
-            ) : (
-              s.settledFiatByCurrency.map((c) => (
-                <div key={c.currency} className="row between center">
-                  <span style={{ fontSize: 14, fontWeight: 500 }}>{c.currency}</span>
-                  <span className="row center gap-2">
-                    <span className="font-mono" style={{ fontSize: 14 }}>
-                      {fmtNum(c.volume)}
-                    </span>
-                    <span className="muted" style={{ fontSize: 12 }}>· {c.count}</span>
+        {/* Volume settled */}
+        <div className="card" style={{ padding: 16 }}>
+          <span className="eyebrow">Volume settled</span>
+          {!hasVolume ? (
+            <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>
+              No settled orders yet.
+            </p>
+          ) : (
+            <>
+              <div className="row center wrap" style={{ gap: "6px 10px", marginTop: 6 }}>
+                <span
+                  className="font-mono tabular"
+                  style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}
+                >
+                  {primaryFiat
+                    ? fmtMoney(primaryFiat.volume, primaryFiat.currency)
+                    : fmtMoney(
+                        s.cryptoByToken.reduce((n, t) => n + t.volume, 0),
+                        "USD"
+                      )}
+                </span>
+                {fiatOrders > 0 && (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    · {fiatOrders} order{fiatOrders === 1 ? "" : "s"}
                   </span>
+                )}
+              </div>
+              {s.settledFiatByCurrency.length > 1 && (
+                <div className="col gap-1" style={{ marginTop: 8 }}>
+                  {s.settledFiatByCurrency.slice(1).map((c) => (
+                    <div key={c.currency} className="row between center">
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {c.currency}
+                      </span>
+                      <span className="font-mono tabular" style={{ fontSize: 12 }}>
+                        {fmtMoney(c.volume, c.currency)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))
-            )}
-          </div>
+              )}
+              {s.cryptoByToken.length > 0 && (
+                <div
+                  className="row wrap"
+                  style={{ gap: "6px 16px", marginTop: 10 }}
+                >
+                  {s.cryptoByToken.map((t) => (
+                    <TokenRow
+                      key={t.token}
+                      token={t.token}
+                      value={fmtMoney(t.volume, t.token)}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
 
-        <div className="card" style={{ padding: 18 }}>
-          <span className="eyebrow">Your fees (revenue)</span>
-          <div className="col gap-2" style={{ marginTop: 12 }}>
-            {!s.hasFeeData ? (
-              <span className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
-                No sender-fee data on these orders. If you charge a sender fee it may
-                only appear on order details — tell me and I&apos;ll enrich per-order.
-              </span>
-            ) : (
-              s.cryptoByToken.map((t) => (
-                <div key={t.token} className="row between center">
-                  <span style={{ fontSize: 14, fontWeight: 500 }}>{t.token}</span>
-                  <span className="row center gap-3">
-                    <span className="muted" style={{ fontSize: 12 }}>
-                      vol {fmtNum(t.volume)}
-                    </span>
-                    <span className="font-mono" style={{ fontSize: 14 }}>
-                      +{fmtNum(t.fees)}
-                    </span>
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+        {/* Fees earned */}
+        <div className="card" style={{ padding: 16 }}>
+          <span className="eyebrow">Your fees earned</span>
+          {!s.hasFeeData ? (
+            <p className="muted" style={{ fontSize: 13, marginTop: 8, lineHeight: 1.4 }}>
+              No sender-fee data on these orders yet.
+            </p>
+          ) : (
+            <>
+              <div
+                className="font-mono tabular"
+                style={{
+                  fontSize: 22,
+                  fontWeight: 600,
+                  letterSpacing: "-0.02em",
+                  marginTop: 6,
+                  color: "var(--ok)",
+                }}
+              >
+                {fmtMoney(totalFees, "USD")}
+              </div>
+              <div className="row wrap" style={{ gap: "6px 16px", marginTop: 10 }}>
+                {s.cryptoByToken.map((t) => (
+                  <TokenRow
+                    key={t.token}
+                    token={t.token}
+                    value={fmtMoney(t.fees, "USD")}
+                    valueColor="var(--ok)"
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+function TokenRow({
+  token,
+  value,
+  valueColor,
+}: {
+  token: string;
+  value: string;
+  valueColor?: string;
+}) {
+  return (
+    <span className="row center gap-2">
+      <TokenMark token={token} />
+      <span style={{ fontSize: 12, fontWeight: 500 }}>{token}</span>
+      <span
+        className="font-mono tabular"
+        style={{ fontSize: 12, fontWeight: 500, color: valueColor ?? "var(--fg)" }}
+      >
+        {value}
+      </span>
+    </span>
+  );
+}
+
+function TokenMark({ token }: { token: string }) {
+  const size = 16;
+  const t = token.toUpperCase();
+  if (t === "USDC") {
+    return <TokenUSDC variant="branded" size={size} />;
+  }
+  if (t === "USDT") {
+    return <TokenUSDT variant="branded" size={size} />;
+  }
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        background: "var(--bg-soft)",
+        border: "1px solid var(--line)",
+        display: "inline-block",
+      }}
+    />
   );
 }
 
@@ -379,9 +480,9 @@ function OrdersTable({
             <tr style={{ textAlign: "left", color: "var(--fg-soft)" }}>
               <Th>Date</Th>
               <Th>Type</Th>
-              <Th>Amount</Th>
-              <Th>Fiat</Th>
-              <Th>Fee</Th>
+              <Th align="right">Amount</Th>
+              <Th align="right">Fiat</Th>
+              <Th align="right">Fee</Th>
               <Th>Status</Th>
               <Th>Recipient</Th>
               <Th>Bank</Th>
@@ -399,15 +500,21 @@ function OrdersTable({
                 <tr key={o.id} style={{ borderTop: "1px solid var(--line)" }}>
                   <Td>{o.createdAt ? new Date(o.createdAt).toLocaleDateString() : "—"}</Td>
                   <Td>{o.direction === "onramp" ? "Buy" : "Sell"}</Td>
-                  <Td mono>
-                    {o.amount} {o.token}
+                  <Td mono align="right">
+                    {fmtMoney(o.amount, o.token)}
                   </Td>
-                  <Td mono>
-                    {o.fiatAmount != null ? `${fmtNum(o.fiatAmount)} ${o.currency ?? ""}` : "—"}
+                  <Td mono align="right">
+                    {o.fiatAmount != null && o.currency
+                      ? fmtMoney(o.fiatAmount, o.currency)
+                      : "—"}
                   </Td>
-                  <Td mono>{o.senderFee != null ? fmtNum(o.senderFee) : "—"}</Td>
+                  <Td mono align="right">
+                    {o.senderFee != null ? fmtMoney(o.senderFee, o.token) : "—"}
+                  </Td>
                   <Td>
-                    <span className="dash-chip">{o.status}</span>
+                    <span className={`dash-chip ${statusChipClass(o.status)}`}>
+                      {o.status}
+                    </span>
                   </Td>
                   <Td>{o.recipientName ?? "—"}</Td>
                   <Td>{o.institution ?? "—"}</Td>
@@ -421,17 +528,40 @@ function OrdersTable({
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
+function Th({
+  children,
+  align = "left",
+}: {
+  children: React.ReactNode;
+  align?: "left" | "right";
+}) {
   return (
-    <th style={{ padding: "12px 14px", fontWeight: 500, whiteSpace: "nowrap" }}>{children}</th>
+    <th
+      style={{
+        padding: "12px 14px",
+        fontWeight: 500,
+        whiteSpace: "nowrap",
+        textAlign: align,
+      }}
+    >
+      {children}
+    </th>
   );
 }
 
-function Td({ children, mono }: { children: React.ReactNode; mono?: boolean }) {
+function Td({
+  children,
+  mono,
+  align = "left",
+}: {
+  children: React.ReactNode;
+  mono?: boolean;
+  align?: "left" | "right";
+}) {
   return (
     <td
-      className={mono ? "font-mono" : undefined}
-      style={{ padding: "11px 14px", whiteSpace: "nowrap" }}
+      className={mono ? "font-mono tabular" : undefined}
+      style={{ padding: "11px 14px", whiteSpace: "nowrap", textAlign: align }}
     >
       {children}
     </td>
@@ -460,6 +590,39 @@ function Gate({
   );
 }
 
-function fmtNum(n: number): string {
-  return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+const MONEY_SYMBOLS: Record<string, string> = {
+  NGN: "₦",
+  KES: "KSh",
+  GHS: "₵",
+  UGX: "USh",
+  USD: "$",
+  USDC: "$",
+  USDT: "$",
+};
+
+/** "₦32,077.88" / "$21.59 USDC" / "$0.10" — symbol first; token suffix only for volume rows. */
+function fmtMoney(n: number | string, unit: string, opts?: { bare?: boolean }): string {
+  const value = typeof n === "string" ? Number(n) : n;
+  if (!Number.isFinite(value)) return "—";
+  const code = unit.toUpperCase();
+  const symbol = MONEY_SYMBOLS[code] ?? "";
+  const amount = value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  if (code === "USD" || opts?.bare) return `${symbol}${amount}`;
+  if (code === "USDC" || code === "USDT") {
+    return `${symbol}${amount} ${code}`;
+  }
+  if (symbol) return `${symbol}${amount}`;
+  return `${amount} ${code}`;
+}
+
+function statusChipClass(status: string): string {
+  const s = status.toLowerCase();
+  if (s === "settled" || s === "fulfilled") return "dash-chip-ok";
+  if (s === "expired" || s === "refunded" || s === "refunding" || s === "failed") {
+    return "dash-chip-err";
+  }
+  return "dash-chip-pend";
 }
