@@ -14,14 +14,25 @@ import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { getChain, resolveChain, type ChainId } from "@/config/network";
 import {
-  PAYCREST_CHAIN_IDS,
+  PAYCREST_SELL_CHAIN_IDS,
   PAYCREST_FIAT,
   paycrestNetworkSlug,
 } from "@/rails/paycrest";
+import {
+  CHAINRAILS_OFFRAMP_ENABLED,
+  CHAINRAILS_RAMP_DESTINATIONS,
+  type RampDestination,
+} from "@/rails/chainrails";
+import { ChainrailsSellPanel } from "./ChainrailsSellPanel";
 import { usePaycrestNetwork } from "@/hooks/usePaycrestNetwork";
 import { usePaycrestRate, useTokenBalance } from "@/hooks";
 import { fetchPaycrestRate } from "@/lib/paycrestRate";
-import { fiatOptionLabel, formatFiat, formatNumber, formatToken } from "@/utils";
+import {
+  fiatOptionLabel,
+  formatFiat,
+  formatNumber,
+  formatToken,
+} from "@/utils";
 import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import {
   ReviewScreen,
@@ -49,6 +60,41 @@ import {
 import { useSwapFlowNav } from "../useSwapFlowNav";
 
 const TOKENS = ["USDC", "USDT"] as const;
+
+/** Flat source-chain picker: Paycrest chains first, ChainRails-only after. */
+function SourceSelect({
+  sourceChain,
+  crDest,
+  onSelect,
+  style,
+}: {
+  sourceChain: ChainId;
+  crDest: RampDestination | null;
+  onSelect: (value: string) => void;
+  style?: React.CSSProperties;
+}) {
+  const value = crDest ? `cr:${crDest.chainrailsChain}` : sourceChain;
+  return (
+    <select
+      value={value}
+      onChange={(e) => onSelect(e.target.value)}
+      style={style}
+    >
+      {PAYCREST_SELL_CHAIN_IDS.map((id) => (
+        <option key={id} value={id}>
+          {getChain(id)?.name ?? id}
+        </option>
+      ))}
+      {/* ChainRails-only sell chains stay hidden until off-ramp KYB clears. */}
+      {CHAINRAILS_OFFRAMP_ENABLED &&
+        CHAINRAILS_RAMP_DESTINATIONS.map((d) => (
+          <option key={d.chainrailsChain} value={`cr:${d.chainrailsChain}`}>
+            {d.label}
+          </option>
+        ))}
+    </select>
+  );
+}
 
 /** Quote lines (recipient amount + rate) derived from a unit rate. */
 function rateLines(
@@ -88,9 +134,11 @@ export function CashoutFlow({
   const { chain: defaultSource } = usePaycrestNetwork(seedChain);
   const [sourceChain, setSourceChain] = useState<ChainId>(defaultSource);
   const [sourceTouched, setSourceTouched] = useState(false);
+  // Non-Paycrest source → ChainRails off-ramp panel. Null on a Paycrest chain.
+  const [crDest, setCrDest] = useState<RampDestination | null>(null);
   useEffect(() => {
-    if (!sourceTouched) setSourceChain(defaultSource);
-  }, [defaultSource, sourceTouched]);
+    if (!sourceTouched && !crDest) setSourceChain(defaultSource);
+  }, [defaultSource, sourceTouched, crDest]);
   // Connected wallet's balance of the selected token on the chosen chain, so
   // the user can see what they have before getting a quote. Undefined until a
   // wallet is connected and the read resolves.
@@ -98,8 +146,9 @@ export function CashoutFlow({
 
   // Live unit rate, fetched once per (currency, token) pair — we multiply it
   // locally as the user types so the Naira estimate updates with no extra API
-  // calls. The exact rate locks when the order is created.
-  const { rate: unitRate } = usePaycrestRate(currency, token);
+  // calls. The exact rate locks when the order is created. Skipped on a
+  // Chainrails source (that panel fetches its own rate).
+  const { rate: unitRate } = usePaycrestRate(currency, token, !crDest);
 
   const amountNum = Number(amount) || 0;
   const estimate = unitRate && amountNum > 0 ? amountNum * unitRate : null;
@@ -255,7 +304,66 @@ export function CashoutFlow({
     onBack();
   };
 
+  const handleSourceSelect = (v: string) => {
+    if (v.startsWith("cr:")) {
+      const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
+        (d) => d.chainrailsChain === v.slice(3)
+      );
+      if (dest) setCrDest(dest);
+      return;
+    }
+    setSourceTouched(true);
+    setSourceChain(v as ChainId);
+    setCrDest(null);
+  };
+
+  const header = (
+    <header className="col gap-1">
+      <button
+        className="btn btn-quiet btn-sm"
+        onClick={handleBack}
+        style={{ padding: "0 8px", alignSelf: "flex-start", marginBottom: 4 }}
+      >
+        <Icon.Arrow rotate={180} size={12} /> Back
+      </button>
+      <h1
+        style={{
+          fontSize: 28,
+          lineHeight: 1.1,
+          letterSpacing: "-0.02em",
+          fontWeight: 500,
+        }}
+      >
+        Sell
+      </h1>
+      <span className="muted" style={{ fontSize: 14 }}>
+        Send stablecoins to a bank or mobile money account.
+      </span>
+    </header>
+  );
+
   if (!ready) return null;
+
+  // Non-Paycrest source → ChainRails off-ramp (manual deposit, dynamic banks).
+  // The chain picker lives inside the panel so it stays one unified card.
+  if (crDest) {
+    return (
+      <div className="col gap-6">
+        {header}
+        <ChainrailsSellPanel
+          source={crDest}
+          networkSelect={
+            <SourceSelect
+              sourceChain={sourceChain}
+              crDest={crDest}
+              onSelect={handleSourceSelect}
+              style={{ ...INPUT, cursor: "pointer" }}
+            />
+          }
+        />
+      </div>
+    );
+  }
 
   if (quote) {
     return (
@@ -284,24 +392,10 @@ export function CashoutFlow({
 
   return (
     <div className="col gap-6">
-      <header className="col gap-1">
-        <button
-          className="btn btn-quiet btn-sm"
-          onClick={handleBack}
-          style={{ padding: "0 8px", alignSelf: "flex-start", marginBottom: 4 }}
-        >
-          <Icon.Arrow rotate={180} size={12} /> Back
-        </button>
-        <h1 style={{ fontSize: 28, lineHeight: 1.1, letterSpacing: "-0.02em", fontWeight: 500 }}>
-          Sell
-        </h1>
-        <span className="muted" style={{ fontSize: 14 }}>
-          Send stablecoins to a bank or mobile money account.
-        </span>
-      </header>
+      {header}
 
       <div className="card col gap-5" style={{ padding: 20 }}>
-        <Field label="Amount">
+        <Field label="You sell">
           <div className="col gap-2">
             <div className="row center gap-2">
               <PrefixedAmountInput
@@ -322,9 +416,11 @@ export function CashoutFlow({
                       lineHeight: 1.2,
                       borderRadius: 999,
                       border: "1px solid",
-                      background: token === t ? "var(--btn-bg)" : "var(--bg-elev)",
+                      background:
+                        token === t ? "var(--btn-bg)" : "var(--bg-elev)",
                       color: token === t ? "var(--btn-fg)" : "var(--fg-soft)",
-                      borderColor: token === t ? "var(--btn-bg)" : "var(--line-2)",
+                      borderColor:
+                        token === t ? "var(--btn-bg)" : "var(--line-2)",
                     }}
                   >
                     {t}
@@ -414,25 +510,21 @@ export function CashoutFlow({
         <label className="col gap-2">
           <span
             className="font-mono"
-            style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)" }}
-          >
-            <span style={{ textTransform: "uppercase" }}>From</span>
-            {" "}(The chain your USDC/USDT is on.)
-          </span>
-          <select
-            value={sourceChain}
-            onChange={(e) => {
-              setSourceTouched(true);
-              setSourceChain(e.target.value as ChainId);
+            style={{
+              fontSize: 10,
+              letterSpacing: 0.06,
+              color: "var(--fg-mute)",
             }}
-            style={{ ...INPUT, cursor: "pointer" }}
           >
-            {PAYCREST_CHAIN_IDS.map((id) => (
-              <option key={id} value={id}>
-                {getChain(id)?.name ?? id}
-              </option>
-            ))}
-          </select>
+            <span style={{ textTransform: "uppercase" }}>From</span> (The chain
+            your USDC/USDT is on.)
+          </span>
+          <SourceSelect
+            sourceChain={sourceChain}
+            crDest={crDest}
+            onSelect={handleSourceSelect}
+            style={{ ...INPUT, cursor: "pointer" }}
+          />
         </label>
 
         <Field label="Recipient gets paid in">

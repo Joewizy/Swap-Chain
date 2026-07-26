@@ -36,14 +36,16 @@ export async function POST(req: NextRequest) {
   try {
     res = await fetch(`${PAYCREST_BASE_URL}/v1/verify-account`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: JSON.stringify({ institution, accountIdentifier }),
     });
   } catch (error) {
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Request failed",
+        error: error instanceof Error ? error.message : "Request failed",
       },
       { status: 502 }
     );
@@ -51,6 +53,10 @@ export async function POST(req: NextRequest) {
 
   const raw: unknown = await res.json().catch(() => null);
   if (!res.ok) {
+    console.error(
+      `[paycrest] account verification failed (${res.status})`,
+      raw
+    );
     const message =
       raw && typeof raw === "object"
         ? String((raw as Record<string, unknown>).message ?? "")
@@ -63,7 +69,9 @@ export async function POST(req: NextRequest) {
 
   // Paycrest returns the resolved name as `data` (a string).
   const accountName =
-    raw && typeof raw === "object" && typeof (raw as { data?: unknown }).data === "string"
+    raw &&
+    typeof raw === "object" &&
+    typeof (raw as { data?: unknown }).data === "string"
       ? ((raw as { data: string }).data as string)
       : "";
 

@@ -34,6 +34,8 @@ import {
   type PaycrestOrder,
   type PaycrestToken,
 } from "@/rails/paycrest";
+import { ChainrailsStatus } from "./flows/ChainrailsStatus";
+import { isValidRampAddress, type RampAddressKind } from "@/rails/chainrails";
 import {
   currencyLabel,
   fiatSymbol,
@@ -96,6 +98,21 @@ export type QuoteExec = {
   payout?: PayoutDetails | null;
   /** Off-ramp: EVM address refunds return to (filled in Review). */
   refundAddress?: string | null;
+  /** Chainrails on-ramp quote selected before order creation. */
+  chainrailsRamp?: {
+    provider: string;
+    countryCode: string;
+    cryptoAmount: number;
+    paymentChannelId?: string;
+    /** Provider-specific information, e.g. FONBNK phone/bank fields. */
+    fields?: Record<string, string>;
+    /** ChainRails chain enum (e.g. "TRON_MAINNET") — the delivery chain. */
+    destinationChain: string;
+    /** Display name for the delivery chain (e.g. "Tron"). */
+    destinationLabel: string;
+    /** Address format of the delivery chain, so Review can validate it. */
+    addressKind: RampAddressKind;
+  } | null;
 };
 
 export type Quote = {
@@ -150,18 +167,16 @@ type RouterResponse = {
   rail: "cctp" | "chainrails" | "relay" | "paycrest";
   reason: string;
   alternatives: string[];
-  quote:
-    | {
-        rail: "cctp";
-        fees: { finalityThreshold: number; minimumFee: number }[];
-      }
-    | null;
+  quote: {
+    rail: "cctp";
+    fees: { finalityThreshold: number; minimumFee: number }[];
+  } | null;
   quoteEndpoint: string | null;
 };
 
 const RAIL_LABEL: Record<RouterResponse["rail"], string> = {
   cctp: "CCTP",
-  chainrails: "Chainrails",
+  chainrails: "Fiat",
   relay: "Relay",
   paycrest: "Fiat",
 };
@@ -187,6 +202,17 @@ function looksLikePhone(s: string): boolean {
   return /^\+?\d[\d\s-]{6,}$/.test(s.trim());
 }
 
+function isRecipientAddressValid(
+  value: string,
+  chainId: ChainId | null
+): boolean {
+  const valueTrimmed = value.trim();
+  const kind = chainId ? getChain(chainId)?.kind : "evm";
+  if (kind === "solana")
+    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(valueTrimmed);
+  if (kind === "starknet") return /^0x[0-9a-fA-F]{1,64}$/.test(valueTrimmed);
+  return /^0x[0-9a-fA-F]{40}$/.test(valueTrimmed);
+}
 
 /**
  * Router + quote half of the pipeline used by the guided flows (CashoutFlow,
@@ -205,17 +231,14 @@ export async function quoteFromIntent(
         action: intent.action,
         fromChain:
           intent.fromChain ??
-          (intent.action === "onramp" ? intent.toChain ?? "base" : undefined),
+          (intent.action === "onramp" ? (intent.toChain ?? "base") : undefined),
         fromToken:
-          intent.fromToken ??
-          (intent.action === "onramp" ? "USDC" : undefined),
+          intent.fromToken ?? (intent.action === "onramp" ? "USDC" : undefined),
         amount: intent.fromAmount,
         toChain:
-          intent.toChain ??
-          (intent.action === "onramp" ? "base" : undefined),
+          intent.toChain ?? (intent.action === "onramp" ? "base" : undefined),
         toToken:
-          intent.toToken ??
-          (intent.action === "onramp" ? "USDC" : undefined),
+          intent.toToken ?? (intent.action === "onramp" ? "USDC" : undefined),
         fiatCurrency: intent.fiatCurrency ?? undefined,
       }),
     });
@@ -244,8 +267,7 @@ function buildQuote(intent: IntentResponse, routed: RouterResponse): Quote {
   const isOfframp = intent.action === "offramp";
   const isOnramp = intent.action === "onramp";
   const recipient = intent.recipient || "";
-  const toChain =
-    intent.toChain ?? (isOnramp ? "base" : null);
+  const toChain = intent.toChain ?? (isOnramp ? "base" : null);
   const toToken = intent.toToken ?? (isOnramp ? "USDC" : null);
 
   // CCTP fast-transfer fee, when the router quoted it inline.
@@ -294,10 +316,10 @@ function buildQuote(intent: IntentResponse, routed: RouterResponse): Quote {
     : isOnramp
       ? ["Order", "Deposit fiat", "Receive crypto"]
       : routed.rail === "cctp"
-      ? ["Lock", "Confirm", "Release"]
-      : intent.action === "swap"
-        ? ["Deposit", "Swap", "Receive"]
-        : ["Deposit", "Bridge", "Receive"];
+        ? ["Lock", "Confirm", "Release"]
+        : intent.action === "swap"
+          ? ["Deposit", "Swap", "Receive"]
+          : ["Deposit", "Bridge", "Receive"];
 
   return {
     from: isOnramp
@@ -322,9 +344,7 @@ function buildQuote(intent: IntentResponse, routed: RouterResponse): Quote {
     exec: {
       rail: routed.rail,
       action: intent.action === "unclear" ? "bridge" : intent.action,
-      fromChain: (intent.fromChain ??
-        toChain ??
-        "base") as ChainId,
+      fromChain: (intent.fromChain ?? toChain ?? "base") as ChainId,
       fromToken: fromToken as TokenSymbol,
       fromAmount: intent.fromAmount || "0",
       toChain: (toChain as ChainId | null) ?? null,
@@ -401,7 +421,10 @@ export function ReviewScreen({
   quote: Quote;
   text: string;
   onBack: () => void;
-  onConfirm: (payout: PayoutDetails | null, destinationAddress?: string) => void;
+  onConfirm: (
+    payout: PayoutDetails | null,
+    destinationAddress?: string
+  ) => void;
   /** Restored after refresh when the guided flow draft includes payout fields. */
   initialPayout?: PayoutDetails;
   onPayoutChange?: (payout: PayoutDetails) => void;
@@ -411,9 +434,9 @@ export function ReviewScreen({
 
   // Paycrest fiat legs need structured bank / mobile-money details.
   const isOfframp = quote.exec.action === "offramp";
-  const isOnramp =
-    quote.exec.action === "onramp" && quote.exec.rail === "paycrest";
-  const needsAccountDetails = isOfframp || isOnramp;
+  const isOnramp = quote.exec.action === "onramp";
+  const isPaycrestOnramp = isOnramp && quote.exec.rail === "paycrest";
+  const needsAccountDetails = isOfframp || isPaycrestOnramp;
   // Both fiat legs collect a wallet address: on-ramp's USDC destination,
   // off-ramp's refund address. Prefilled from the wallet, no connection needed.
   const needsWalletField = isOnramp || isOfframp;
@@ -440,7 +463,12 @@ export function ReviewScreen({
   useEffect(() => {
     if (address) setDestination((cur) => cur || address);
   }, [address]);
-  const destinationValid = /^0x[0-9a-fA-F]{40}$/.test(destination.trim());
+  // Chainrails delivers to chains the app's registry may not know (Tron, Monad…),
+  // so it carries its own address format; fall back to chain-id validation.
+  const rampAddressKind = quote.exec.chainrailsRamp?.addressKind;
+  const destinationValid = rampAddressKind
+    ? isValidRampAddress(rampAddressKind, destination)
+    : isRecipientAddressValid(destination, quote.exec.toChain);
 
   const payoutReady =
     !needsAccountDetails ||
@@ -550,116 +578,121 @@ export function ReviewScreen({
           </div>
         </div>
 
-        {/* Fiat legs (Paycrest on/off-ramp) skip the crypto rail stages and
-            the placeholder fee table — the real numbers come from the order
-            invoice. Crypto routes keep the breakdown. */}
-        {!needsAccountDetails && (
+        {/* Fiat legs (any on/off-ramp — Paycrest or Chainrails) skip the crypto
+            rail stages and the placeholder fee table; the real numbers come from
+            the order/checkout. Only crypto routes keep the breakdown. */}
+        {!isOfframp && !isOnramp && (
           <>
-        <div className="hr" style={{ margin: "22px 0" }} />
+            <div className="hr" style={{ margin: "22px 0" }} />
 
-        {/* rail */}
-        <div className="row between center" style={{ marginBottom: 18 }}>
-          {quote.rail.map((r, i) => (
-            <React.Fragment key={r}>
-              <div
-                className="col center"
-                style={{ alignItems: "center", gap: 6, flex: 1 }}
-              >
-                <span
-                  style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: 9,
-                    background: "var(--accent-soft)",
-                    color: "var(--accent)",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontFamily: "Geist Mono, monospace",
-                    fontSize: 11,
-                    fontWeight: 600,
-                  }}
-                >
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span style={{ fontSize: 12.5, fontWeight: 500 }}>{r}</span>
-              </div>
-              {i < quote.rail.length - 1 && (
-                <div
-                  style={{
-                    flex: 0.6,
-                    height: 1,
-                    background: "var(--line-2)",
-                  }}
-                />
-              )}
-            </React.Fragment>
-          ))}
-        </div>
+            {/* rail */}
+            <div className="row between center" style={{ marginBottom: 18 }}>
+              {quote.rail.map((r, i) => (
+                <React.Fragment key={r}>
+                  <div
+                    className="col center"
+                    style={{ alignItems: "center", gap: 6, flex: 1 }}
+                  >
+                    <span
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 9,
+                        background: "var(--accent-soft)",
+                        color: "var(--accent)",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontFamily: "Geist Mono, monospace",
+                        fontSize: 11,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <span style={{ fontSize: 12.5, fontWeight: 500 }}>{r}</span>
+                  </div>
+                  {i < quote.rail.length - 1 && (
+                    <div
+                      style={{
+                        flex: 0.6,
+                        height: 1,
+                        background: "var(--line-2)",
+                      }}
+                    />
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
 
-        <div className="hr" />
+            <div className="hr" />
 
-        {/* breakdown */}
-        <div className="col gap-2" style={{ fontSize: 13, marginTop: 14 }}>
-          <FeeRow label="Network fee" value={quote.fee.network} />
-          <FeeRow label="Rail fee" value={quote.fee.rail} />
-          <FeeRow
-            label="FX spread"
-            value={quote.fee.spread}
-            hint={quote.rate}
-          />
-          <div className="hr" style={{ margin: "4px 0" }} />
-          <FeeRow
-            label={<strong style={{ fontWeight: 500 }}>Total fee</strong>}
-            value={
-              <strong className="font-mono tabular" style={{ fontWeight: 500 }}>
-                {quote.fee.total}
-              </strong>
-            }
-          />
-          <FeeRow
-            label="ETA"
-            value={<span className="font-mono">{quote.eta}</span>}
-          />
-          <FeeRow
-            label="From"
-            value={<span className="font-mono">{quote.from.chain}</span>}
-          />
-        </div>
+            {/* breakdown */}
+            <div className="col gap-2" style={{ fontSize: 13, marginTop: 14 }}>
+              <FeeRow label="Network fee" value={quote.fee.network} />
+              <FeeRow label="Rail fee" value={quote.fee.rail} />
+              <FeeRow
+                label="FX spread"
+                value={quote.fee.spread}
+                hint={quote.rate}
+              />
+              <div className="hr" style={{ margin: "4px 0" }} />
+              <FeeRow
+                label={<strong style={{ fontWeight: 500 }}>Total fee</strong>}
+                value={
+                  <strong
+                    className="font-mono tabular"
+                    style={{ fontWeight: 500 }}
+                  >
+                    {quote.fee.total}
+                  </strong>
+                }
+              />
+              <FeeRow
+                label="ETA"
+                value={<span className="font-mono">{quote.eta}</span>}
+              />
+              <FeeRow
+                label="From"
+                value={<span className="font-mono">{quote.from.chain}</span>}
+              />
+            </div>
           </>
         )}
       </div>
 
-      {/* On-ramp: USDC destination + fiat refund account, in one card. */}
+      {/* On-ramp: destination, plus a refund account for Paycrest only. */}
       {isOnramp && (
         <div className="card col gap-5" style={{ padding: 20 }}>
           <WalletAddressField
-            label="Receive USDC to"
-            info="The wallet address your USDC is delivered to. You don't need to connect — paste any address you control."
+            label={`Receive ${quote.exec.toToken ?? "USDC"} to`}
+            info="The wallet address your crypto is delivered to. You don't need to connect — paste any address you control."
             value={destination}
             onChange={setDestination}
             valid={destinationValid}
             hasWallet={!!address}
           />
-          <div>
-            <div className="row center gap-1" style={{ marginBottom: 12 }}>
-              <span className="eyebrow">Refund account</span>
-              <InfoHint
-                text={`If this purchase can't be completed, your ${
-                  quote.exec.fiatCurrency
-                    ? currencyLabel(quote.exec.fiatCurrency)
-                    : "money"
-                } is refunded to this account. Use a local account you control — ideally the one you're paying from.`}
+          {isPaycrestOnramp && (
+            <div>
+              <div className="row center gap-1" style={{ marginBottom: 12 }}>
+                <span className="eyebrow">Refund account</span>
+                <InfoHint
+                  text={`If this purchase can't be completed, your ${
+                    quote.exec.fiatCurrency
+                      ? currencyLabel(quote.exec.fiatCurrency)
+                      : "money"
+                  } is refunded to this account. Use a local account you control — ideally the one you're paying from.`}
+                />
+              </div>
+              <PayoutForm
+                currency={quote.exec.fiatCurrency}
+                value={payout}
+                onChange={setPayoutAndPersist}
+                mode="refund"
+                variant="embedded"
               />
             </div>
-            <PayoutForm
-              currency={quote.exec.fiatCurrency}
-              value={payout}
-              onChange={setPayoutAndPersist}
-              mode="refund"
-              variant="embedded"
-            />
-          </div>
+          )}
         </div>
       )}
 
@@ -729,13 +762,17 @@ export function ReviewScreen({
             Connect wallet to continue <Icon.ArrowRight />
           </>
         ) : needsWalletField && !destinationValid ? (
-          isOnramp
-            ? "Enter wallet address to continue"
-            : "Enter refund address to continue"
+          isOnramp ? (
+            "Enter wallet address to continue"
+          ) : (
+            "Enter refund address to continue"
+          )
         ) : !payoutReady ? (
-          isOnramp
-            ? "Enter refund account to continue"
-            : "Enter payout details to continue"
+          isPaycrestOnramp ? (
+            "Enter refund account to continue"
+          ) : (
+            "Enter payout details to continue"
+          )
         ) : needsWalletField ? (
           <>
             Confirm and continue <Icon.ArrowRight />
@@ -748,14 +785,16 @@ export function ReviewScreen({
       </button>
       <span className="muted" style={{ fontSize: 12, textAlign: "center" }}>
         {!walletReady
-          ? isOnramp
+          ? isPaycrestOnramp
             ? "We need your wallet address as the USDC destination."
             : "We need a connected wallet to sign the source-chain transaction."
-          : isOnramp
+          : isPaycrestOnramp
             ? "You'll pay to the account we show next; your USDC arrives in your wallet once it clears."
-            : isOfframp
-              ? "You'll send your USDC next — then the cash is paid out to the recipient."
-              : "You'll approve the transactions in your wallet. Funds move only after that."}
+            : isOnramp
+              ? "You'll continue to the provider's secure checkout to pay with local currency."
+              : isOfframp
+                ? "You'll send your USDC next — then the cash is paid out to the recipient."
+                : "You'll approve the transactions in your wallet. Funds move only after that."}
       </span>
     </div>
   );
@@ -872,7 +911,15 @@ export function PayoutForm({
   const fields = (
     <div className="col gap-3">
       <label className="col gap-1">
-        <span className="font-mono" style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}>
+        <span
+          className="font-mono"
+          style={{
+            fontSize: 10,
+            letterSpacing: 0.06,
+            color: "var(--fg-mute)",
+            textTransform: "uppercase",
+          }}
+        >
           Bank name
         </span>
         <select
@@ -909,7 +956,15 @@ export function PayoutForm({
       </label>
 
       <label className="col gap-1">
-        <span className="font-mono" style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}>
+        <span
+          className="font-mono"
+          style={{
+            fontSize: 10,
+            letterSpacing: 0.06,
+            color: "var(--fg-mute)",
+            textTransform: "uppercase",
+          }}
+        >
           Account / phone number
         </span>
         <input
@@ -952,7 +1007,10 @@ export function PayoutForm({
             }
           />
         </span>
-        <span className="font-mono" style={{ fontSize: 11, color: "var(--fg-mute)" }}>
+        <span
+          className="font-mono"
+          style={{ fontSize: 11, color: "var(--fg-mute)" }}
+        >
           {currency
             ? mode === "refund"
               ? `Refunds in ${currencyLabel(currency)}`
@@ -1026,7 +1084,7 @@ function WalletAddressField({
 }
 
 /** Small clickable "(i)" with a popover — explains a field on tap/click. */
-function InfoHint({ text }: { text: string }) {
+export function InfoHint({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
     <span style={{ position: "relative", display: "inline-flex" }}>
@@ -1048,7 +1106,14 @@ function InfoHint({ text }: { text: string }) {
           justifyContent: "center",
         }}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
           <circle cx="12" cy="12" r="10" />
           <path d="M12 16v-4" strokeLinecap="round" />
           <path d="M12 8h.01" strokeLinecap="round" />
@@ -1152,7 +1217,9 @@ function AccountNameStatus({
           <Icon.Check size={11} />
         </span>
         <div className="col" style={{ gap: 1 }}>
-          <span style={{ fontSize: 14, fontWeight: 500 }}>{titleCase(name)}</span>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>
+            {titleCase(name)}
+          </span>
           <span className="muted" style={{ fontSize: 11 }}>
             Confirm this is the right recipient.
           </span>
@@ -1206,7 +1273,7 @@ function cctpStages(
       d: "Securing your funds so they can be released on the other side.",
       ref: burnTxHash ? `tx ${short0x(burnTxHash)}` : undefined,
       refHref: burnTxHash
-        ? explorerTxUrl(fromChain, burnTxHash) ?? undefined
+        ? (explorerTxUrl(fromChain, burnTxHash) ?? undefined)
         : undefined,
     },
     {
@@ -1222,7 +1289,7 @@ function cctpStages(
       d: "Delivering the funds to the recipient.",
       ref: receiveTxHash ? `tx ${short0x(receiveTxHash)}` : undefined,
       refHref: receiveTxHash
-        ? explorerTxUrl(toChain, receiveTxHash) ?? undefined
+        ? (explorerTxUrl(toChain, receiveTxHash) ?? undefined)
         : undefined,
     },
   ];
@@ -1486,9 +1553,12 @@ function relayStages(
 export function StatusScreen({
   intent,
   onDone,
+  onStartNew,
 }: {
   intent: Intent | null;
   onDone: () => void;
+  /** Start a fresh order (→ Buy page), used by the Chainrails status screen. */
+  onStartNew?: () => void;
 }) {
   const exec = intent?.quote?.exec;
   const { address, isConnected } = useAccount();
@@ -1528,11 +1598,20 @@ export function StatusScreen({
     paycrestOnramp.reset();
     relay.reset();
 
-    // Paycrest fiat legs need no wallet to start: off-ramp shows a deposit
+    // Fiat on-ramps need no wallet connection: they deliver to the address
+    // captured on Review. Paycrest off-ramp shows a deposit address; Chainrails
+    // opens the selected provider's hosted checkout.
     // address the user can fund from anywhere; on-ramp pays fiat and delivers
     // to an address entered on the form. Only the signing rails (CCTP / Relay)
     // need a connected wallet up front.
-    if (exec.rail !== "paycrest" && (!isConnected || !address)) {
+    const isFiatOnramp =
+      exec.action === "onramp" &&
+      (exec.rail === "paycrest" || exec.rail === "chainrails");
+    if (
+      !isFiatOnramp &&
+      exec.rail !== "paycrest" &&
+      (!isConnected || !address)
+    ) {
       setBootError(
         "Connect a wallet first — the source-chain transaction needs to be signed by the sender."
       );
@@ -1621,7 +1700,9 @@ export function StatusScreen({
           !exec.payout.accountIdentifier ||
           !exec.payout.accountName
         ) {
-          setBootError("Refund account details are missing — go back and add them.");
+          setBootError(
+            "Refund account details are missing — go back and add them."
+          );
           return;
         }
 
@@ -1630,12 +1711,12 @@ export function StatusScreen({
             ? "crypto"
             : "fiat";
 
-        // Destination is the address entered on the Buy form (prefilled from
-        // the wallet when connected) — no connection required to receive.
-        const destination =
-          exec.recipient && /^0x[0-9a-fA-F]{40}$/.test(exec.recipient)
-            ? (exec.recipient as `0x${string}`)
-            : address;
+        // Destination is the address entered on the Buy form (already validated
+        // per destination-chain format on Review) — prefilled from the wallet
+        // when connected. Pass it through as-is so non-EVM corridors like
+        // Starknet keep their felt address instead of being coerced to EVM.
+        const destination = (exec.recipient?.trim() || address) as
+          `0x${string}` | undefined;
         if (!destination) {
           setBootError("Enter a destination wallet address to receive USDC.");
           return;
@@ -1661,6 +1742,14 @@ export function StatusScreen({
       }
 
       setBootError("This action isn't supported yet.");
+      return;
+    }
+
+    // --- Chainrails hosted fiat on-ramp -----------------------------------
+    // Order creation, checkout hand-off, and status polling live in the
+    // dedicated <ChainrailsStatus> component (rendered below), which keeps the
+    // app mounted instead of redirecting away. Nothing to boot here.
+    if (exec.rail === "chainrails" && exec.action === "onramp") {
       return;
     }
 
@@ -1900,8 +1989,7 @@ export function StatusScreen({
   const isExpired = apiExpired || timedOut;
   // Paycrest reports expired but we know it was paid → don't offer "Get new
   // rate" (double-send risk); the deposit is on-chain. Point to support.
-  const stuckAfterPaid =
-    apiExpired && submittedOnChain && !paycrestCredited;
+  const stuckAfterPaid = apiExpired && submittedOnChain && !paycrestCredited;
 
   const headline =
     railError || bootError
@@ -1936,6 +2024,17 @@ export function StatusScreen({
   const isPaycrestRail = exec?.rail === "paycrest";
   const paycrestDirection =
     exec?.action === "onramp" ? ("onramp" as const) : ("offramp" as const);
+
+  // Chainrails on-ramp owns its own create → checkout → poll lifecycle.
+  if (intent && exec?.rail === "chainrails" && exec.action === "onramp") {
+    return (
+      <ChainrailsStatus
+        intent={intent}
+        onDone={onDone}
+        onStartNew={onStartNew}
+      />
+    );
+  }
 
   // Resuming an order from History: wait for the fetch before rendering the
   // order screen. Otherwise we briefly flash the "getting rate" stages built
@@ -2005,8 +2104,8 @@ export function StatusScreen({
           isOfframpRail
             ? sendLabel ||
               `${formatNumber(intent?.quote?.from?.amount ?? 0)} ${intent?.quote?.from?.token ?? ""}`
-            : onrampSendLabel ??
-              `${formatNumber(intent?.quote?.from?.amount ?? 0)} ${exec.fiatCurrency ?? ""}`
+            : (onrampSendLabel ??
+              `${formatNumber(intent?.quote?.from?.amount ?? 0)} ${exec.fiatCurrency ?? ""}`)
         }
         receiveLabel={receiveLabel}
         fromToken={exec.toToken ?? exec.fromToken ?? "USDC"}
@@ -2165,7 +2264,10 @@ export function StatusScreen({
             <span className="font-mono" style={{ fontSize: 13 }}>
               {onrampOrder.depositAccountName}
             </span>
-            <span className="font-mono" style={{ fontSize: 15, fontWeight: 500 }}>
+            <span
+              className="font-mono"
+              style={{ fontSize: 15, fontWeight: 500 }}
+            >
               {onrampOrder.depositAccountIdentifier}
             </span>
             {onrampOrder.depositInstitution && (
@@ -2175,7 +2277,8 @@ export function StatusScreen({
             )}
             {onrampOrder.validUntil && (
               <span className="muted" style={{ fontSize: 12 }}>
-                Deposit before {new Date(onrampOrder.validUntil).toLocaleString()}
+                Deposit before{" "}
+                {new Date(onrampOrder.validUntil).toLocaleString()}
               </span>
             )}
             {onrampOrder.amount && onrampOrder.currency && (
@@ -2188,8 +2291,10 @@ export function StatusScreen({
         )}
 
         {/* Off-ramp terminal states */}
-        {isOfframpRail && isExpired && !bootError && (
-          stuckAfterPaid ? (
+        {isOfframpRail &&
+          isExpired &&
+          !bootError &&
+          (stuckAfterPaid ? (
             <StuckCard
               orderId={offrampOrder?.id ?? null}
               txHash={paycrestOfframp.transferTxHash}
@@ -2198,137 +2303,164 @@ export function StatusScreen({
             />
           ) : (
             <ExpiredCard onNewRate={restart} />
-          )
+          ))}
+        {isOfframpRail && offrampPhaseValue === "refunded" && !bootError && (
+          <RefundedCard refundAddress={address ?? null} />
         )}
-        {isOfframpRail &&
-          offrampPhaseValue === "refunded" &&
-          !bootError && <RefundedCard refundAddress={address ?? null} />}
 
         {/* Off-ramp funding — branch on whether the wallet covers it. */}
-        {showFunding && !isExpired && offrampOrder?.receiveAddress && !bootError && (
-          <div className="col gap-4" style={{ marginTop: 18 }}>
-            {/* Make the swap explicit: you send USDC, the recipient gets cash. */}
-            <div
-              className="col gap-1"
-              style={{
-                padding: 14,
-                background: "var(--accent-soft)",
-                border: "1px solid var(--line-2)",
-                borderRadius: 12,
-              }}
-            >
-              <strong style={{ fontSize: 15 }}>
-                Send {sendLabel} to pay out {fiatReceiveLabel ?? "the cash"}
-              </strong>
-              <span className="muted" style={{ fontSize: 13, lineHeight: 1.45 }}>
-                {payoutName ? `${payoutName} receives it` : "The recipient is paid"}
-                {payoutBank ? ` in their ${payoutBank} account` : ""}
-                {payoutAcct ? ` (${payoutAcct})` : ""} the moment your{" "}
-                {exec?.fromToken ?? "USDC"} arrives.
-              </span>
-              {offrampOrder.validUntil && !depositSent && (
-                <span className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                  Send before {formatDeadline(offrampOrder.validUntil)}
-                </span>
-              )}
-            </div>
-
-            {balance.formatted !== undefined && (
+        {showFunding &&
+          !isExpired &&
+          offrampOrder?.receiveAddress &&
+          !bootError && (
+            <div className="col gap-4" style={{ marginTop: 18 }}>
+              {/* Make the swap explicit: you send USDC, the recipient gets cash. */}
               <div
-                className="row between center"
-                style={{ fontSize: 12.5, padding: "0 2px" }}
-              >
-                <span className="muted">Your wallet balance</span>
-                <span
-                  className="font-mono tabular"
-                  style={{ color: hasBalance ? "var(--fg)" : "var(--err)" }}
-                >
-                  {formatToken(balance.formatted, exec?.fromToken ?? "", 2)}
-                </span>
-              </div>
-            )}
-
-            {offrampPhaseValue === "partial" && (
-              <div
-                className="row center gap-2"
+                className="col gap-1"
                 style={{
-                  padding: "10px 12px",
-                  background: "var(--bg-soft)",
-                  border: "1px solid var(--line)",
-                  borderRadius: 10,
-                  fontSize: 13,
+                  padding: 14,
+                  background: "var(--accent-soft)",
+                  border: "1px solid var(--line-2)",
+                  borderRadius: 12,
                 }}
               >
-                <span>
-                  Received{" "}
-                  <strong className="font-mono tabular">
-                    {formatToken(offrampPaid, exec?.fromToken ?? "", 2)}
-                  </strong>{" "}
-                  of {sendLabel} — send{" "}
-                  <strong className="font-mono tabular">
-                    {formatToken(
-                      Math.max(sendAmountNum - offrampPaid, 0),
-                      exec?.fromToken ?? "",
-                      2
-                    )}
-                  </strong>{" "}
-                  more to the address below.
-                </span>
-              </div>
-            )}
-
-            {hasBalance ? (
-              <div className="col gap-3">
-                <button
-                  className="btn btn-fat"
-                  disabled={offrampFunding}
-                  style={{
-                    background: offrampFunding ? "var(--bg-sunk)" : "var(--btn-bg)",
-                    color: offrampFunding ? "var(--fg-faint)" : "var(--btn-fg)",
-                    cursor: offrampFunding ? "default" : "pointer",
-                  }}
-                  onClick={() => paycrestOfframp.fund().catch(() => {})}
+                <strong style={{ fontSize: 15 }}>
+                  Send {sendLabel} to pay out {fiatReceiveLabel ?? "the cash"}
+                </strong>
+                <span
+                  className="muted"
+                  style={{ fontSize: 13, lineHeight: 1.45 }}
                 >
-                  {offrampFunding ? (
-                    <>
-                      <Icon.Spinner size={14} /> Confirm in your wallet…
-                    </>
-                  ) : (
-                    <>
-                      Pay {sendLabel} from your wallet <Icon.ArrowRight />
-                    </>
-                  )}
-                </button>
+                  {payoutName
+                    ? `${payoutName} receives it`
+                    : "The recipient is paid"}
+                  {payoutBank ? ` in their ${payoutBank} account` : ""}
+                  {payoutAcct ? ` (${payoutAcct})` : ""} the moment your{" "}
+                  {exec?.fromToken ?? "USDC"} arrives.
+                </span>
+                {offrampOrder.validUntil && !depositSent && (
+                  <span
+                    className="muted"
+                    style={{ fontSize: 12, marginTop: 4 }}
+                  >
+                    Send before {formatDeadline(offrampOrder.validUntil)}
+                  </span>
+                )}
+              </div>
 
-                {/* Organized secondary method, not a raw <details> marker. */}
-                <button
-                  onClick={() => setShowManual((v) => !v)}
+              {balance.formatted !== undefined && (
+                <div
                   className="row between center"
+                  style={{ fontSize: 12.5, padding: "0 2px" }}
+                >
+                  <span className="muted">Your wallet balance</span>
+                  <span
+                    className="font-mono tabular"
+                    style={{ color: hasBalance ? "var(--fg)" : "var(--err)" }}
+                  >
+                    {formatToken(balance.formatted, exec?.fromToken ?? "", 2)}
+                  </span>
+                </div>
+              )}
+
+              {offrampPhaseValue === "partial" && (
+                <div
+                  className="row center gap-2"
                   style={{
-                    padding: "11px 14px",
+                    padding: "10px 12px",
                     background: "var(--bg-soft)",
                     border: "1px solid var(--line)",
                     borderRadius: 10,
-                    cursor: "pointer",
-                    color: "inherit",
-                    textAlign: "left",
+                    fontSize: 13,
                   }}
                 >
-                  <span style={{ fontSize: 13 }}>
-                    Or send from another wallet or exchange
+                  <span>
+                    Received{" "}
+                    <strong className="font-mono tabular">
+                      {formatToken(offrampPaid, exec?.fromToken ?? "", 2)}
+                    </strong>{" "}
+                    of {sendLabel} — send{" "}
+                    <strong className="font-mono tabular">
+                      {formatToken(
+                        Math.max(sendAmountNum - offrampPaid, 0),
+                        exec?.fromToken ?? "",
+                        2
+                      )}
+                    </strong>{" "}
+                    more to the address below.
                   </span>
-                  <span
+                </div>
+              )}
+
+              {hasBalance ? (
+                <div className="col gap-3">
+                  <button
+                    className="btn btn-fat"
+                    disabled={offrampFunding}
                     style={{
-                      display: "inline-flex",
-                      transform: showManual ? "rotate(180deg)" : "none",
-                      transition: "transform .15s var(--ease)",
-                      color: "var(--fg-mute)",
+                      background: offrampFunding
+                        ? "var(--bg-sunk)"
+                        : "var(--btn-bg)",
+                      color: offrampFunding
+                        ? "var(--fg-faint)"
+                        : "var(--btn-fg)",
+                      cursor: offrampFunding ? "default" : "pointer",
+                    }}
+                    onClick={() => paycrestOfframp.fund().catch(() => {})}
+                  >
+                    {offrampFunding ? (
+                      <>
+                        <Icon.Spinner size={14} /> Confirm in your wallet…
+                      </>
+                    ) : (
+                      <>
+                        Pay {sendLabel} from your wallet <Icon.ArrowRight />
+                      </>
+                    )}
+                  </button>
+
+                  {/* Organized secondary method, not a raw <details> marker. */}
+                  <button
+                    onClick={() => setShowManual((v) => !v)}
+                    className="row between center"
+                    style={{
+                      padding: "11px 14px",
+                      background: "var(--bg-soft)",
+                      border: "1px solid var(--line)",
+                      borderRadius: 10,
+                      cursor: "pointer",
+                      color: "inherit",
+                      textAlign: "left",
                     }}
                   >
-                    <Icon.ChevDown size={14} />
-                  </span>
-                </button>
-                {showManual && (
+                    <span style={{ fontSize: 13 }}>
+                      Or send from another wallet or exchange
+                    </span>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        transform: showManual ? "rotate(180deg)" : "none",
+                        transition: "transform .15s var(--ease)",
+                        color: "var(--fg-mute)",
+                      }}
+                    >
+                      <Icon.ChevDown size={14} />
+                    </span>
+                  </button>
+                  {showManual && (
+                    <DepositAddress
+                      token={exec?.fromToken ?? ""}
+                      chainName={intent?.quote?.from?.chain ?? ""}
+                      address={offrampOrder.receiveAddress}
+                      sendLabel={sendLabel}
+                      refundAddress={address ?? null}
+                      copied={copied}
+                      onCopy={copyDepositAddress}
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="col gap-2">
                   <DepositAddress
                     token={exec?.fromToken ?? ""}
                     chainName={intent?.quote?.from?.chain ?? ""}
@@ -2338,135 +2470,128 @@ export function StatusScreen({
                     copied={copied}
                     onCopy={copyDepositAddress}
                   />
-                )}
-              </div>
-            ) : (
-              <div className="col gap-2">
-                <DepositAddress
-                  token={exec?.fromToken ?? ""}
-                  chainName={intent?.quote?.from?.chain ?? ""}
-                  address={offrampOrder.receiveAddress}
-                  sendLabel={sendLabel}
-                  refundAddress={address ?? null}
-                  copied={copied}
-                  onCopy={copyDepositAddress}
-                />
-                <span className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
-                  Top up this wallet to pay in one tap, or send to the address
-                  above from any wallet or exchange.
-                </span>
-              </div>
-            )}
-          </div>
-        )}
+                  <span
+                    className="muted"
+                    style={{ fontSize: 12, lineHeight: 1.5 }}
+                  >
+                    Top up this wallet to pay in one tap, or send to the address
+                    above from any wallet or exchange.
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
         {/* Live timeline — hidden on off-ramp terminal states (expired/refunded). */}
         {!bootError &&
           stages.length > 0 &&
-          !(isOfframpRail && (isExpired || offrampPhaseValue === "refunded")) && (
-          <div className="col" style={{ marginTop: 18 }}>
-            {stages.map((s, i) => {
-              const isDone = done || activeIndex > i;
-              const isActive = !done && activeIndex === i;
-              const isFailed = !!railError && activeIndex === i;
-              const dim = activeIndex < i && !done ? 0.5 : 1;
-              return (
-                <div
-                  key={i}
-                  className="row"
-                  style={{
-                    gap: 14,
-                    paddingBottom: i < stages.length - 1 ? 22 : 0,
-                    alignItems: "flex-start",
-                  }}
-                >
+          !(
+            isOfframpRail &&
+            (isExpired || offrampPhaseValue === "refunded")
+          ) && (
+            <div className="col" style={{ marginTop: 18 }}>
+              {stages.map((s, i) => {
+                const isDone = done || activeIndex > i;
+                const isActive = !done && activeIndex === i;
+                const isFailed = !!railError && activeIndex === i;
+                const dim = activeIndex < i && !done ? 0.5 : 1;
+                return (
                   <div
+                    key={i}
+                    className="row"
                     style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      flex: "0 0 22px",
+                      gap: 14,
+                      paddingBottom: i < stages.length - 1 ? 22 : 0,
+                      alignItems: "flex-start",
                     }}
                   >
                     <div
                       style={{
-                        width: 20,
-                        height: 20,
-                        borderRadius: "50%",
-                        background: isFailed
-                          ? "var(--err)"
-                          : isDone
-                            ? "var(--ok)"
-                            : isActive
-                              ? "var(--accent)"
-                              : "var(--bg-sunk)",
-                        color:
-                          isDone || isActive || isFailed
-                            ? "#fff"
-                            : "var(--fg-mute)",
-                        border:
-                          !isDone && !isActive && !isFailed
-                            ? "1px solid var(--line-2)"
-                            : "none",
                         display: "flex",
+                        flexDirection: "column",
                         alignItems: "center",
-                        justifyContent: "center",
-                        animation:
-                          isActive && !isFailed
-                            ? "pulse-ring 1.4s var(--ease) infinite"
-                            : "none",
+                        flex: "0 0 22px",
                       }}
                     >
-                      {isFailed ? (
-                        <span style={{ fontSize: 12 }}>!</span>
-                      ) : isDone ? (
-                        <Icon.Check size={11} />
-                      ) : (
-                        <span className="font-mono" style={{ fontSize: 10 }}>
-                          {i + 1}
-                        </span>
-                      )}
-                    </div>
-                    {i < stages.length - 1 && (
                       <div
                         style={{
-                          width: 2,
-                          flex: 1,
-                          minHeight: 22,
-                          background: isDone ? "var(--ok)" : "var(--line)",
-                          marginTop: 4,
+                          width: 20,
+                          height: 20,
+                          borderRadius: "50%",
+                          background: isFailed
+                            ? "var(--err)"
+                            : isDone
+                              ? "var(--ok)"
+                              : isActive
+                                ? "var(--accent)"
+                                : "var(--bg-sunk)",
+                          color:
+                            isDone || isActive || isFailed
+                              ? "#fff"
+                              : "var(--fg-mute)",
+                          border:
+                            !isDone && !isActive && !isFailed
+                              ? "1px solid var(--line-2)"
+                              : "none",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          animation:
+                            isActive && !isFailed
+                              ? "pulse-ring 1.4s var(--ease) infinite"
+                              : "none",
                         }}
-                      />
-                    )}
-                  </div>
-                  <div className="col grow gap-1" style={{ opacity: dim }}>
-                    <div className="row between center">
-                      <h4 style={{ fontSize: 15, fontWeight: 500 }}>{s.l}</h4>
-                      <span
-                        className="font-mono"
-                        style={{ fontSize: 11, color: "var(--fg-mute)" }}
                       >
-                        {isFailed
-                          ? "failed"
-                          : isDone
-                            ? "done"
-                            : isActive
-                              ? "in progress"
-                              : "pending"}
-                      </span>
+                        {isFailed ? (
+                          <span style={{ fontSize: 12 }}>!</span>
+                        ) : isDone ? (
+                          <Icon.Check size={11} />
+                        ) : (
+                          <span className="font-mono" style={{ fontSize: 10 }}>
+                            {i + 1}
+                          </span>
+                        )}
+                      </div>
+                      {i < stages.length - 1 && (
+                        <div
+                          style={{
+                            width: 2,
+                            flex: 1,
+                            minHeight: 22,
+                            background: isDone ? "var(--ok)" : "var(--line)",
+                            marginTop: 4,
+                          }}
+                        />
+                      )}
                     </div>
-                    <span style={{ fontSize: 13, color: "var(--fg-soft)" }}>
-                      {s.d}
-                    </span>
-                    {s.ref && (isDone || isActive) && (
-                      <RailRef text={s.ref} href={s.refHref ?? null} />
-                    )}
+                    <div className="col grow gap-1" style={{ opacity: dim }}>
+                      <div className="row between center">
+                        <h4 style={{ fontSize: 15, fontWeight: 500 }}>{s.l}</h4>
+                        <span
+                          className="font-mono"
+                          style={{ fontSize: 11, color: "var(--fg-mute)" }}
+                        >
+                          {isFailed
+                            ? "failed"
+                            : isDone
+                              ? "done"
+                              : isActive
+                                ? "in progress"
+                                : "pending"}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 13, color: "var(--fg-soft)" }}>
+                        {s.d}
+                      </span>
+                      {s.ref && (isDone || isActive) && (
+                        <RailRef text={s.ref} href={s.refHref ?? null} />
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
 
         {/* Rail returned an error mid-flight — show it inline, no fake fanfare. */}
         {railError && (
@@ -2541,7 +2666,11 @@ export function StatusScreen({
         {isOfframpRail && offrampOrder && (
           <details style={{ marginTop: 16 }}>
             <summary
-              style={{ cursor: "pointer", color: "var(--fg-mute)", fontSize: 12 }}
+              style={{
+                cursor: "pointer",
+                color: "var(--fg-mute)",
+                fontSize: 12,
+              }}
             >
               Details
             </summary>
@@ -2554,8 +2683,10 @@ export function StatusScreen({
                   className="font-mono"
                   style={{ fontSize: 11, color: "var(--accent)" }}
                   href={
-                    explorerTxUrl(exec.fromChain, paycrestOfframp.transferTxHash) ??
-                    "#"
+                    explorerTxUrl(
+                      exec.fromChain,
+                      paycrestOfframp.transferTxHash
+                    ) ?? "#"
                   }
                   target="_blank"
                   rel="noreferrer"
@@ -2567,7 +2698,9 @@ export function StatusScreen({
                 <a
                   className="font-mono"
                   style={{ fontSize: 11, color: "var(--accent)" }}
-                  href={explorerTxUrl(exec.fromChain, offrampOrder.txHash) ?? "#"}
+                  href={
+                    explorerTxUrl(exec.fromChain, offrampOrder.txHash) ?? "#"
+                  }
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -2678,8 +2811,8 @@ function DepositAddress({
       </button>
 
       <span className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
-        Send exactly {sendLabel}. Exchanges may deduct fees — send enough that the
-        full amount arrives.
+        Send exactly {sendLabel}. Exchanges may deduct fees — send enough that
+        the full amount arrives.
         {refundAddress && (
           <>
             {" "}
@@ -2822,7 +2955,12 @@ function StatusModal({
       <div
         onClick={(e) => e.stopPropagation()}
         className="card"
-        style={{ maxWidth: 360, width: "100%", padding: 20, boxShadow: MODAL_SHADOW }}
+        style={{
+          maxWidth: 360,
+          width: "100%",
+          padding: 20,
+          boxShadow: MODAL_SHADOW,
+        }}
       >
         <strong style={{ fontSize: 15 }}>{title}</strong>
         <div
@@ -2881,7 +3019,12 @@ function BeforeYouSendModal({
         aria-modal="true"
         aria-label="Before you send"
         className="card col gap-4"
-        style={{ maxWidth: 380, width: "100%", padding: 20, boxShadow: MODAL_SHADOW }}
+        style={{
+          maxWidth: 380,
+          width: "100%",
+          padding: 20,
+          boxShadow: MODAL_SHADOW,
+        }}
       >
         <strong style={{ fontSize: 15 }}>Before you send</strong>
 
@@ -2889,7 +3032,14 @@ function BeforeYouSendModal({
           <span className="eyebrow" style={{ fontSize: 10 }}>
             Send exactly
           </span>
-          <span style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1 }}>
+          <span
+            style={{
+              fontSize: 26,
+              fontWeight: 600,
+              letterSpacing: "-0.01em",
+              lineHeight: 1,
+            }}
+          >
             {sendLabel}
           </span>
           <span
@@ -2982,4 +3132,3 @@ function RailRef({ text, href }: { text: string; href: string | null }) {
     </a>
   );
 }
-

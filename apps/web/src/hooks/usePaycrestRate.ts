@@ -25,12 +25,20 @@ export interface UsePaycrestRateReturn {
 
 export function usePaycrestRate(
   currency: string,
-  token: string
+  token: string,
+  /** Skip fetching entirely when false — e.g. a non-Paycrest (Chainrails) chain
+   *  is selected, so Paycrest's rate is irrelevant and shouldn't be requested. */
+  enabled = true
 ): UsePaycrestRateReturn {
   const [rate, setRate] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (!enabled) {
+      setRate(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setRate(null);
@@ -48,7 +56,7 @@ export function usePaycrestRate(
       cancelled = true;
       clearInterval(id);
     };
-  }, [currency, token]);
+  }, [currency, token, enabled]);
 
   return { rate, loading };
 }

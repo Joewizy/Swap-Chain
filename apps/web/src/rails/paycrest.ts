@@ -114,6 +114,10 @@ export const PAYCREST_NETWORK_SLUGS: Partial<Record<ChainId, string>> = {
   arbitrum: "arbitrum-one",
   polygon: "polygon",
   bnb: "bnb-smart-chain",
+  celo: "celo",
+  lisk: "lisk",
+  scroll: "scroll",
+  starknet: "starknet",
 };
 
 /** Paycrest network slug for a chain, or null when unsupported. */
@@ -125,6 +129,23 @@ export function paycrestNetworkSlug(chainId: ChainId): string | null {
 export const PAYCREST_CHAIN_IDS = Object.keys(
   PAYCREST_NETWORK_SLUGS
 ) as ChainId[];
+
+/**
+ * ChainIds we can currently SELL from via Paycrest. Off-ramp signs a real
+ * USDC transfer, so it needs wallet signing + a token address — i.e. the EVM
+ * subset. Starknet is a buy-only corridor until Starknet signing lands; Solana
+ * and Tron off-ramp are not wired yet either.
+ */
+export const PAYCREST_SELL_CHAIN_IDS: ChainId[] = [
+  "ethereum",
+  "base",
+  "arbitrum",
+  "polygon",
+  "bnb",
+  "celo",
+  "lisk",
+  "scroll",
+];
 
 /** Reverse of paycrestNetworkSlug: "base" → "base", "arbitrum-one" → "arbitrum". */
 export function chainIdFromPaycrestSlug(slug: string): ChainId | null {
@@ -195,8 +216,7 @@ export interface PaycrestOnrampRequest {
 
 /** Flat order body the app posts to /api/paycrest/order. */
 export type PaycrestOrderRequest =
-  | PaycrestOfframpRequest
-  | PaycrestOnrampRequest;
+  PaycrestOfframpRequest | PaycrestOnrampRequest;
 
 /**
  * Paycrest order lifecycle. Mirrors the status field Paycrest returns:
@@ -275,14 +295,12 @@ export function normalizePaycrestOrder(
 ): PaycrestOrder {
   const source = payload.source as { type?: string } | undefined;
   const destination = payload.destination as
-    | { type?: string; currency?: string }
-    | undefined;
+    { type?: string; currency?: string } | undefined;
   const direction: PaycrestDirection =
     source?.type === "fiat" ? "onramp" : "offramp";
 
   const providerAccount = payload.providerAccount as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
 
   const fiatCurrency =
     direction === "onramp"
@@ -304,16 +322,16 @@ export function normalizePaycrestOrder(
       ? String(
           (destination as { currency?: string } | undefined)?.currency ?? ""
         )
-      : String(
-          (source as { currency?: string } | undefined)?.currency ?? ""
-        );
+      : String((source as { currency?: string } | undefined)?.currency ?? "");
 
   return {
     id: String(payload.id),
     status: (payload.status as PaycrestOrderStatus) ?? "initiated",
     direction,
     amount:
-      typeof payload.amount === "string" ? payload.amount : String(payload.amount ?? ""),
+      typeof payload.amount === "string"
+        ? payload.amount
+        : String(payload.amount ?? ""),
     currency: direction === "onramp" ? cryptoCurrency : fiatCurrency,
     rate: typeof payload.rate === "string" ? payload.rate : undefined,
     receiveAddress:
@@ -322,8 +340,7 @@ export function normalizePaycrestOrder(
         ? providerAccount.receiveAddress
         : undefined,
     depositInstitution:
-      direction === "onramp" &&
-      typeof providerAccount?.institution === "string"
+      direction === "onramp" && typeof providerAccount?.institution === "string"
         ? providerAccount.institution
         : undefined,
     depositAccountIdentifier:
@@ -332,8 +349,7 @@ export function normalizePaycrestOrder(
         ? providerAccount.accountIdentifier
         : undefined,
     depositAccountName:
-      direction === "onramp" &&
-      typeof providerAccount?.accountName === "string"
+      direction === "onramp" && typeof providerAccount?.accountName === "string"
         ? providerAccount.accountName
         : undefined,
     amountToTransfer:
@@ -342,8 +358,7 @@ export function normalizePaycrestOrder(
         ? providerAccount.amountToTransfer
         : undefined,
     depositCurrency:
-      direction === "onramp" &&
-      typeof providerAccount?.currency === "string"
+      direction === "onramp" && typeof providerAccount?.currency === "string"
         ? providerAccount.currency
         : undefined,
     validUntil:
@@ -386,7 +401,9 @@ export function normalizePaycrestOrder(
  */
 export function sanitizePaycrestRaw(
   raw: unknown
-): { transactionLogs: Array<{ status: string; created_at?: string }> } | undefined {
+):
+  | { transactionLogs: Array<{ status: string; created_at?: string }> }
+  | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const root = raw as Record<string, unknown>;
   const data =
@@ -400,8 +417,7 @@ export function sanitizePaycrestRaw(
       const o = (entry ?? {}) as Record<string, unknown>;
       return {
         status: typeof o.status === "string" ? o.status : "",
-        created_at:
-          typeof o.created_at === "string" ? o.created_at : undefined,
+        created_at: typeof o.created_at === "string" ? o.created_at : undefined,
       };
     }),
   };
@@ -564,7 +580,8 @@ export function walletFromPaycrestPayload(
     if (match) return match[0].toLowerCase();
   }
 
-  const destination = payload.destination as Record<string, unknown> | undefined;
+  const destination = payload.destination as
+    Record<string, unknown> | undefined;
   if (destination?.type === "crypto") {
     const recipient = destination.recipient as { address?: string } | undefined;
     if (typeof recipient?.address === "string") {
@@ -624,18 +641,46 @@ export const PAYCREST_REFERENCE_MAX_LENGTH = 70;
  * to our account default, so the wallet isn't otherwise recoverable from the
  * order — we encode it here and match on it in orderMatchesWallet.
  *
- * Kept short on purpose: a 0x address is 42 chars and the timestamp 13, so the
- * prefix is abbreviated ("sw-off"/"sw-on") to stay under
- * PAYCREST_REFERENCE_MAX_LENGTH. orderMatchesWallet keys off the embedded
- * address, not the prefix, so it's safe to shorten.
+ * Kept short on purpose. EVM addresses are 42 chars, but Starknet addresses
+ * can be 66; embedding the latter plus a timestamp exceeds Paycrest's 70-char
+ * limit. Long addresses use a stable, human-inspectable prefix/suffix key.
  */
 export function buildPaycrestReference(
   direction: PaycrestDirection,
   address: string | undefined
 ): string {
-  const wallet = address ? address.toLowerCase() : "anon";
+  const wallet = paycrestReferenceWalletKey(address);
   const tag = direction === "offramp" ? "off" : "on";
   return `sw-${tag}-${wallet}-${Date.now()}`;
+}
+
+/**
+ * Server-side guard: keep a reference within Paycrest's 70-char limit WITHOUT
+ * losing its wallet-matching use. A correct client already sends a short,
+ * reduced reference; but a stale bundle can send the old un-reduced form
+ * (`sw-on-<full-starknet-felt>-<ts>`), which is 86 chars. Truncating that would
+ * corrupt the wallet key `orderMatchesWallet` searches for, so instead we
+ * rebuild from the known address — same reduced key, guaranteed under the cap.
+ */
+export function fitPaycrestReference(
+  reference: unknown,
+  direction: PaycrestDirection,
+  address: string | undefined
+): string | undefined {
+  if (typeof reference !== "string" || !reference) return undefined;
+  if (reference.length <= PAYCREST_REFERENCE_MAX_LENGTH) return reference;
+  return buildPaycrestReference(direction, address);
+}
+
+/** Key encoded in a Paycrest reference; always leaves room for its timestamp. */
+function paycrestReferenceWalletKey(address: string | undefined): string {
+  const wallet = address?.toLowerCase() ?? "anon";
+  // Preserve full EVM addresses for existing History matching. A Starknet
+  // address is 66 characters, so retain enough of both ends to identify it
+  // without exceeding the provider's strict reference limit.
+  return wallet.length <= 42
+    ? wallet
+    : `${wallet.slice(0, 12)}-${wallet.slice(-12)}`;
 }
 
 /** True when the connected wallet is the refund (off-ramp) or recipient (on-ramp) address. */
@@ -648,12 +693,16 @@ export function orderMatchesWallet(
   // Primary signal: the wallet we encoded in the order reference at creation.
   // Survives Paycrest overriding the off-ramp refundAddress to our account.
   const reference = payload.reference;
-  if (typeof reference === "string" && reference.toLowerCase().includes(want)) {
+  if (
+    typeof reference === "string" &&
+    reference.toLowerCase().includes(paycrestReferenceWalletKey(want))
+  ) {
     return true;
   }
 
   const source = payload.source as Record<string, unknown> | undefined;
-  const destination = payload.destination as Record<string, unknown> | undefined;
+  const destination = payload.destination as
+    Record<string, unknown> | undefined;
 
   if (source?.type === "crypto") {
     const refund = source.refundAddress;
@@ -679,9 +728,7 @@ export function orderMatchesWallet(
     payload.fromAddress,
     recipient.address,
   ];
-  return legacy.some(
-    (c) => typeof c === "string" && c.toLowerCase() === want
-  );
+  return legacy.some((c) => typeof c === "string" && c.toLowerCase() === want);
 }
 
 /** Normalises a v2 order payload into the History list shape. */
@@ -690,10 +737,10 @@ export function summarizePaycrestOrderForHistory(
 ): PaycrestHistoryOrder {
   const order = normalizePaycrestOrder(payload);
   const source = payload.source as Record<string, unknown> | undefined;
-  const destination = payload.destination as Record<string, unknown> | undefined;
+  const destination = payload.destination as
+    Record<string, unknown> | undefined;
   const providerAccount = payload.providerAccount as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   const fiatRecipient =
     destination?.type === "fiat"
       ? (destination.recipient as Record<string, unknown> | undefined)
@@ -786,7 +833,9 @@ export function summarizePaycrestOrderForHistory(
 }
 
 /** Top-level txHash, or the latest non-empty hash from transactionLogs. */
-function extractSettlementTxHash(payload: Record<string, unknown>): string | undefined {
+function extractSettlementTxHash(
+  payload: Record<string, unknown>
+): string | undefined {
   if (typeof payload.txHash === "string" && payload.txHash) {
     return payload.txHash;
   }

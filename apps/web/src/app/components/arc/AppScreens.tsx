@@ -13,6 +13,11 @@ import { formatToken } from "@/utils/format";
 import { Icon } from "./icons";
 import { PayoutForm, type PayoutDetails } from "./SendScreen";
 import { upsertRecipient, useRecipients, type Recipient } from "./recipients";
+import {
+  loadTrackedRampOrders,
+  type TrackedRampOrder,
+} from "./chainrailsOrders";
+import { classifyRampStatus, type RampOrderPhase } from "@/rails/chainrails";
 
 /* ────────────────── HISTORY ────────────────── */
 
@@ -32,7 +37,10 @@ function shortAddress(addr: string): string {
 }
 
 /** Maps a Paycrest status to a chip tone + label. */
-function statusChip(status: string): { tone: "ok" | "pend" | "err"; label: string } {
+function statusChip(status: string): {
+  tone: "ok" | "pend" | "err";
+  label: string;
+} {
   switch (status) {
     case "fulfilled":
     case "settled":
@@ -69,9 +77,12 @@ function timeAgo(iso: string | null): string {
 
 export function HistoryScreen({
   onResume,
+  onResumeChainrails,
 }: {
   /** Called when the user taps a still-fundable order to complete it. */
   onResume?: (order: Order) => void;
+  /** Called when the user taps a Chainrails order to view it. */
+  onResumeChainrails?: (order: TrackedRampOrder) => void;
 }) {
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
@@ -171,6 +182,9 @@ export function HistoryScreen({
         )}
       </header>
 
+      {/* ChainRails ramp orders (local to this browser; no wallet/SIWE gate). */}
+      <ChainrailsHistorySection onResume={onResumeChainrails} />
+
       {!isConnected ? (
         <EmptyState
           title="Connect your wallet"
@@ -215,6 +229,171 @@ export function HistoryScreen({
         </div>
       )}
     </div>
+  );
+}
+
+/** Chip tone/label for a Chainrails ramp phase. */
+function chainrailsChip(
+  phase: RampOrderPhase | undefined,
+  direction: "onramp" | "offramp"
+): { tone: "ok" | "pend" | "err"; label: string } {
+  switch (phase) {
+    case "completed":
+      return {
+        tone: "ok",
+        label: direction === "offramp" ? "Paid out" : "Received",
+      };
+    case "expired":
+      return { tone: "err", label: "Expired" };
+    case "failed":
+      return { tone: "err", label: "Failed" };
+    case "processing":
+      return { tone: "pend", label: "Confirming" };
+    case "pending":
+      return { tone: "pend", label: "Awaiting payment" };
+    default:
+      return { tone: "pend", label: "Checking…" };
+  }
+}
+
+/** Local Chainrails ramp orders, with each one's live status re-fetched. */
+function ChainrailsHistorySection({
+  onResume,
+}: {
+  onResume?: (order: TrackedRampOrder) => void;
+}) {
+  const [orders, setOrders] = useState<TrackedRampOrder[]>([]);
+  const [phases, setPhases] = useState<Record<string, RampOrderPhase>>({});
+
+  useEffect(() => {
+    const tracked = loadTrackedRampOrders();
+    setOrders(tracked);
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        tracked.map(async (o): Promise<[string, RampOrderPhase]> => {
+          try {
+            const res = await fetch(`/api/chainrails/ramp/orders/${o.id}`, {
+              cache: "no-store",
+            });
+            if (!res.ok) return [o.id, "unknown"];
+            const data = await res.json();
+            return [o.id, classifyRampStatus(data?.status)];
+          } catch {
+            return [o.id, "unknown"];
+          }
+        })
+      );
+      if (!cancelled) setPhases(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (orders.length === 0) return null;
+
+  return (
+    <div className="col gap-3">
+      <span className="eyebrow">Recent</span>
+      {orders.map((o) => (
+        <ChainrailsOrderCard
+          key={o.id}
+          order={o}
+          phase={phases[o.id]}
+          onResume={onResume}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ChainrailsOrderCard({
+  order,
+  phase,
+  onResume,
+}: {
+  order: TrackedRampOrder;
+  phase?: RampOrderPhase;
+  onResume?: (order: TrackedRampOrder) => void;
+}) {
+  const chip = chainrailsChip(phase, order.direction);
+  const isOfframp = order.direction === "offramp";
+  // Only buys re-open a viewable status screen today (sell uses a different,
+  // KYC-gated flow). See todo.md — "Chainrails order history".
+  const openable = !isOfframp && !!onResume;
+  return (
+    <article
+      className="card"
+      onClick={openable ? () => onResume?.(order) : undefined}
+      style={{ padding: 16, cursor: openable ? "pointer" : "default" }}
+    >
+      <div className="row between center" style={{ gap: 12 }}>
+        <div className="col" style={{ gap: 2, minWidth: 0 }}>
+          <span style={{ fontSize: 15, fontWeight: 500 }}>
+            {isOfframp ? "Sell" : "Buy crypto"} ·{" "}
+            <span className="font-mono">{order.cryptoLabel}</span>
+          </span>
+          <span
+            className="muted"
+            style={{
+              fontSize: 12.5,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {order.chainLabel}
+            {order.address ? ` · ${shortAddress(order.address)}` : ""}
+          </span>
+        </div>
+        <span
+          className={
+            chip.tone === "ok"
+              ? "chip chip-ok"
+              : chip.tone === "pend"
+                ? "chip chip-pend"
+                : "chip chip-err"
+          }
+          style={{ padding: "2px 10px", flex: "0 0 auto" }}
+        >
+          {chip.label}
+        </span>
+      </div>
+
+      <div className="hr" style={{ margin: "12px 0" }} />
+
+      <div className="row between center" style={{ fontSize: 12.5 }}>
+        <span className="font-mono" style={{ color: "var(--accent)" }}>
+          {order.fiatLabel ?? "—"}
+        </span>
+        <span className="muted font-mono" style={{ fontSize: 11 }}>
+          {timeAgo(new Date(order.createdAt).toISOString())} · #{order.id}
+        </span>
+      </div>
+
+      {openable && (
+        <div
+          className="row center between"
+          style={{
+            marginTop: 12,
+            paddingTop: 12,
+            borderTop: "1px solid var(--line)",
+          }}
+        >
+          <span
+            style={{
+              fontSize: 12.5,
+              fontWeight: 500,
+              color: "var(--fg-soft)",
+            }}
+          >
+            View order
+          </span>
+          <Icon.ArrowRight size={13} />
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -400,7 +579,10 @@ export function RecipientsScreen({
             Banks and mobile money you&apos;ve sent to before.
           </span>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => setAdding(true)}
+        >
           <Icon.Plus /> Add recipient
         </button>
       </header>
@@ -543,7 +725,13 @@ function RecipientCard({
               display: "inline-flex",
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden
+            >
               <path
                 d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"
                 stroke="currentColor"
@@ -718,7 +906,13 @@ function AddRecipientModal({ onClose }: { onClose: () => void }) {
                 display: "inline-flex",
               }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden
+              >
                 <path
                   d="M6 6l12 12M18 6L6 18"
                   stroke="currentColor"
@@ -807,4 +1001,3 @@ function AddRecipientModal({ onClose }: { onClose: () => void }) {
     document.body
   );
 }
-

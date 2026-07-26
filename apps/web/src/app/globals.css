@@ -408,6 +408,115 @@ h1 {
   box-shadow: var(--shadow-1);
 }
 
+/* Chainrails order status — compact receipt + narrow progress rail. */
+.cr-status {
+  width: 100%;
+  max-width: 812px;
+  gap: 16px;
+}
+.cr-status-header {
+  gap: 3px;
+  max-width: 620px;
+}
+.cr-status-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 480px) minmax(260px, 300px);
+  gap: 32px;
+  align-items: start;
+}
+.cr-status-card {
+  border-radius: 18px;
+  box-shadow: 0 0 0 1px rgba(20, 18, 14, 0.025);
+}
+.cr-status-receipt {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 22px 14px;
+}
+.cr-status-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+}
+.cr-status-action {
+  width: 100%;
+  height: 46px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.cr-status-order-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1.4;
+}
+/* Left column: two amount cards, an action, then the order reference. */
+.cr-status-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.cr-status-amounts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.cr-status-amount {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  min-width: 0;
+}
+.cr-status-amount-value {
+  font-size: clamp(20px, 2.3vw, 27px);
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  min-width: 0;
+}
+.cr-status-error {
+  padding: 12px 14px;
+  background: var(--err-soft);
+  border: 1px solid var(--err);
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.cr-status-ref {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .cr-status {
+    max-width: 620px;
+  }
+  .cr-status-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}
+@media (max-width: 540px) {
+  .cr-status-amounts {
+    grid-template-columns: 1fr;
+  }
+  .cr-status-receipt,
+  .cr-status-progress {
+    border-radius: 15px;
+    padding: 17px;
+  }
+}
+
 /* inputs -------------------------------------------------------- */
 .input {
   width: 100%;
@@ -537,12 +646,7 @@ h1 {
   position: absolute;
   inset: 0 0 auto 0;
   height: 2px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--accent),
-    transparent
-  );
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
   opacity: 0;
   transform: translateY(-2px);
   transition:

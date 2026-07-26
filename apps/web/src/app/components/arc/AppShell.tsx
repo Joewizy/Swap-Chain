@@ -19,11 +19,8 @@ import { Home, type FlowId } from "./Home";
 import { RelaySwapPanel } from "./RelaySwapPanel";
 import { CashoutFlow } from "./flows/CashoutFlow";
 import { BuyFlow } from "./flows/BuyFlow";
-import {
-  HistoryScreen,
-  RecipientsScreen,
-  type Order,
-} from "./AppScreens";
+import { HistoryScreen, RecipientsScreen, type Order } from "./AppScreens";
+import { type TrackedRampOrder } from "./chainrailsOrders";
 import {
   DEFAULT_SETTLEMENT_CHAIN_ID,
   IS_TESTNET,
@@ -60,17 +57,18 @@ type View = SwapView;
 /** Reconstructs a minimal Intent from a History order so StatusScreen can
  *  adopt and fund it (resumeOrderId tells StatusScreen not to recreate it). */
 function intentFromOrder(o: Order): Intent {
-  const chain = chainIdFromPaycrestSlug(o.network) ?? DEFAULT_SETTLEMENT_CHAIN_ID;
+  const chain =
+    chainIdFromPaycrestSlug(o.network) ?? DEFAULT_SETTLEMENT_CHAIN_ID;
   const chainName = getChain(chain)?.name ?? chain;
   const fiat = o.currency ?? "";
   const cryptoAmt = formatToken(o.amount, o.token, 2);
 
   if (o.direction === "onramp") {
     const fiatLabel =
-      o.fiatAmount !== null && fiat
-        ? formatFiat(fiat, o.fiatAmount)
-        : fiat;
-    const refundName = o.refundAccountName ? titleCase(o.refundAccountName) : "";
+      o.fiatAmount !== null && fiat ? formatFiat(fiat, o.fiatAmount) : fiat;
+    const refundName = o.refundAccountName
+      ? titleCase(o.refundAccountName)
+      : "";
     return {
       text: `Buy ${cryptoAmt} ${o.token} with ${fiatLabel}`,
       resumeOrderId: o.id,
@@ -106,7 +104,8 @@ function intentFromOrder(o: Order): Intent {
           recipient: o.recipientAddress,
           payout: {
             institution: o.refundInstitution ?? "",
-            institutionName: o.refundInstitutionName ?? o.refundInstitution ?? "",
+            institutionName:
+              o.refundInstitutionName ?? o.refundInstitution ?? "",
             accountIdentifier: o.refundAccountIdentifier ?? "",
             accountName: refundName,
           },
@@ -154,6 +153,51 @@ function intentFromOrder(o: Order): Intent {
           institutionName: o.institution ?? "",
           accountIdentifier: o.accountIdentifier ?? "",
           accountName: name,
+        },
+      },
+    },
+  };
+}
+
+/** Minimal Intent to re-open a tracked Chainrails buy so its status/checkout
+ *  can be viewed. `resumeOrderId` tells ChainrailsStatus to poll, never create. */
+function intentFromChainrailsOrder(o: TrackedRampOrder): Intent {
+  return {
+    text: `Buy ${o.cryptoLabel} on ${o.chainLabel}`,
+    resumeOrderId: o.id,
+    quote: {
+      from: { token: "FIAT", chain: o.chainLabel, amount: 0 },
+      to: {
+        kind: "Wallet",
+        currency: "USDC",
+        amount: o.cryptoLabel,
+        label: o.chainLabel,
+        sub: o.address ?? "",
+      },
+      rate: null,
+      fee: { network: "—", rail: "—", spread: "—", total: "—" },
+      eta: "≈ 3–10 min",
+      rail: [],
+      kind: "fiat",
+      railName: "Chainrails",
+      railReason: "",
+      exec: {
+        rail: "chainrails",
+        action: "onramp",
+        fromChain: "ethereum",
+        fromToken: "USDC" as TokenSymbol,
+        fromAmount: "0",
+        toChain: null,
+        toToken: "USDC" as TokenSymbol,
+        fiatCurrency: null,
+        recipient: o.address ?? null,
+        chainrailsRamp: {
+          provider: "",
+          countryCode: "",
+          cryptoAmount: 0,
+          destinationChain: "",
+          destinationLabel: o.chainLabel,
+          addressKind: "evm",
         },
       },
     },
@@ -232,7 +276,22 @@ export default function AppShell() {
     const intent = intentFromOrder(order);
     storeIntent(intent);
     setRecentIntent(intent);
-    patchUrl({ view: "send", flow: null, status: true, step: null }, { push: true });
+    patchUrl(
+      { view: "send", flow: null, status: true, step: null },
+      { push: true }
+    );
+    setDrawerOpen(false);
+  };
+
+  const resumeChainrailsOrder = (order: TrackedRampOrder) => {
+    clearFlowDraft();
+    const intent = intentFromChainrailsOrder(order);
+    storeIntent(intent);
+    setRecentIntent(intent);
+    patchUrl(
+      { view: "send", flow: null, status: true, step: null },
+      { push: true }
+    );
     setDrawerOpen(false);
   };
 
@@ -242,7 +301,10 @@ export default function AppShell() {
   const pickFlow = (id: FlowId | "describe") => {
     clearFlowDraft();
     // Push so the back button returns to the chooser, not out of the app.
-    patchUrl({ view: "send", flow: id, status: null, step: null }, { push: true });
+    patchUrl(
+      { view: "send", flow: id, status: null, step: null },
+      { push: true }
+    );
   };
 
   const launchFlow = async (launch: FlowLaunch) => {
@@ -313,7 +375,11 @@ export default function AppShell() {
   };
 
   const sendBody = showStatus ? (
-    <StatusScreen intent={recentIntent} onDone={finishStatus} />
+    <StatusScreen
+      intent={recentIntent}
+      onDone={finishStatus}
+      onStartNew={() => pickFlow("buy")}
+    />
   ) : (
     flowBody()
   );
@@ -335,7 +401,12 @@ export default function AppShell() {
         style={{ animation: "fade-up .22s var(--ease) both" }}
       >
         {view === "send" && sendBody}
-        {view === "history" && <HistoryScreen onResume={resumeOrder} />}
+        {view === "history" && (
+          <HistoryScreen
+            onResume={resumeOrder}
+            onResumeChainrails={resumeChainrailsOrder}
+          />
+        )}
         {view === "recipients" && <RecipientsScreen onSend={sendToRecipient} />}
       </div>
     </main>
@@ -372,11 +443,11 @@ export default function AppShell() {
                 gap: 8,
               }}
             >
-              <div
-                className="row between center"
-                style={{ marginBottom: 4 }}
-              >
-                <span className="row center gap-2" style={{ fontSize: 14, fontWeight: 500 }}>
+              <div className="row between center" style={{ marginBottom: 4 }}>
+                <span
+                  className="row center gap-2"
+                  style={{ fontSize: 14, fontWeight: 500 }}
+                >
                   <Icon.Logo size={20} /> Railglide
                 </span>
                 <button
@@ -390,7 +461,13 @@ export default function AppShell() {
                     padding: 4,
                   }}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden
+                  >
                     <path
                       d="M6 6l12 12M18 6L6 18"
                       stroke="currentColor"
@@ -400,7 +477,7 @@ export default function AppShell() {
                   </svg>
                 </button>
               </div>
-              <NavContent view={view} setView={goToView} onBack={onBack} />
+              <NavContent view={view} setView={goToView} />
             </aside>
           </div>
         )}
@@ -446,7 +523,7 @@ export default function AppShell() {
         >
           <Icon.Logo size={20} /> <span>Railglide</span>
         </button>
-        <NavContent view={view} setView={goToView} onBack={onBack} />
+        <NavContent view={view} setView={goToView} />
       </aside>
       {main}
     </div>
@@ -536,11 +613,9 @@ function MobileTopBar({
 function NavContent({
   view,
   setView,
-  onBack,
 }: {
   view: View;
   setView: (v: View) => void;
-  onBack: () => void;
 }) {
   const items: { id: View; label: string; icon: React.ReactNode }[] = [
     { id: "send", label: "Send", icon: <Icon.Send /> },
@@ -585,14 +660,6 @@ function NavContent({
           <Icon.Globe size={12} /> {IS_TESTNET ? "Testnet" : "Mainnet"}
         </span>
       </div>
-
-      <button
-        onClick={onBack}
-        className="btn btn-quiet btn-sm"
-        style={{ justifyContent: "flex-start" }}
-      >
-        <Icon.Arrow rotate={180} size={12} /> Back to site
-      </button>
     </>
   );
 }
@@ -651,7 +718,10 @@ function AccountChip({ compact }: { compact?: boolean }) {
             background: "var(--accent)",
           }}
         />
-        <span className="font-mono" style={{ fontSize: 11, color: "var(--fg)" }}>
+        <span
+          className="font-mono"
+          style={{ fontSize: 11, color: "var(--fg)" }}
+        >
           {short}
         </span>
       </button>
@@ -685,7 +755,10 @@ function AccountChip({ compact }: { compact?: boolean }) {
           }}
         />
         <div className="col" style={{ lineHeight: 1.2 }}>
-          <span className="font-mono" style={{ fontSize: 11.5, color: "var(--fg)" }}>
+          <span
+            className="font-mono"
+            style={{ fontSize: 11.5, color: "var(--fg)" }}
+          >
             {short}
           </span>
           <span className="row center gap-1" style={{ fontSize: 10 }}>

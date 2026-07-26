@@ -14,7 +14,7 @@
 
 import { isCctpSupported } from "./cctp";
 import { isChainrailsSupported } from "./chainrails";
-import { isPaycrestFiat } from "./paycrest";
+import { isPaycrestFiat, paycrestNetworkSlug } from "./paycrest";
 import type { ChainId, TokenSymbol } from "@/config/network";
 
 export type RailName = "cctp" | "chainrails" | "relay" | "paycrest";
@@ -77,19 +77,35 @@ export function selectRail(req: RouteRequest): RailDecision {
     };
   }
 
-  // --- 2. fiat on-ramp -> Paycrest (supported fiats) or Chainrails --------
+  // --- 2. fiat on-ramp -> Paycrest #1, Chainrails for the rest -----------
   if (req.action === "onramp") {
-    const fiat = req.fiatCurrency;
-    if (fiat && isPaycrestFiat(fiat)) {
+    // Paycrest is our primary on-ramp: whenever it serves the destination
+    // chain, prefer it. Chainrails is the fallback only for chains Paycrest
+    // can't reach (Optimism, Avalanche, Solana, Starknet, Monad, HyperEVM,
+    // Lisk, Tron) — where it selects a provider and bridges as needed.
+    const paycrestChain = !!req.toChain && !!paycrestNetworkSlug(req.toChain);
+    if (paycrestChain) {
       return {
         rail: "paycrest",
-        reason: `Fiat on-ramp from ${fiat.toUpperCase()}.`,
-        alternatives: ["chainrails"],
+        reason: "Fiat on-ramp to a Paycrest-supported chain.",
+        alternatives:
+          req.toChain && isChainrailsSupported(req.toChain)
+            ? ["chainrails"]
+            : [],
+      };
+    }
+    if (req.toChain && isChainrailsSupported(req.toChain)) {
+      return {
+        rail: "chainrails",
+        reason:
+          "Chainrails serves on-ramp destinations Paycrest doesn't support.",
+        alternatives: [],
       };
     }
     return {
-      rail: "chainrails",
-      reason: "Fiat on-ramp is served by Chainrails.",
+      rail: "paycrest",
+      reason:
+        "Fiat on-ramp is available only for supported destination chains.",
       alternatives: [],
     };
   }

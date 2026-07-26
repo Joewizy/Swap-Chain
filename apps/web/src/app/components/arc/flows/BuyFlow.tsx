@@ -3,21 +3,32 @@
 /**
  * BuyFlow — guided fiat on-ramp (local currency → stablecoin).
  *
- * How much, in which currency. The stablecoin lands as USDC on the
- * settlement chain by default. Produces the same Quote the NL path does and
- * hands off to the shared ReviewScreen (which collects the fiat refund
- * account and shows the deposit instructions through execution).
+ * Paycrest is our #1 on-ramp: for the chains it serves the user gets the clean
+ * pay-fiat → receive-USDC/USDT flow (rate line, refund account on Review).
+ * Chains Paycrest can't reach (Optimism, Avalanche, Solana, Starknet, Monad,
+ * HyperEVM, Lisk, Tron) route to ChainRails via <ChainrailsBuyPanel>, which
+ * needs only a destination address — the provider checkout collects payment.
  */
 
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { getChain, type ChainId } from "@/config/network";
 import { PAYCREST_CHAIN_IDS, PAYCREST_FIAT } from "@/rails/paycrest";
+import {
+  CHAINRAILS_RAMP_DESTINATIONS,
+  type RampDestination,
+} from "@/rails/chainrails";
 import { usePaycrestNetwork } from "@/hooks/usePaycrestNetwork";
 import { usePaycrestRate } from "@/hooks";
 import { fetchPaycrestRate } from "@/lib/paycrestRate";
-import { fiatOptionLabel, formatNumber, formatToken, fiatSymbol } from "@/utils";
+import {
+  fiatOptionLabel,
+  formatNumber,
+  formatToken,
+  fiatSymbol,
+} from "@/utils";
 import { PrefixedAmountInput } from "./PrefixedAmountInput";
+import { ChainrailsBuyPanel } from "./ChainrailsBuyPanel";
 import {
   ReviewScreen,
   quoteFromIntent,
@@ -54,6 +65,51 @@ function rateLines(
   };
 }
 
+/** Flat destination picker: Paycrest chains first, ChainRails-only after. */
+function NetworkSelect({
+  network,
+  crDest,
+  onPaycrest,
+  onChainrails,
+  style,
+}: {
+  network: ChainId;
+  crDest: RampDestination | null;
+  onPaycrest: (id: ChainId) => void;
+  onChainrails: (dest: RampDestination) => void;
+  style?: React.CSSProperties;
+}) {
+  const value = crDest ? `cr:${crDest.chainrailsChain}` : network;
+  return (
+    <select
+      value={value}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (v.startsWith("cr:")) {
+          const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
+            (d) => d.chainrailsChain === v.slice(3)
+          );
+          if (dest) onChainrails(dest);
+        } else {
+          onPaycrest(v as ChainId);
+        }
+      }}
+      style={style}
+    >
+      {PAYCREST_CHAIN_IDS.map((id) => (
+        <option key={id} value={id}>
+          {getChain(id)?.name ?? id}
+        </option>
+      ))}
+      {CHAINRAILS_RAMP_DESTINATIONS.map((d) => (
+        <option key={d.chainrailsChain} value={`cr:${d.chainrailsChain}`}>
+          {d.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function BuyFlow({
   onSubmit,
   onBack,
@@ -70,6 +126,8 @@ export function BuyFlow({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(step !== "review");
+  // Non-Paycrest destination → ChainRails panel. Null while on a Paycrest chain.
+  const [crDest, setCrDest] = useState<RampDestination | null>(null);
 
   // Receiving USDC needs no wallet switch — it lands at your address on any
   // supported chain. So the destination is an explicit choice, pre-selected to
@@ -79,17 +137,25 @@ export function BuyFlow({
   const [networkTouched, setNetworkTouched] = useState(false);
   const [showNetworkInfo, setShowNetworkInfo] = useState(false);
   useEffect(() => {
-    if (!networkTouched) setNetwork(smartDefault);
-  }, [smartDefault, networkTouched]);
+    if (!networkTouched && !crDest) setNetwork(smartDefault);
+  }, [smartDefault, networkTouched, crDest]);
   // Live unit rate, fetched once per (currency, token) pair — we divide the
   // typed fiat by it locally so the crypto estimate updates with no extra API
   // calls. The exact rate locks when the order is created.
-  const { rate: unitRate } = usePaycrestRate(currency, token);
+  // Paycrest rate is irrelevant on a Chainrails chain (the panel fetches its
+  // own), so don't request it then.
+  const { rate: unitRate } = usePaycrestRate(currency, token, !crDest);
   const amountNum = Number(amount) || 0;
   const estimate = unitRate && amountNum > 0 ? amountNum / unitRate : null;
 
   const canContinue = Number(amount) > 0;
   const label = `Buy ${token} with ${amount} ${currency}`;
+
+  const selectNetwork = (id: ChainId) => {
+    setNetworkTouched(true);
+    setNetwork(id);
+    setCrDest(null);
+  };
 
   // Restore review step after refresh (?flow=buy&step=review).
   useEffect(() => {
@@ -212,10 +278,16 @@ export function BuyFlow({
   if (!ready) return null;
 
   if (quote) {
+    // A Chainrails quote carries its own exec + amounts; derive the subtitle
+    // from it (the Paycrest `label` is built from Paycrest-only state).
+    const reviewText =
+      quote.exec.rail === "chainrails"
+        ? `Buy ${quote.to.amount} on ${quote.to.label}`
+        : label;
     return (
       <ReviewScreen
         quote={quote}
-        text={label}
+        text={reviewText}
         initialPayout={payoutDraft}
         onPayoutChange={(p) => {
           setPayoutDraft(p);
@@ -230,35 +302,73 @@ export function BuyFlow({
             ...(payout ? { payout } : {}),
             ...(destination ? { recipient: destination } : {}),
           };
-          onSubmit({ text: label, quote: { ...quote, exec } });
+          onSubmit({ text: reviewText, quote: { ...quote, exec } });
         }}
       />
     );
   }
 
+  const header = (
+    <header className="col gap-1">
+      <button
+        className="btn btn-quiet btn-sm"
+        onClick={handleBack}
+        style={{ padding: "0 8px", alignSelf: "flex-start", marginBottom: 4 }}
+      >
+        <Icon.Arrow rotate={180} size={12} /> Back
+      </button>
+      <h1
+        style={{
+          fontSize: 28,
+          lineHeight: 1.1,
+          letterSpacing: "-0.02em",
+          fontWeight: 500,
+        }}
+      >
+        Buy crypto
+      </h1>
+      <span className="muted" style={{ fontSize: 14 }}>
+        Pay with local currency, receive USDC in your wallet.
+      </span>
+    </header>
+  );
+
+  // Non-Paycrest destination → ChainRails panel (address only, no bank fields).
+  if (crDest) {
+    return (
+      <div className="col gap-6">
+        {header}
+        <ChainrailsBuyPanel
+          destination={crDest}
+          onQuote={setQuote}
+          networkSelect={
+            <NetworkSelect
+              network={network}
+              crDest={crDest}
+              onPaycrest={selectNetwork}
+              onChainrails={setCrDest}
+              style={{ ...INPUT, cursor: "pointer" }}
+            />
+          }
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="col gap-6">
-      <header className="col gap-1">
-        <button
-          className="btn btn-quiet btn-sm"
-          onClick={handleBack}
-          style={{ padding: "0 8px", alignSelf: "flex-start", marginBottom: 4 }}
-        >
-          <Icon.Arrow rotate={180} size={12} /> Back
-        </button>
-        <h1 style={{ fontSize: 28, lineHeight: 1.1, letterSpacing: "-0.02em", fontWeight: 500 }}>
-          Buy crypto
-        </h1>
-        <span className="muted" style={{ fontSize: 14 }}>
-          Pay with local currency, receive USDC or USDT in your wallet.
-        </span>
-      </header>
+      {header}
 
       <div className="card col gap-5" style={{ padding: 20 }}>
         <label className="col gap-2">
           <span
             className="font-mono"
-            style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}
+            style={{
+              fontSize: 10,
+              letterSpacing: 0.06,
+              color: "var(--fg-mute)",
+              textTransform: "uppercase",
+            }}
           >
             You pay
           </span>
@@ -297,7 +407,12 @@ export function BuyFlow({
         <label className="col gap-2">
           <span
             className="font-mono"
-            style={{ fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}
+            style={{
+              fontSize: 10,
+              letterSpacing: 0.06,
+              color: "var(--fg-mute)",
+              textTransform: "uppercase",
+            }}
           >
             Paying with
           </span>
@@ -317,7 +432,13 @@ export function BuyFlow({
         <label className="col gap-2">
           <span
             className="row center"
-            style={{ gap: 6, fontSize: 10, letterSpacing: 0.06, color: "var(--fg-mute)", textTransform: "uppercase" }}
+            style={{
+              gap: 6,
+              fontSize: 10,
+              letterSpacing: 0.06,
+              color: "var(--fg-mute)",
+              textTransform: "uppercase",
+            }}
           >
             <span className="font-mono">Receive</span>
             <span
@@ -386,20 +507,13 @@ export function BuyFlow({
             </span>
           </span>
           <div className="row center gap-2">
-            <select
-              value={network}
-              onChange={(e) => {
-                setNetworkTouched(true);
-                setNetwork(e.target.value as ChainId);
-              }}
+            <NetworkSelect
+              network={network}
+              crDest={crDest}
+              onPaycrest={selectNetwork}
+              onChainrails={setCrDest}
               style={{ ...INPUT, cursor: "pointer", flex: 1 }}
-            >
-              {PAYCREST_CHAIN_IDS.map((id) => (
-                <option key={id} value={id}>
-                  {getChain(id)?.name ?? id}
-                </option>
-              ))}
-            </select>
+            />
             <div className="row center gap-1" style={{ flex: "0 0 auto" }}>
               {TOKENS.map((t) => (
                 <button
@@ -414,9 +528,11 @@ export function BuyFlow({
                     lineHeight: 1.2,
                     borderRadius: 999,
                     border: "1px solid",
-                    background: token === t ? "var(--btn-bg)" : "var(--bg-elev)",
+                    background:
+                      token === t ? "var(--btn-bg)" : "var(--bg-elev)",
                     color: token === t ? "var(--btn-fg)" : "var(--fg-soft)",
-                    borderColor: token === t ? "var(--btn-bg)" : "var(--line-2)",
+                    borderColor:
+                      token === t ? "var(--btn-bg)" : "var(--line-2)",
                   }}
                 >
                   {t}

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   PAYCREST_BASE_URL,
   PAYCREST_REFERENCE_MAX_LENGTH,
+  fitPaycrestReference,
   isPaycrestConfigured,
   isPaycrestFiat,
   normalizePaycrestOrder,
@@ -53,6 +54,19 @@ function idempotencyDigest(
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+// Starknet addresses are felts: 0x + up to 64 hex, usually zero-padded to 64.
+const STARKNET_ADDRESS = /^0x[0-9a-fA-F]{1,64}$/;
+
+/**
+ * Validate an on-ramp recipient against the destination network. Paycrest
+ * on-ramps to EVM chains and Starknet; the two use different address formats,
+ * so a single EVM regex wrongly rejects a Starknet felt.
+ */
+function isValidRecipientForNetwork(address: string, network: string): boolean {
+  return network === "starknet"
+    ? STARKNET_ADDRESS.test(address)
+    : EVM_ADDRESS.test(address);
+}
 
 /**
  * Turns a Paycrest error into user-facing copy. Paycrest's raw messages are
@@ -102,16 +116,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  // A reference over Paycrest's 70-char cap is repaired per-direction in
+  // buildOnrampBody / buildOfframpBody (rebuilt from the known address so the
+  // wallet-matching key survives). We never fail a payment over it.
   if (
     typeof body.reference === "string" &&
     body.reference.length > PAYCREST_REFERENCE_MAX_LENGTH
   ) {
-    return NextResponse.json(
-      {
-        error: `reference must be ${PAYCREST_REFERENCE_MAX_LENGTH} characters or fewer`,
-      },
-      { status: 400 }
-    );
+    console.warn("[paycrest] reference over limit — will rebuild", {
+      length: body.reference.length,
+    });
   }
 
   const direction =
@@ -303,6 +317,14 @@ function buildOfframpBody(
     };
   }
 
+  // Off-ramp encodes the refund wallet in the reference; rebuild from it if the
+  // client sent an over-length form so the wallet key stays matchable.
+  const fittedReference = fitPaycrestReference(
+    reference,
+    "offramp",
+    typeof refundAddress === "string" ? refundAddress : undefined
+  );
+
   return {
     currency: currency.toUpperCase(),
     body: {
@@ -325,7 +347,7 @@ function buildOfframpBody(
             : {}),
         },
       },
-      ...(typeof reference === "string" && reference ? { reference } : {}),
+      ...(fittedReference ? { reference: fittedReference } : {}),
     },
   };
 }
@@ -363,9 +385,12 @@ function buildOnrampBody(
   }
   if (
     typeof recipientAddress !== "string" ||
-    !EVM_ADDRESS.test(recipientAddress)
+    typeof network !== "string" ||
+    !isValidRecipientForNetwork(recipientAddress, network)
   ) {
-    return { error: "recipientAddress must be a 0x-prefixed EVM address" };
+    return {
+      error: `recipientAddress is not a valid address for "${String(network)}"`,
+    };
   }
   const fiat =
     typeof fiatCurrency === "string"
@@ -393,6 +418,15 @@ function buildOnrampBody(
   const resolvedAmountIn =
     amountIn === "crypto" || amountIn === "fiat" ? amountIn : "fiat";
 
+  // On-ramp encodes the recipient wallet in the reference; rebuild from it if
+  // the client sent an over-length form (e.g. a stale bundle with an un-reduced
+  // Starknet felt) so the wallet key stays matchable in History.
+  const fittedReference = fitPaycrestReference(
+    reference,
+    "onramp",
+    recipientAddress
+  );
+
   return {
     fiatCurrency: fiat.toUpperCase(),
     body: {
@@ -415,7 +449,7 @@ function buildOnrampBody(
           network,
         },
       },
-      ...(typeof reference === "string" && reference ? { reference } : {}),
+      ...(fittedReference ? { reference: fittedReference } : {}),
     },
   };
 }

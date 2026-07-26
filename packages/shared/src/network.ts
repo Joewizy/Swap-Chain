@@ -18,6 +18,9 @@ import {
   polygon,
   avalanche,
   bsc,
+  celo,
+  lisk,
+  scroll,
   sepolia,
   baseSepolia,
   arbitrumSepolia,
@@ -57,6 +60,9 @@ export type ChainId =
   | "polygon"
   | "avalanche"
   | "bnb"
+  | "celo"
+  | "lisk"
+  | "scroll"
   // Non-EVM mainnet
   | "solana"
   | "starknet"
@@ -162,6 +168,37 @@ const CHAINS: ChainEntry[] = [
     isTestnet: false,
     explorer: "https://bscscan.com",
     chainrailsSupported: true, // mainnet only on Chainrails
+  },
+  {
+    id: "celo",
+    name: "Celo",
+    kind: "evm",
+    numericId: 42220,
+    viemChain: celo,
+    isTestnet: false,
+    explorer: "https://celoscan.io",
+    // Paycrest corridor only; not in Chainrails' chain registry.
+    chainrailsSupported: false,
+  },
+  {
+    id: "lisk",
+    name: "Lisk",
+    kind: "evm",
+    numericId: 1135,
+    viemChain: lisk,
+    isTestnet: false,
+    explorer: "https://blockscout.lisk.com",
+    chainrailsSupported: false,
+  },
+  {
+    id: "scroll",
+    name: "Scroll",
+    kind: "evm",
+    numericId: 534352,
+    viemChain: scroll,
+    isTestnet: false,
+    explorer: "https://scrollscan.com",
+    chainrailsSupported: false,
   },
 
   // ---------- Non-EVM mainnet ----------
@@ -334,6 +371,10 @@ const TOKENS: TokenEntry[] = [
       polygon: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
       avalanche: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
       bnb: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+      // Paycrest sell corridors (addresses from api.paycrest.io/v1/tokens).
+      celo: "0xcebA9300f2b948710d2653dD7B07f33A8B32118C",
+      lisk: "0xF242275d3a6527d877f2c927a82D9b057609cc71",
+      scroll: "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4",
       solana: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       // Testnet
       sepolia: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",

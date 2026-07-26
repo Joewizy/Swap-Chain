@@ -6,15 +6,11 @@ This document complements [`README.md`](README.md): the README describes **what 
 
 ## How this fits the README
 
-
 |                     | README (today)                     | This doc (target)                                              |
 | ------------------- | ---------------------------------- | -------------------------------------------------------------- |
 | **Bridge / quotes** | Relay API, EVM testnets + Starknet | Relay retained for outbound edges + quotes; CCTP for USDC↔USDC |
 | **AI intent**       | `/api/chat`, multi-turn parsing    | Structured outputs + route planner                             |
 | **Security stance** | Documents server-side key handling | Target: no server-held signing keys                            |
-
-
-
 
 ## Product vision
 
@@ -37,8 +33,6 @@ Users describe intent in plain language or a form (for example: send local fiat 
 - SMB stablecoin payroll into local payout corridors.
 - Merchants settling crypto receipts to fiat.
 
-
-
 ### Constraints (what we are not claiming)
 
 - **Regulatory / KYC:** corridors and limits depend on providers; app-level KYC may be needed above thresholds (see backlog).
@@ -47,27 +41,22 @@ Users describe intent in plain language or a form (for example: send local fiat 
 
 ---
 
-
-
 ## The four rails
 
 High-level roles:
 
-
-| Rail               | Role                                                                                                                                                               |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Chainrails**     | Crypto **inbound** + fiat **on-ramp**; settles toward configured settlement chain (for example USDC on Base).                                                      |
-| **Circle CCTP v2** | **USDC ↔ USDC** across domains when destination token stays USDC.                                                                                                  |
-| **Relay**          | Non-USDC outbound, Bitcoin, fast quotes, same-chain swaps, executor when wallet is already connected; optional fallback.                                           |
-| **Paycrest**       | **Fiat off-ramp** (USDC → bank / mobile money) and **on-ramp** (fiat → USDC) via the same Sender API for supported corridors. Chainrails remains fallback on-ramp. |
-
+| Rail               | Role                                                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Chainrails**     | Crypto **inbound** + fiat **on-ramp**; settles toward configured settlement chain (for example USDC on Base).                                    |
+| **Circle CCTP v2** | **USDC ↔ USDC** across domains when destination token stays USDC.                                                                                |
+| **Relay**          | Non-USDC outbound, Bitcoin, fast quotes, same-chain swaps, executor when wallet is already connected; optional fallback.                         |
+| **Paycrest**       | **Fiat off-ramp** (USDC → bank / mobile money). Its existing on-ramp remains available only as a fallback for corridors Chainrails cannot quote. |
 
 **Chainrails inbound scope (reference):** intent flows may fund from multiple assets (for example USDC, USDT, DAI, ETH, WETH, and chain-specific lists) across listed networks; internal bridge/swap lands as USDC on the settlement chain. Fiat on-ramp coverage is provider-defined (many countries). Exact lists live in provider docs—not duplicated here so this table stays readable.
 
 ### When Relay still wins (outbound)
 
 After inbound settles to USDC on the app balance, **outbound** routing uses Relay where CCTP or Paycrest do not apply:
-
 
 | Scenario                         | Why Relay                                                                   |
 | -------------------------------- | --------------------------------------------------------------------------- |
@@ -78,7 +67,6 @@ After inbound settles to USDC on the app balance, **outbound** routing uses Rela
 | Power users                      | Step executor can sign from connected wallet without intent-address bounce. |
 | Same-chain swaps                 | Via Relay instead of a separate aggregator.                                 |
 | Resilience                       | Optional fallback when another rail is degraded.                            |
-
 
 **One-line summary:** Chainrails → inbound; CCTP → USDC↔USDC outbound; Paycrest → fiat outbound; Relay → other outbound + quotes + optional fallback.
 
@@ -97,8 +85,6 @@ intent direction?
 ```
 
 ---
-
-
 
 ## System architecture (target)
 
@@ -138,15 +124,11 @@ PaymentModal        (client signs)                       (server order +
                        └────────────────┘
 ```
 
-
-
 ### Signing & custody (target vs README today)
 
 **Target:** remove server-held chain keys (`ARGENT_PRIVATE_KEY`-style paths). Signatures come from the user wallet (RainbowKit / Argent-Braavos / Phantom as applicable). Server keeps provider API keys and read-only RPC configuration only—aligned with README’s eventual security story once migration lands.
 
 ---
-
-
 
 ## Network mode (testnet ⇄ mainnet)
 
@@ -156,15 +138,13 @@ Single flag drives registry and helpers:
 NEXT_PUBLIC_NETWORK=testnet   # | mainnet
 ```
 
-
-| Rail       | Testnet                                           | Mainnet                        |
-| ---------- | ------------------------------------------------- | ------------------------------ |
-| Chainrails | Sessions + manual triggers; **USDC-only** funding | Full token support + fiat ramp |
-| CCTP       | Sepolia family / Fuji / Amoy-style domains        | Production domains             |
+| Rail       | Testnet                                                         | Mainnet                                        |
+| ---------- | --------------------------------------------------------------- | ---------------------------------------------- |
+| Chainrails | Sessions + manual triggers; **USDC-only** funding               | Full token support + hosted fiat ramp          |
+| CCTP       | Sepolia family / Fuji / Amoy-style domains                      | Production domains                             |
 | Relay      | Via `@relayprotocol` SDK; config `apps/web/src/config/relay.ts` | Same module, network via `NEXT_PUBLIC_NETWORK` |
-| Paycrest   | Sandbox + test beneficiaries                      | Live API + provider KYC        |
-| Wallets    | Testnet chains in RainbowKit                      | Mainnet chains                 |
-
+| Paycrest   | Sandbox + test beneficiaries                                    | Live API + provider KYC                        |
+| Wallets    | Testnet chains in RainbowKit                                    | Mainnet chains                                 |
 
 Centralise chain lists in something like `apps/web/src/config/network.ts` instead of scattering `SUPPORTED_CHAINS`. Default `testnet` until mainnet providers are funded and a small live path is verified.
 
@@ -183,8 +163,6 @@ Centralise chain lists in something like `apps/web/src/config/network.ts` instea
 **Later — assistant scope:** chained swap→cashout auto-continuation, recurring sends, quote-only comparisons across rails, spend summaries.
 
 ---
-
-
 
 ## Environment variables (target)
 
@@ -219,8 +197,6 @@ NEXT_PUBLIC_STARKNET_RPC_URL=
 ```
 
 ---
-
-
 
 ## Doc maintenance
 

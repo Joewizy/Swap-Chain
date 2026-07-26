@@ -31,20 +31,20 @@ Open [http://localhost:3000/swap](http://localhost:3000/swap).
 
 ### Required environment
 
-| Variable | Purpose |
-| -------- | ------- |
-| `NEXT_PUBLIC_WALLET_CONNECT_ID` | WalletConnect project ID (RainbowKit) |
-| `OPENAI_API_KEY` | Conversational assistant (`/api/chat`) |
+| Variable                        | Purpose                                |
+| ------------------------------- | -------------------------------------- |
+| `NEXT_PUBLIC_WALLET_CONNECT_ID` | WalletConnect project ID (RainbowKit)  |
+| `OPENAI_API_KEY`                | Conversational assistant (`/api/chat`) |
 
 `OPENAI_BASE_URL` and `OPENAI_MODEL` are optional; see `env.example` and `src/app/api/chat/route.ts`.
 
 ### Rail API keys (enable as you integrate)
 
-| Variable | Rail |
-| -------- | ---- |
-| `PAYCREST_API_KEY` | Fiat off-ramp / on-ramp (mainnet) |
-| `CHAINRAILS_API_KEY` | Inbound crypto + fiat on-ramp |
-| `NEXT_PUBLIC_RELAY_APP_ID` | Optional Relay volume attribution |
+| Variable                   | Rail                                  |
+| -------------------------- | ------------------------------------- |
+| `PAYCREST_API_KEY`         | Fiat off-ramp / on-ramp (mainnet)     |
+| `CHAINRAILS_API_KEY`       | Fiat on-ramp + inbound crypto routing |
+| `NEXT_PUBLIC_RELAY_APP_ID` | Optional Relay volume attribution     |
 
 Set `NEXT_PUBLIC_NETWORK=testnet` or `mainnet` to switch the chain registry app-wide.
 
@@ -72,21 +72,24 @@ npm run ios            # run on iOS
 
 ## API routes
 
-| Route | Purpose |
-| ----- | ------- |
-| `POST /api/chat` | Multi-turn assistant → structured flow handoff |
-| `POST /api/intent` | Legacy single-shot NL → structured intent (dashboard / tooling) |
-| `POST /api/router` | Rail selection + quote endpoint or inline CCTP fees |
-| `POST /api/quote` | Relay quote and execution steps |
-| `GET /api/cctp/attestation` | Poll Circle Iris for CCTP attestation |
-| `GET /api/cctp/fees` | CCTP burn-fee quote per chain pair |
-| `POST /api/chainrails/quote` | Chainrails best-across-bridges quote |
-| `POST /api/paycrest/order` | Create off-ramp or on-ramp order |
-| `GET /api/paycrest/order/:id` | Poll order status |
-| `GET /api/paycrest/orders` | List orders by refund wallet address |
-| `GET /api/paycrest/rate` | Public unit rate estimate |
-| `GET /api/paycrest/institutions` | Payout institutions for a fiat currency |
-| `POST /api/paycrest/verify-account` | Resolve account holder name |
+| Route                                | Purpose                                                         |
+| ------------------------------------ | --------------------------------------------------------------- |
+| `POST /api/chat`                     | Multi-turn assistant → structured flow handoff                  |
+| `POST /api/intent`                   | Legacy single-shot NL → structured intent (dashboard / tooling) |
+| `POST /api/router`                   | Rail selection + quote endpoint or inline CCTP fees             |
+| `POST /api/quote`                    | Relay quote and execution steps                                 |
+| `GET /api/cctp/attestation`          | Poll Circle Iris for CCTP attestation                           |
+| `GET /api/cctp/fees`                 | CCTP burn-fee quote per chain pair                              |
+| `POST /api/chainrails/quote`         | Chainrails best-across-bridges quote                            |
+| `GET /api/chainrails/ramp/countries` | Live Chainrails country/currency catalogue                      |
+| `POST /api/chainrails/ramp/quote`    | Live fiat-to-USDC provider quote                                |
+| `POST /api/chainrails/ramp/orders`   | Create hosted Chainrails on-ramp checkout                       |
+| `POST /api/paycrest/order`           | Create off-ramp or on-ramp order                                |
+| `GET /api/paycrest/order/:id`        | Poll order status                                               |
+| `GET /api/paycrest/orders`           | List orders by refund wallet address                            |
+| `GET /api/paycrest/rate`             | Public unit rate estimate                                       |
+| `GET /api/paycrest/institutions`     | Payout institutions for a fiat currency                         |
+| `POST /api/paycrest/verify-account`  | Resolve account holder name                                     |
 
 Handler implementations live under `src/app/api/`. Example request bodies for local testing can be kept in a personal REST Client file (not committed).
 
@@ -94,12 +97,12 @@ Handler implementations live under `src/app/api/`. Example request bodies for lo
 
 High-level rail roles:
 
-| Rail | Role |
-| ---- | ---- |
-| **Chainrails** | Crypto inbound + fiat on-ramp |
-| **CCTP v2** | USDC ↔ USDC cross-chain |
-| **Relay** | Non-USDC outbound, swaps, long-tail chains |
-| **Paycrest** | Fiat payout to bank / mobile money |
+| Rail           | Role                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| **Chainrails** | Crypto inbound + fiat on-ramp (provider checkout; destination-chain bridging when needed) |
+| **CCTP v2**    | USDC ↔ USDC cross-chain                                                                   |
+| **Relay**      | Non-USDC outbound, swaps, long-tail chains                                                |
+| **Paycrest**   | Fiat payout to bank / mobile money                                                        |
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for phased rollout, constraints, and file-level map.
 
