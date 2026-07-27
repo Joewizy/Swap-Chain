@@ -14,12 +14,14 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   classifyRampStatus,
   isRampPhaseTerminal,
+  rampTxUrl,
   type RampOrderPhase,
 } from "@/rails/chainrails";
 import { type Intent } from "../SendScreen";
 import { Icon } from "../icons";
 import { trackRampOrder } from "../chainrailsOrders";
 import { getTokenIcon } from "@/utils/icons";
+import { pollRampOrder } from "@/lib/chainrailsPoll";
 
 /** Colored Iconify name for a token/chain, or null when there's no real logo. */
 function assetIconify(name: string): string | null {
@@ -74,7 +76,6 @@ type CachedOrder = {
 };
 
 const CACHE_KEY = "chainrails:onramp:last";
-const POLL_MS = 5000;
 
 function readCache(): CachedOrder | null {
   try {
@@ -127,6 +128,10 @@ export function ChainrailsStatus({
   const [widgetUrl, setWidgetUrl] = useState<string | null>(null);
   const [order, setOrder] = useState<RampOrder | null>(null);
   const [phase, setPhase] = useState<RampOrderPhase>("pending");
+  // We only poll once there's something to learn: after the user opens the
+  // checkout, or when resuming an order from History. Before that the sole
+  // possible change is expiry, which the local countdown handles.
+  const [polling, setPolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   // Only the setter is read now — "still creating" is derived from `orderId`.
@@ -157,6 +162,8 @@ export function ChainrailsStatus({
     if (intent.resumeOrderId) {
       setOrderId(intent.resumeOrderId);
       setCreating(false);
+      // A resumed order may already be paid — poll once on mount, then cadence.
+      setPolling(true);
       return;
     }
 
@@ -258,48 +265,65 @@ export function ChainrailsStatus({
   // never auto-opened — browsers block window.open outside a click, so an
   // auto-open just silently fails. `openWidget` is called on click.
 
-  // --- Poll the order until it reaches a terminal state. ------------------
+  // --- Poll the order, but only once it's worth watching. The shared poller
+  //     polls immediately, backs off toward 30s, pauses while the tab is hidden
+  //     (the whole time they're in the checkout tab), fires instantly on return,
+  //     and stops at a terminal state. Keyed on the id so refreshing the order
+  //     each tick doesn't re-arm it. ------------------------------------------
   useEffect(() => {
-    if (!orderId || isRampPhaseTerminal(phase)) return;
-    let cancelled = false;
-
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/chainrails/ramp/orders/${orderId}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) return; // transient — keep the last known phase, retry
-        const data = (await res.json()) as RampOrder | null;
-        if (cancelled || !data) return;
+    if (!polling || !orderId) return;
+    const handle = pollRampOrder<RampOrder>(orderId, {
+      onUpdate: (data) => {
         setOrder(data);
         setPhase(classifyRampStatus(data.status));
         // Resumed orders start without a checkout URL — adopt it from the order.
         if (data.widgetUrl)
           setWidgetUrl((cur) => cur ?? data.widgetUrl ?? null);
-      } catch {
-        // Network blip — leave the phase as-is and try again next tick.
-      }
-    };
-
-    void poll();
-    const id = setInterval(poll, POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [orderId, phase]);
+      },
+      onSettled: (data, settledPhase) => {
+        if (data) setOrder(data);
+        setPhase(settledPhase);
+      },
+    });
+    return () => handle.stop();
+  }, [polling, orderId]);
 
   // Terminal orders shouldn't be resumed from cache on the next visit.
   useEffect(() => {
     if (isRampPhaseTerminal(phase)) clearCache();
   }, [phase]);
 
-  // Keep the checkout deadline useful while the user is deciding whether to pay.
+  // Keep the checkout deadline live and flip to expired locally when it lapses —
+  // so a never-opened order still resolves without any network poll.
   useEffect(() => {
     if (!order?.expiresAt || isRampPhaseTerminal(phase)) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    const expiresAt = Date.parse(order.expiresAt);
+    const id = setInterval(() => {
+      setNow(Date.now());
+      if (Number.isFinite(expiresAt) && Date.now() >= expiresAt)
+        setPhase("expired");
+    }, 1000);
     return () => clearInterval(id);
   }, [order?.expiresAt, phase]);
+
+  // Optional manual refresh — an immediate one-off check, and make sure the
+  // background cadence is running from here on.
+  const checkNow = async () => {
+    if (!orderId) return;
+    setPolling(true);
+    try {
+      const res = await fetch(`/api/chainrails/ramp/orders/${orderId}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as RampOrder | null;
+      if (!data) return;
+      setOrder(data);
+      setPhase(classifyRampStatus(data.status));
+    } catch {
+      /* ignore — the poller retries */
+    }
+  };
 
   // ----- Presentation -----------------------------------------------------
   const chainName = ramp?.destinationLabel ?? "your chain";
@@ -323,6 +347,11 @@ export function ChainrailsStatus({
   const view = PHASE_VIEW[phase];
   const terminal = isRampPhaseTerminal(phase);
   const done = phase === "completed";
+  // On-chain delivery tx, once the provider reports one (chains we have an
+  // explorer for). Lets the user verify the USDC actually landed.
+  const txUrl = ramp
+    ? rampTxUrl(ramp.destinationChain, order?.providerTxHash)
+    : null;
   const orderCreated = !!orderId;
   const expiryMs = order?.expiresAt ? Date.parse(order.expiresAt) : NaN;
   const expiresIn = Number.isFinite(expiryMs)
@@ -503,6 +532,7 @@ export function ChainrailsStatus({
               target="_blank"
               rel="noopener noreferrer"
               style={{ textDecoration: "none" }}
+              onClick={() => setPolling(true)}
             >
               Continue your order <Icon.ArrowRight />
             </a>
@@ -512,6 +542,28 @@ export function ChainrailsStatus({
               onClick={startNew}
             >
               Start new order <Icon.ArrowRight />
+            </button>
+          )}
+
+          {txUrl && (
+            <a
+              className="btn btn-quiet btn-sm"
+              href={txUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ alignSelf: "center", textDecoration: "none" }}
+            >
+              View transaction <Icon.ArrowRight />
+            </a>
+          )}
+
+          {polling && !terminal && (
+            <button
+              className="btn btn-quiet btn-sm"
+              onClick={() => void checkNow()}
+              style={{ alignSelf: "center" }}
+            >
+              Check status
             </button>
           )}
 

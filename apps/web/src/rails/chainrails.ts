@@ -62,13 +62,18 @@ export function isChainrailsSupported(chainId: ChainId): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * ChainRails OFF-ramp (Sell → fiat) is PAUSED until RailGlide completes Fiat
- * KYB with the provider — live payouts 403 ("Fiat KYB is required before using
- * live fiat ramp flows") until then. While false: ChainRails-only chains are
- * hidden from the Sell picker and the off-ramp routes reject requests. Flip to
- * true once KYB is approved. On-ramp (Buy) is unaffected and stays live.
+ * ChainRails OFF-ramp (Sell → fiat) gate. Driven by env so it flips without a
+ * code change; defaults OFF when unset. While off: ChainRails-only chains are
+ * hidden from the Sell picker and the off-ramp routes reject requests. On-ramp
+ * (Buy) is unaffected and stays live.
+ *
+ * Off because live payouts 403 ("Fiat KYB is required before using live fiat
+ * ramp flows") until RailGlide completes Fiat KYB. Set
+ * NEXT_PUBLIC_CHAINRAILS_OFFRAMP_ENABLED=true once KYB is approved. It's
+ * NEXT_PUBLIC_ because the client Sell picker reads it, not just the server.
  */
-export const CHAINRAILS_OFFRAMP_ENABLED = false;
+export const CHAINRAILS_OFFRAMP_ENABLED =
+  process.env.NEXT_PUBLIC_CHAINRAILS_OFFRAMP_ENABLED === "true";
 
 export type RampAddressKind = "evm" | "solana" | "starknet" | "tron";
 
@@ -127,6 +132,33 @@ export const CHAINRAILS_RAMP_DESTINATIONS: RampDestination[] = [
     chainId: null,
   },
 ];
+
+/**
+ * Block-explorer URL for a ramp order's on-chain delivery tx, or null when we
+ * don't have a confirmed explorer for that chain (Monad / HyperEVM mainnet).
+ * Keyed on the ChainRails chain enum so the caller doesn't need a registry
+ * entry — several ramp-only chains aren't in the shared network config, and the
+ * tx path differs (Tron uses /#/transaction/, the rest use /tx/).
+ */
+export function rampTxUrl(
+  chainrailsChain: string,
+  txHash: string | null | undefined
+): string | null {
+  const h = (txHash ?? "").trim();
+  if (!h) return null;
+  switch (chainrailsChain) {
+    case "OPTIMISM_MAINNET":
+      return `https://optimistic.etherscan.io/tx/${h}`;
+    case "AVALANCHE_MAINNET":
+      return `https://snowtrace.io/tx/${h}`;
+    case "SOLANA_MAINNET":
+      return `https://solscan.io/tx/${h}`;
+    case "TRON_MAINNET":
+      return `https://tronscan.org/#/transaction/${h}`;
+    default:
+      return null;
+  }
+}
 
 /** Validate a recipient address for a ramp destination's address format. */
 export function isValidRampAddress(
@@ -191,7 +223,11 @@ export function classifyRampStatus(
   if (
     s.includes("COMPLETED") ||
     s.includes("SETTLED") ||
-    s.includes("SUCCESS")
+    s.includes("SUCCESS") ||
+    // PAYMENT_RECEIVED — once the provider has the fiat we treat the buy as
+    // delivered. (Checked before REFUNDED below, but "RECEIVED" can't collide
+    // with it; "FUNDED" would, so it stays out of this bucket.)
+    s.includes("RECEIVED")
   ) {
     return "completed";
   }
@@ -206,7 +242,8 @@ export function classifyRampStatus(
   if (
     s.includes("PROCESSING") ||
     s.includes("BRIDGING") ||
-    s.includes("PAID")
+    s.includes("PAID") ||
+    s.includes("FUNDED")
   ) {
     return "processing";
   }

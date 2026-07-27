@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
-import { Chainrails, crapi } from "@chainrails/sdk";
 
-/** Returns Chainrails' live country/currency catalogue for the buy form. */
+const API_URL = "https://api.chainrails.io/api/v1/ramp/countries";
+
+/**
+ * Chainrails' live country/currency catalogue for the ramp forms.
+ *
+ * Uses the plain REST endpoint (not the SDK) to match the other ramp routes —
+ * the axios-based SDK was flaky here. The endpoint returns a bare array, which
+ * we wrap as `{ countries }` for the client. We proxy from the server to keep
+ * the API key off the browser.
+ */
 export async function GET() {
   const apiKey = process.env.CHAINRAILS_API_KEY;
   if (!apiKey) {
@@ -12,31 +20,31 @@ export async function GET() {
   }
 
   try {
-    await Chainrails.config({ api_key: apiKey });
-    const countries = await crapi.ramp.getCountries();
+    const upstream = await fetch(API_URL, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    });
+    const data: unknown = await upstream.json().catch(() => null);
+    if (!upstream.ok) {
+      console.error(
+        `[chainrails ramp countries] upstream ${upstream.status}:`,
+        JSON.stringify(data)
+      );
+      const message =
+        data && typeof data === "object" && "message" in data
+          ? String((data as Record<string, unknown>).message)
+          : `Couldn't load supported countries (${upstream.status}).`;
+      return NextResponse.json({ error: message }, { status: upstream.status });
+    }
+
+    // The endpoint returns a bare array; wrap it for the client.
+    const countries = Array.isArray(data) ? data : [];
     return NextResponse.json({ countries });
   } catch (error) {
-    // The SDK is axios-based, so it hides Chainrails' real response body inside
-    // the error. Surface the upstream status + raw body before mapping to a
-    // generic status — same as the Paycrest routes.
-    const ax = error as {
-      response?: { status?: number; data?: unknown };
-      message?: string;
-    };
-    const status = ax.response?.status;
-    const data = ax.response?.data;
-    console.error(
-      `[chainrails ramp countries] upstream ${status ?? "?"}:`,
-      typeof data !== "undefined"
-        ? JSON.stringify(data)
-        : (ax.message ?? String(error))
+    console.error("[chainrails ramp countries] request failed", error);
+    return NextResponse.json(
+      { error: "Couldn't reach Chainrails for supported countries." },
+      { status: 502 }
     );
-    const upstreamMessage =
-      data && typeof data === "object" && "message" in data
-        ? String((data as Record<string, unknown>).message)
-        : error instanceof Error
-          ? error.message
-          : "Couldn't load supported countries.";
-    return NextResponse.json({ error: upstreamMessage }, { status: 502 });
   }
 }

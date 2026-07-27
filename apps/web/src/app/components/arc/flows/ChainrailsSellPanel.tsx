@@ -259,13 +259,16 @@ export function ChainrailsSellPanel({
     }
   };
 
-  // Poll the created order until terminal.
+  // Poll the created order until terminal. Keyed on the order id (not the whole
+  // order object) so refreshing it each tick doesn't re-arm the interval — that
+  // would turn the 5s poll into a tight ~network-latency loop.
+  const orderId = order?.id;
   useEffect(() => {
-    if (!order || isRampPhaseTerminal(phase)) return;
+    if (orderId == null || isRampPhaseTerminal(phase)) return;
     let cancelled = false;
     const poll = async () => {
       try {
-        const res = await fetch(`/api/chainrails/ramp/orders/${order.id}`, {
+        const res = await fetch(`/api/chainrails/ramp/orders/${orderId}`, {
           cache: "no-store",
         });
         if (!res.ok) return;
@@ -283,7 +286,7 @@ export function ChainrailsSellPanel({
       cancelled = true;
       clearInterval(id);
     };
-  }, [order, phase]);
+  }, [orderId, phase]);
 
   // ----- Order created: deposit instructions + live status -----------------
   if (order) {
