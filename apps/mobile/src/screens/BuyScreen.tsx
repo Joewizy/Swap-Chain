@@ -29,6 +29,11 @@ import {
   type PaycrestInstitution,
   type PaycrestToken,
 } from "@/rails/paycrest";
+import {
+  CHAINRAILS_RAMP_DESTINATIONS,
+  type RampDestination,
+} from "@/rails/chainrails";
+import { ChainrailsBuyFlow } from "./ChainrailsBuyFlow";
 import { ApiError } from "@/api/client";
 import {
   Field,
@@ -40,7 +45,7 @@ import {
   formStyles as f,
 } from "@/components/form";
 import { Picker } from "@/components/Picker";
-import { ChainLogo } from "@/components/Logo";
+import { ChainLogo, RampLogo } from "@/components/Logo";
 import { copyToClipboard } from "@/lib/clipboard";
 import { fiatSymbol, formatFiat } from "@/lib/format";
 import { PrefixedAmountInput } from "@/components/PrefixedAmountInput";
@@ -73,6 +78,9 @@ export function BuyScreen() {
 
   const chains = useMemo(buyChains, []);
   const [step, setStep] = useState<Step>("compose");
+  // Non-Paycrest destination → ChainRails Buy flow. Null on a Paycrest chain.
+  const [crDest, setCrDest] = useState<RampDestination | null>(null);
+  const [crResumeId, setCrResumeId] = useState<string | null>(null);
 
   const [amount, setAmount] = useState(launch?.amount ?? "");
   const [token, setToken] = useState<PaycrestToken>("USDC");
@@ -84,6 +92,29 @@ export function BuyScreen() {
       : "NGN"
   );
   const [rate, setRate] = useState<number | null>(null);
+
+  // Paycrest chains (with logos) first, then the ChainRails-only chains — one
+  // flat list; a `cr:` value routes to the ChainRails flow. ChainRails only
+  // delivers USDC, so its chains are hidden when the user wants USDT.
+  const chainPickerOptions = useMemo(
+    () => [
+      ...chainOptions(chains),
+      ...(token === "USDC"
+        ? CHAINRAILS_RAMP_DESTINATIONS.map((d) => ({
+            value: `cr:${d.chainrailsChain}`,
+            label: d.label,
+            icon: (
+              <RampLogo
+                chainrailsChain={d.chainrailsChain}
+                label={d.label}
+                size={24}
+              />
+            ),
+          }))
+        : []),
+    ],
+    [chains, token]
+  );
 
   // Receiving wallet — defaults to the connected wallet, but the user can paste
   // any address to receive the crypto elsewhere.
@@ -104,7 +135,20 @@ export function BuyScreen() {
 
   // Resume a Buy order tapped in History.
   useEffect(() => {
-    if (resumeOrder?.direction === "onramp") {
+    if (!resumeOrder) return;
+    // ChainRails ramp order → open the ChainRails flow at its status screen.
+    if (resumeOrder.chainrailsChain) {
+      const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
+        (d) => d.chainrailsChain === resumeOrder.chainrailsChain
+      );
+      if (dest) {
+        setCrDest(dest);
+        setCrResumeId(resumeOrder.id);
+      }
+      setResumeOrder(null);
+      return;
+    }
+    if (resumeOrder.direction === "onramp") {
       void onramp.resume(resumeOrder.id);
       setResumeOrder(null);
     }
@@ -205,6 +249,19 @@ export function BuyScreen() {
     setRecipientError(null);
   };
 
+  if (crDest) {
+    return (
+      <ChainrailsBuyFlow
+        destination={crDest}
+        resumeOrderId={crResumeId ?? undefined}
+        onBack={() => {
+          setCrDest(null);
+          setCrResumeId(null);
+        }}
+      />
+    );
+  }
+
   if (onramp.status !== "idle") {
     return (
       <OnrampStatus
@@ -254,9 +311,19 @@ export function BuyScreen() {
           <Field label="On chain">
             <Picker
               title="Receive on"
+              searchable
               value={chain}
-              options={chainOptions(chains)}
-              onChange={(c) => setChain(c as ChainId)}
+              options={chainPickerOptions}
+              onChange={(v) => {
+                if (v.startsWith("cr:")) {
+                  const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
+                    (d) => `cr:${d.chainrailsChain}` === v
+                  );
+                  if (dest) setCrDest(dest);
+                  return;
+                }
+                setChain(v as ChainId);
+              }}
             />
           </Field>
           <Text style={f.estimate}>

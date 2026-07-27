@@ -17,6 +17,7 @@ import { RootNavigator } from "@/navigation/RootNavigator";
 import { queryClient } from "@/lib/queryClient";
 import { wagmiConfig } from "@/wallet/config";
 import { useAuth } from "@/store/auth";
+import { useRampOrders } from "@/store/rampOrders";
 import { theme } from "@/theme";
 
 // Light navigation theme, matching the warm off-white website.
@@ -39,6 +40,7 @@ export default function App() {
 
   useEffect(() => {
     void useAuth.getState().hydrate();
+    void useRampOrders.getState().hydrate();
   }, []);
 
   if (!fontsLoaded) return null;

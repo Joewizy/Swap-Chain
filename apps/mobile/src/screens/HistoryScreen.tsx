@@ -20,6 +20,8 @@ import { useAuth } from "@/store/auth";
 import { fetchOrders, type HistoryOrder } from "@/api/history";
 import { getOrder } from "@/api/paycrest";
 import { classifyPaycrestOrder, type PaycrestOrder } from "@/rails/paycrest";
+import { classifyRampStatus } from "@/rails/chainrails";
+import { useRampOrders, type RampOrderRecord } from "@/store/rampOrders";
 import { walletReady } from "@/wallet/config";
 import { PageTitle } from "@/components/form";
 import { theme } from "@/theme";
@@ -41,6 +43,18 @@ export function HistoryScreen() {
   const [selected, setSelected] = useState<HistoryOrder | null>(null);
   const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const setResumeOrder = useSession((s) => s.setResumeOrder);
+  // Device-local ChainRails orders (no wallet/sign-in needed).
+  const rampOrders = useRampOrders((s) => s.orders);
+
+  // Reopen a ChainRails order in its flow screen at the live status view.
+  const openRampOrder = (o: RampOrderRecord) => {
+    setResumeOrder({
+      id: o.id,
+      direction: o.direction,
+      chainrailsChain: o.chainrailsChain,
+    });
+    navigation.navigate(o.direction === "offramp" ? "Sell" : "Buy");
+  };
 
   // Still-open orders reopen in their flow screen so the user can finish them;
   // finished ones just show a read-only detail sheet.
@@ -85,13 +99,8 @@ export function HistoryScreen() {
   }
 
   if (authStatus !== "signed-in") {
-    return (
-      <Centered>
-        <Text style={styles.title}>Sign in to see your orders</Text>
-        <Text style={styles.muted}>
-          Your history is tied to your wallet. Connect and sign a message (free,
-          no transaction) to load it.
-        </Text>
+    const signInBlock = (
+      <>
         {!isConnected ? (
           <PrimaryButton label="Connect wallet" onPress={connect} />
         ) : (
@@ -102,6 +111,38 @@ export function HistoryScreen() {
           />
         )}
         {error && <Text style={styles.error}>{error}</Text>}
+      </>
+    );
+
+    // Local ChainRails orders don't need a wallet — show them above the prompt.
+    if (rampOrders.length > 0) {
+      return (
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.content}
+        >
+          <PageTitle>History</PageTitle>
+          <RampSection orders={rampOrders} onOpen={openRampOrder} />
+          <View style={styles.signinCard}>
+            <Text style={styles.signinHeading}>See your bank orders too</Text>
+            <Text style={styles.muted}>
+              Bank transfer history is tied to your wallet. Connect and sign
+              (free, no transaction) to load it.
+            </Text>
+            {signInBlock}
+          </View>
+        </ScrollView>
+      );
+    }
+
+    return (
+      <Centered>
+        <Text style={styles.title}>Sign in to see your orders</Text>
+        <Text style={styles.muted}>
+          Your history is tied to your wallet. Connect and sign a message (free,
+          no transaction) to load it.
+        </Text>
+        {signInBlock}
       </Centered>
     );
   }
@@ -120,6 +161,8 @@ export function HistoryScreen() {
         </Pressable>
       </View>
 
+      <RampSection orders={rampOrders} onOpen={openRampOrder} />
+
       {ordersQuery.isLoading && (
         <ActivityIndicator color={theme.colors.accent} style={styles.pad} />
       )}
@@ -130,7 +173,7 @@ export function HistoryScreen() {
         </Text>
       )}
 
-      {ordersQuery.data?.orders.length === 0 && (
+      {ordersQuery.data?.orders.length === 0 && rampOrders.length === 0 && (
         <Text style={styles.muted}>No orders yet.</Text>
       )}
 
@@ -148,6 +191,49 @@ export function HistoryScreen() {
 const TERMINAL_STATUSES = ["settled", "fulfilled", "refunded", "expired"];
 function isResumable(status: string): boolean {
   return !TERMINAL_STATUSES.includes(status.toLowerCase());
+}
+
+/** Local ChainRails orders — always tappable to reopen their status screen. */
+function RampSection({
+  orders,
+  onOpen,
+}: {
+  orders: RampOrderRecord[];
+  onOpen: (o: RampOrderRecord) => void;
+}) {
+  if (orders.length === 0) return null;
+  return (
+    <>
+      {orders.map((o) => {
+        const verb = o.direction === "offramp" ? "Sell" : "Buy";
+        const phase = classifyRampStatus(o.status);
+        return (
+          <Pressable
+            key={o.id}
+            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+            onPress={() => onOpen(o)}
+          >
+            <View style={styles.cardTop}>
+              <Text style={styles.cardTitle}>
+                {verb} · {o.cryptoLabel}
+              </Text>
+              <View style={styles.cardTopRight}>
+                <Text style={styles.status}>{phase}</Text>
+                <Feather
+                  name="chevron-right"
+                  size={16}
+                  color={theme.colors.faint}
+                />
+              </View>
+            </View>
+            <Text style={styles.muted}>
+              {[o.chainLabel, o.fiatLabel].filter(Boolean).join(" · ")}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </>
+  );
 }
 
 function OrderRow({
@@ -404,6 +490,23 @@ const styles = StyleSheet.create({
     ...theme.shadow,
   },
   cardPressed: { opacity: 0.7 },
+  signinCard: {
+    padding: theme.spacing(2.25),
+    borderRadius: theme.radius.card,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: "center",
+    gap: theme.spacing(1.25),
+    marginTop: theme.spacing(1),
+    ...theme.shadow,
+  },
+  signinHeading: {
+    color: theme.colors.text,
+    fontFamily: theme.serif,
+    fontSize: 22,
+    textAlign: "center",
+  },
   cardTop: {
     flexDirection: "row",
     alignItems: "center",

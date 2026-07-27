@@ -41,9 +41,14 @@ export function Picker({
   const selected = options.find((o) => o.value === value);
   const filtered =
     searchable && q.trim()
-      ? options.filter((o) =>
-          o.label.toLowerCase().includes(q.trim().toLowerCase())
-        )
+      ? options.filter((o) => {
+          const needle = q.trim().toLowerCase();
+          return (
+            o.label.toLowerCase().includes(needle) ||
+            (o.sublabel?.toLowerCase().includes(needle) ?? false) ||
+            o.value.toLowerCase().includes(needle)
+          );
+        })
       : options;
 
   const close = () => {

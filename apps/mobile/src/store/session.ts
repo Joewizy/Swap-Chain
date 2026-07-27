@@ -8,6 +8,12 @@ export interface ResumeOrder {
   /** Token + Paycrest network slug — let Sell rebuild the wallet funding context. */
   token?: string;
   network?: string;
+  /**
+   * Set for ChainRails ramp orders — the ChainRails chain enum
+   * (e.g. "SOLANA_MAINNET"). Its presence marks this as a ChainRails resume
+   * rather than a Paycrest one.
+   */
+  chainrailsChain?: string;
 }
 
 // Client/UI state. `pendingLaunch` carries a ready FlowLaunch from the intent

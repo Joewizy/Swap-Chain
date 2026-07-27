@@ -23,6 +23,10 @@ import netPolygon from "@web3icons/core/svgs/networks/branded/polygon.svg.js";
 import netBnb from "@web3icons/core/svgs/networks/branded/binance-smart-chain.svg.js";
 import netOptimism from "@web3icons/core/svgs/networks/branded/optimism.svg.js";
 import netAvalanche from "@web3icons/core/svgs/networks/branded/avalanche.svg.js";
+import netSolana from "@web3icons/core/svgs/networks/branded/solana.svg.js";
+import netTron from "@web3icons/core/svgs/networks/branded/tron.svg.js";
+import netMonad from "@web3icons/core/svgs/networks/branded/monad.svg.js";
+import netHyperEvm from "@web3icons/core/svgs/networks/branded/hyper-evm.svg.js";
 
 const TOKEN_SVG: Record<string, string> = {
   USDC, USDT, DAI, EURC, ETH, WETH: ETH, BNB, STRK, SOL, MATIC, AVAX,
@@ -43,6 +47,19 @@ const CHAIN_SVG: Partial<Record<ChainId, string>> = {
   "op-sepolia": netOptimism,
   avalanche: netAvalanche,
   "avalanche-fuji": netAvalanche,
+  solana: netSolana,
+  "solana-devnet": netSolana,
+};
+
+// ChainRails ramp destination → branded logo, keyed by the ChainRails chain
+// enum (these aren't all app ChainIds, so they can't live in CHAIN_SVG).
+const RAMP_SVG: Record<string, string> = {
+  OPTIMISM_MAINNET: netOptimism,
+  AVALANCHE_MAINNET: netAvalanche,
+  SOLANA_MAINNET: netSolana,
+  MONAD_MAINNET: netMonad,
+  HYPEREVM_MAINNET: netHyperEvm,
+  TRON_MAINNET: netTron,
 };
 
 function Fallback({ label, size }: { label: string; size: number }) {
@@ -81,6 +98,24 @@ export function ChainLogo({ id, size = 24 }: { id: ChainId; size?: number }) {
     <SvgXml xml={xml} width={size} height={size} />
   ) : (
     <Fallback label={id} size={size} />
+  );
+}
+
+/** Logo for a ChainRails ramp destination (Optimism, Solana, Monad, Tron, …). */
+export function RampLogo({
+  chainrailsChain,
+  label,
+  size = 24,
+}: {
+  chainrailsChain: string;
+  label: string;
+  size?: number;
+}) {
+  const xml = RAMP_SVG[chainrailsChain];
+  return xml ? (
+    <SvgXml xml={xml} width={size} height={size} />
+  ) : (
+    <Fallback label={label} size={size} />
   );
 }
 
