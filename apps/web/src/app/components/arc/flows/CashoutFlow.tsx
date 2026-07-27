@@ -58,6 +58,7 @@ import {
   recipientToPayout,
 } from "../recipients";
 import { useSwapFlowNav } from "../useSwapFlowNav";
+import { ChainLogo, RampLogo, TokenLogo } from "../Web3Logo";
 
 const TOKENS = ["USDC", "USDT"] as const;
 
@@ -75,24 +76,56 @@ function SourceSelect({
 }) {
   const value = crDest ? `cr:${crDest.chainrailsChain}` : sourceChain;
   return (
-    <select
-      value={value}
-      onChange={(e) => onSelect(e.target.value)}
-      style={style}
+    <span
+      style={{
+        position: "relative",
+        display: "block",
+        width: "100%",
+        flex: style?.flex,
+      }}
     >
-      {PAYCREST_SELL_CHAIN_IDS.map((id) => (
-        <option key={id} value={id}>
-          {getChain(id)?.name ?? id}
-        </option>
-      ))}
-      {/* ChainRails-only sell chains stay hidden until off-ramp KYB clears. */}
-      {CHAINRAILS_OFFRAMP_ENABLED &&
-        CHAINRAILS_RAMP_DESTINATIONS.map((d) => (
-          <option key={d.chainrailsChain} value={`cr:${d.chainrailsChain}`}>
-            {d.label}
+      <span
+        style={{
+          position: "absolute",
+          left: 12,
+          top: "50%",
+          zIndex: 1,
+          display: "inline-flex",
+          transform: "translateY(-50%)",
+          pointerEvents: "none",
+        }}
+      >
+        {crDest ? (
+          <RampLogo
+            chainrailsChain={crDest.chainrailsChain}
+            label={crDest.label}
+          />
+        ) : (
+          <ChainLogo
+            id={sourceChain}
+            label={getChain(sourceChain)?.name ?? sourceChain}
+          />
+        )}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onSelect(e.target.value)}
+        style={{ ...style, paddingLeft: 42, flex: undefined }}
+      >
+        {PAYCREST_SELL_CHAIN_IDS.map((id) => (
+          <option key={id} value={id}>
+            {getChain(id)?.name ?? id}
           </option>
         ))}
-    </select>
+        {/* ChainRails-only sell chains stay hidden until off-ramp KYB clears. */}
+        {CHAINRAILS_OFFRAMP_ENABLED &&
+          CHAINRAILS_RAMP_DESTINATIONS.map((d) => (
+            <option key={d.chainrailsChain} value={`cr:${d.chainrailsChain}`}>
+              {d.label}
+            </option>
+          ))}
+      </select>
+    </span>
   );
 }
 
@@ -411,6 +444,9 @@ export function CashoutFlow({
                     style={{
                       cursor: "pointer",
                       padding: "8px 14px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
                       fontSize: 13,
                       fontWeight: 500,
                       lineHeight: 1.2,
@@ -423,6 +459,7 @@ export function CashoutFlow({
                         token === t ? "var(--btn-bg)" : "var(--line-2)",
                     }}
                   >
+                    <TokenLogo symbol={t} size={16} />
                     {t}
                   </button>
                 ))}

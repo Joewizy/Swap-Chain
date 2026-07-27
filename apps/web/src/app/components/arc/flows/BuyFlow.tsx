@@ -29,6 +29,7 @@ import {
 } from "@/utils";
 import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import { ChainrailsBuyPanel } from "./ChainrailsBuyPanel";
+import { ChainLogo, RampLogo, TokenLogo } from "../Web3Logo";
 import {
   ReviewScreen,
   quoteFromIntent,
@@ -65,48 +66,82 @@ function rateLines(
   };
 }
 
-/** Flat destination picker: Paycrest chains first, ChainRails-only after. */
+/** Flat destination picker: Paycrest chains first, ChainRails-only after.
+ *  ChainRails only delivers USDC, so its chains are hidden for USDT. */
 function NetworkSelect({
   network,
   crDest,
+  token,
   onPaycrest,
   onChainrails,
   style,
 }: {
   network: ChainId;
   crDest: RampDestination | null;
+  token: string;
   onPaycrest: (id: ChainId) => void;
   onChainrails: (dest: RampDestination) => void;
   style?: React.CSSProperties;
 }) {
+  const showChainrails = token === "USDC";
   const value = crDest ? `cr:${crDest.chainrailsChain}` : network;
   return (
-    <select
-      value={value}
-      onChange={(e) => {
-        const v = e.target.value;
-        if (v.startsWith("cr:")) {
-          const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
-            (d) => d.chainrailsChain === v.slice(3)
-          );
-          if (dest) onChainrails(dest);
-        } else {
-          onPaycrest(v as ChainId);
-        }
+    <span
+      style={{
+        position: "relative",
+        display: "block",
+        width: "100%",
+        flex: style?.flex,
       }}
-      style={style}
     >
-      {PAYCREST_CHAIN_IDS.map((id) => (
-        <option key={id} value={id}>
-          {getChain(id)?.name ?? id}
-        </option>
-      ))}
-      {CHAINRAILS_RAMP_DESTINATIONS.map((d) => (
-        <option key={d.chainrailsChain} value={`cr:${d.chainrailsChain}`}>
-          {d.label}
-        </option>
-      ))}
-    </select>
+      <span
+        style={{
+          position: "absolute",
+          left: 12,
+          top: "50%",
+          zIndex: 1,
+          display: "inline-flex",
+          transform: "translateY(-50%)",
+          pointerEvents: "none",
+        }}
+      >
+        {crDest ? (
+          <RampLogo
+            chainrailsChain={crDest.chainrailsChain}
+            label={crDest.label}
+          />
+        ) : (
+          <ChainLogo id={network} label={getChain(network)?.name ?? network} />
+        )}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v.startsWith("cr:")) {
+            const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
+              (d) => d.chainrailsChain === v.slice(3)
+            );
+            if (dest) onChainrails(dest);
+          } else {
+            onPaycrest(v as ChainId);
+          }
+        }}
+        style={{ ...style, paddingLeft: 42, flex: undefined }}
+      >
+        {PAYCREST_CHAIN_IDS.map((id) => (
+          <option key={id} value={id}>
+            {getChain(id)?.name ?? id}
+          </option>
+        ))}
+        {showChainrails &&
+          CHAINRAILS_RAMP_DESTINATIONS.map((d) => (
+            <option key={d.chainrailsChain} value={`cr:${d.chainrailsChain}`}>
+              {d.label}
+            </option>
+          ))}
+      </select>
+    </span>
   );
 }
 
@@ -345,6 +380,7 @@ export function BuyFlow({
             <NetworkSelect
               network={network}
               crDest={crDest}
+              token={token}
               onPaycrest={selectNetwork}
               onChainrails={setCrDest}
               style={{ ...INPUT, cursor: "pointer" }}
@@ -510,6 +546,7 @@ export function BuyFlow({
             <NetworkSelect
               network={network}
               crDest={crDest}
+              token={token}
               onPaycrest={selectNetwork}
               onChainrails={setCrDest}
               style={{ ...INPUT, cursor: "pointer", flex: 1 }}
@@ -519,10 +556,20 @@ export function BuyFlow({
                 <button
                   key={t}
                   type="button"
-                  onClick={() => setToken(t)}
+                  onClick={() => {
+                    setToken(t);
+                    // ChainRails is USDC-only — leave its chain if picking USDT.
+                    if (t === "USDT") {
+                      setCrDest(null);
+                      setNetworkTouched(true);
+                    }
+                  }}
                   style={{
                     cursor: "pointer",
                     padding: "8px 14px",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
                     fontSize: 13,
                     fontWeight: 500,
                     lineHeight: 1.2,
@@ -535,6 +582,7 @@ export function BuyFlow({
                       token === t ? "var(--btn-bg)" : "var(--line-2)",
                   }}
                 >
+                  <TokenLogo symbol={t} size={16} />
                   {t}
                 </button>
               ))}
