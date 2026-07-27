@@ -3,14 +3,20 @@
 import { getDefaultConfig, lightTheme } from "@rainbow-me/rainbowkit";
 import { http } from "viem";
 import type { Chain, Transport } from "viem";
-import { ACTIVE_CHAINS } from "@/config/network";
+import { ACTIVE_CHAINS, DEFAULT_SETTLEMENT_CHAIN_ID } from "@/config/network";
 
 const projectId =
   process.env.NEXT_PUBLIC_WALLET_CONNECT_ID || "YOUR_WALLET_CONNECT_PROJECT_ID";
 
-const evmChains = ACTIVE_CHAINS.filter(
-  (c) => c.kind === "evm" && c.viemChain
-).map((c) => c.viemChain as Chain);
+const evmChains = ACTIVE_CHAINS.filter((c) => c.kind === "evm" && c.viemChain)
+  .sort((a, b) =>
+    a.id === DEFAULT_SETTLEMENT_CHAIN_ID
+      ? -1
+      : b.id === DEFAULT_SETTLEMENT_CHAIN_ID
+        ? 1
+        : 0
+  )
+  .map((c) => c.viemChain as Chain);
 
 // viem's built-in defaults (e.g. cloudflare-eth for mainnet) intermittently
 // return 5xx / internal errors, which silently breaks on-chain reads like the

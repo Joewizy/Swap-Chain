@@ -3,9 +3,9 @@
 /**
  * usePaycrestNetwork — resolves which Paycrest chain a fiat flow should use.
  *
- * Priority: a chain the user named in chat → the connected wallet chain (when
- * Paycrest can off/on-ramp it) → the default settlement chain. Also reports
- * when the wallet is on a chain we can't use, so the flow can prompt a switch.
+ * Priority: a chain the user named in chat → the default settlement chain
+ * (Base on mainnet). The connected wallet never silently changes the form's
+ * default; users can still choose another chain explicitly.
  *
  * Shared by CashoutFlow and BuyFlow.
  */
@@ -37,11 +37,7 @@ export function usePaycrestNetwork(seedChain?: ChainId): PaycrestNetwork {
     connectedChain && paycrestNetworkSlug(connectedChain)
   );
 
-  const chain =
-    seedChain ??
-    (connectedSupported
-      ? (connectedChain as ChainId)
-      : DEFAULT_SETTLEMENT_CHAIN_ID);
+  const chain = seedChain ?? DEFAULT_SETTLEMENT_CHAIN_ID;
   const chainName = getChain(chain)?.name ?? chain;
 
   const connectedUnsupported = isConnected && !seedChain && !connectedSupported;

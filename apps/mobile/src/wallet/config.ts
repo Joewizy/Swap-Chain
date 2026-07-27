@@ -7,7 +7,10 @@ import {
   defaultWagmiConfig,
 } from "@reown/appkit-wagmi-react-native";
 import type { Chain } from "viem";
-import { ACTIVE_CHAINS } from "@railglide/shared/network";
+import {
+  ACTIVE_CHAINS,
+  DEFAULT_SETTLEMENT_CHAIN_ID,
+} from "@railglide/shared/network";
 
 /** WalletConnect Cloud project id — set EXPO_PUBLIC_REOWN_PROJECT_ID in .env. */
 export const projectId = process.env.EXPO_PUBLIC_REOWN_PROJECT_ID ?? "";
@@ -27,9 +30,15 @@ const metadata = {
 };
 
 // EVM chains from the active universe (Solana/Starknet get their own adapters later).
-const evmChains = ACTIVE_CHAINS.filter(
-  (c) => c.kind === "evm" && c.viemChain
-).map((c) => c.viemChain as Chain);
+const evmChains = ACTIVE_CHAINS.filter((c) => c.kind === "evm" && c.viemChain)
+  .sort((a, b) =>
+    a.id === DEFAULT_SETTLEMENT_CHAIN_ID
+      ? -1
+      : b.id === DEFAULT_SETTLEMENT_CHAIN_ID
+        ? 1
+        : 0
+  )
+  .map((c) => c.viemChain as Chain);
 const chains = evmChains as [Chain, ...Chain[]];
 
 export const wagmiConfig = defaultWagmiConfig({
