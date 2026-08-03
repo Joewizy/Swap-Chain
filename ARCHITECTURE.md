@@ -198,6 +198,31 @@ NEXT_PUBLIC_STARKNET_RPC_URL=
 
 ---
 
+## API routes (today)
+
+Handler implementations live under `apps/web/src/app/api/`. This table is a reference for people hacking on the code — it is not a public API surface.
+
+| Route                                | Purpose                                                         |
+| ------------------------------------ | --------------------------------------------------------------- |
+| `POST /api/chat`                     | Multi-turn assistant → structured flow handoff                  |
+| `POST /api/intent`                   | Legacy single-shot NL → structured intent (dashboard / tooling) |
+| `POST /api/router`                   | Rail selection + quote endpoint or inline CCTP fees             |
+| `POST /api/quote`                    | Relay quote and execution steps                                 |
+| `GET /api/cctp/attestation`          | Poll Circle Iris for CCTP attestation                           |
+| `GET /api/cctp/fees`                 | CCTP burn-fee quote per chain pair                              |
+| `POST /api/chainrails/quote`         | Chainrails best-across-bridges quote                            |
+| `GET /api/chainrails/ramp/countries` | Live Chainrails country/currency catalogue                      |
+| `POST /api/chainrails/ramp/quote`    | Live fiat-to-USDC provider quote                                |
+| `POST /api/chainrails/ramp/orders`   | Create hosted Chainrails on-ramp checkout                       |
+| `POST /api/paycrest/order`           | Create off-ramp or on-ramp order                                |
+| `GET /api/paycrest/order/:id`        | Poll order status                                               |
+| `GET /api/paycrest/orders`           | List orders by refund wallet address                            |
+| `GET /api/paycrest/rate`             | Public unit rate estimate                                       |
+| `GET /api/paycrest/institutions`     | Payout institutions for a fiat currency                         |
+| `POST /api/paycrest/verify-account`  | Resolve account holder name                                     |
+
+---
+
 ## Doc maintenance
 
 When README and implementation diverge from this roadmap, update **either** the README **or** this file in the same PR so “today vs target” stays honest—especially API paths and security wording.
