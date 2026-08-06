@@ -34,8 +34,6 @@ export async function POST(req: NextRequest) {
   const type = body.type === "off-ramp" ? "off-ramp" : "on-ramp";
   const isOfframp = type === "off-ramp";
 
-  // Off-ramp is paused until Fiat KYB is approved (see CHAINRAILS_OFFRAMP_ENABLED).
-  // On-ramp is unaffected.
   if (isOfframp && !CHAINRAILS_OFFRAMP_ENABLED) {
     return NextResponse.json(
       { error: "Selling from this network is temporarily unavailable." },
@@ -118,12 +116,19 @@ export async function POST(req: NextRequest) {
         `[chainrails ramp order] ${type} upstream ${upstream.status}:`,
         JSON.stringify(data)
       );
+      // Upstream 5xx means Chainrails/the payout provider crashed on their end
+      // (not a validation problem we can guide the user through). Don't leak the
+      // raw provider message — show a neutral retry prompt instead.
       const message =
-        data && typeof data === "object" && "message" in data
-          ? String((data as Record<string, unknown>).message)
-          : data && typeof data === "object" && "error" in data
-            ? String((data as Record<string, unknown>).error)
-            : `Chainrails order failed (${upstream.status}).`;
+        upstream.status >= 500
+          ? isOfframp
+            ? "Selling isn't available right now — please try again shortly."
+            : "This isn't available right now — please try again shortly."
+          : data && typeof data === "object" && "message" in data
+            ? String((data as Record<string, unknown>).message)
+            : data && typeof data === "object" && "error" in data
+              ? String((data as Record<string, unknown>).error)
+              : `Chainrails order failed (${upstream.status}).`;
       return NextResponse.json({ error: message }, { status: upstream.status });
     }
     return NextResponse.json(data, { status: 201 });
