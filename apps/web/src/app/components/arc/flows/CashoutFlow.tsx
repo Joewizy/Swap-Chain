@@ -183,6 +183,10 @@ export function CashoutFlow({
   // chain and hand the id to the panel so it lands on the deposit screen instead
   // of a fresh quote form. Details come from tracked History, keyed by that id.
   const [resume, setResume] = useState<TrackedRampOrder | null>(null);
+  // True once the panel is showing the order/deposit screen — we drop the "Sell"
+  // page title then and let the status headline stand alone (like the Buy flow).
+  // Seeded from the URL so a resumed order doesn't flash the full header first.
+  const [orderActive, setOrderActive] = useState(!!crOrderId);
   useEffect(() => {
     if (!CHAINRAILS_OFFRAMP_ENABLED || !crOrderId) return;
     const tracked = getTrackedRampOrder(crOrderId);
@@ -373,15 +377,18 @@ export function CashoutFlow({
     setCrDest(null);
   };
 
+  const backButton = (
+    <button
+      className="btn btn-quiet btn-sm"
+      onClick={handleBack}
+      style={{ padding: "0 8px", alignSelf: "flex-start", marginBottom: 4 }}
+    >
+      <Icon.Arrow rotate={180} size={12} /> Back
+    </button>
+  );
   const header = (
     <header className="col gap-1">
-      <button
-        className="btn btn-quiet btn-sm"
-        onClick={handleBack}
-        style={{ padding: "0 8px", alignSelf: "flex-start", marginBottom: 4 }}
-      >
-        <Icon.Arrow rotate={180} size={12} /> Back
-      </button>
+      {backButton}
       <h1
         style={{
           fontSize: 28,
@@ -405,13 +412,23 @@ export function CashoutFlow({
   if (crDest) {
     return (
       <div className="col gap-6">
-        {header}
+        {orderActive ? (
+          <header className="col gap-1">{backButton}</header>
+        ) : (
+          header
+        )}
         <ChainrailsSellPanel
           source={crDest}
           resumeOrderId={resume?.id}
           resumeFiatLabel={resume?.fiatLabel}
           resumeDepositLabel={resume?.depositLabel}
           resumeCryptoLabel={resume?.cryptoLabel}
+          onOrderActive={setOrderActive}
+          onStartNew={() => {
+            setResume(null);
+            setOrderActive(false);
+            if (crOrderId) patchUrl({ crOrder: null });
+          }}
           networkSelect={
             <SourceSelect
               sourceChain={sourceChain}

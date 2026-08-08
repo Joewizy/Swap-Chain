@@ -411,6 +411,13 @@ export function ChainrailsStatus({
 
   return (
     <div className="cr-status col">
+      <button
+        className="btn btn-quiet btn-sm"
+        onClick={onDone}
+        style={{ padding: "0 8px", alignSelf: "flex-start", marginBottom: 4 }}
+      >
+        <Icon.Arrow rotate={180} size={12} /> Back
+      </button>
       <header className="cr-status-header col">
         <span className="row center gap-2">
           <span className="eyebrow">Status</span>

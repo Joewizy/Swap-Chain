@@ -170,6 +170,8 @@ export function ChainrailsSellPanel({
   resumeFiatLabel,
   resumeDepositLabel,
   resumeCryptoLabel,
+  onOrderActive,
+  onStartNew,
 }: {
   source: RampDestination;
   /** The shared "From" chain picker, rendered inside this card. */
@@ -184,6 +186,11 @@ export function ChainrailsSellPanel({
   /** Last-resort amount (the sell figure) for orders saved before we captured
    *  the exact deposit amount. */
   resumeCryptoLabel?: string;
+  /** Tells the parent flow when the order screen is showing, so it can drop its
+   *  own "Sell" title and leave the status headline to us (matches the Buy flow). */
+  onOrderActive?: (active: boolean) => void;
+  /** Clears the resumed order in the parent (URL + state) when starting over. */
+  onStartNew?: () => void;
 }) {
   const [countries, setCountries] = useState<Country[]>([]);
   const [countryCode, setCountryCode] = useState("NG");
@@ -407,6 +414,23 @@ export function ChainrailsSellPanel({
     return () => handle.stop();
   }, [orderId]);
 
+  // Let the parent flow know the order screen owns the headline now.
+  useEffect(() => {
+    onOrderActive?.(!!order || !!resumeOrderId);
+  }, [order, resumeOrderId, onOrderActive]);
+
+  // Abandon a dead order and return to a blank sell form. Clears the parent's
+  // resumed order too (via onStartNew) so the URL doesn't reopen it.
+  const startNewOrder = () => {
+    setOrder(null);
+    setQuote(null);
+    setPhase("pending");
+    setError(null);
+    setAmount("");
+    setFieldValues({});
+    onStartNew?.();
+  };
+
   // ----- Order created: two-panel deposit + live progress ------------------
   if (order) {
     // Friendly network name only — never the raw "SOLANA_MAINNET" enum.
@@ -458,31 +482,46 @@ export function ChainrailsSellPanel({
       activeIndex = 1;
     }
     const failedPhase = failedIndex >= 0;
+    // Big status headline, mirroring the Buy status screen so the two match.
+    const statusTitle = paidOut
+      ? "Paid out"
+      : phase === "expired"
+        ? "Deposit window expired"
+        : phase === "failed"
+          ? "Order couldn't complete"
+          : phase === "processing"
+            ? "Confirming your payment"
+            : "Send your crypto";
+    const statusSubtitle = paidOut
+      ? `${fiatLine} was sent to the recipient's account.`
+      : phase === "processing"
+        ? "Your deposit is confirming on-chain — the payout releases shortly."
+        : `Send exactly ${amountLabel} to the address below to complete the payout.`;
 
     return (
       <div className="cr-status col" style={{ maxWidth: 880 }}>
-        {/* Compact status strip — the flow's "Sell" header above is the page
-            title, so this only carries live state, not a second heading. */}
-        <header className="row center gap-2" style={{ flexWrap: "wrap" }}>
-          <span className="eyebrow">Status</span>
-          <span
-            className={`chip ${failed ? "chip-err" : paidOut ? "chip-ok" : "chip-pend"}`}
-          >
-            {paidOut
-              ? "Paid out"
-              : failed
-                ? phase === "expired"
-                  ? "Expired"
-                  : "Failed"
-                : phase === "processing"
-                  ? "Confirming"
-                  : "Awaiting your deposit"}
+        <header className="cr-status-header col">
+          <span className="row center gap-2">
+            <span className="eyebrow">Status</span>
+            {failed && (
+              <span className="chip chip-err">
+                {phase === "expired" ? "Expired" : "Failed"}
+              </span>
+            )}
           </span>
-          {(paidOut || failed) && (
-            <span className="muted" style={{ fontSize: 13, lineHeight: 1.4 }}>
-              {paidOut
-                ? `${fiatLine} was sent to the recipient's account.`
-                : "If you didn't send anything, nothing was charged."}
+          <h1
+            style={{
+              fontSize: "clamp(28px, 3.6vw, 42px)",
+              lineHeight: 1.03,
+              letterSpacing: "-0.03em",
+              fontWeight: 500,
+            }}
+          >
+            {statusTitle}
+          </h1>
+          {!failed && (
+            <span className="muted" style={{ fontSize: 14, lineHeight: 1.4 }}>
+              {statusSubtitle}
             </span>
           )}
         </header>
@@ -566,6 +605,15 @@ export function ChainrailsSellPanel({
                     : "The provider couldn't process this order. If you didn't send anything, nothing was charged."}
                 </span>
               </div>
+            )}
+
+            {failed && (
+              <button
+                className="btn btn-primary cr-status-action"
+                onClick={startNewOrder}
+              >
+                Start new order <Icon.ArrowRight />
+              </button>
             )}
 
             <div className="cr-status-ref row between center">
