@@ -258,7 +258,7 @@ export default function AppShell() {
     // book fills itself from real off-ramps.
     const { exec } = intent.quote;
     if (exec.action === "offramp" && exec.payout) {
-      upsertRecipient(exec.payout, exec.fiatCurrency);
+      upsertRecipient(exec.payout, exec.fiatCurrency, true);
     }
     storeIntent(intent);
     setRecentIntent(intent);
@@ -285,6 +285,23 @@ export default function AppShell() {
 
   const resumeChainrailsOrder = (order: TrackedRampOrder) => {
     clearFlowDraft();
+    // Sells live in CashoutFlow, not StatusScreen. The order id rides in the URL
+    // (crOrder) so a refresh stays on the deposit screen; CashoutFlow looks the
+    // rest up from tracked History.
+    if (order.direction === "offramp") {
+      patchUrl(
+        {
+          view: "send",
+          flow: "cashout",
+          status: null,
+          step: null,
+          crOrder: order.id,
+        },
+        { push: true }
+      );
+      setDrawerOpen(false);
+      return;
+    }
     const intent = intentFromChainrailsOrder(order);
     storeIntent(intent);
     setRecentIntent(intent);
@@ -301,8 +318,9 @@ export default function AppShell() {
   const pickFlow = (id: FlowId | "describe") => {
     clearFlowDraft();
     // Push so the back button returns to the chooser, not out of the app.
+    // crOrder: null so a fresh Sell never inherits a resumed order from the URL.
     patchUrl(
-      { view: "send", flow: id, status: null, step: null },
+      { view: "send", flow: id, status: null, step: null, crOrder: null },
       { push: true }
     );
   };
