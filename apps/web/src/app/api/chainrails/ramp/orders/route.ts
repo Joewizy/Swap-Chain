@@ -116,6 +116,13 @@ export async function POST(req: NextRequest) {
         `[chainrails ramp order] ${type} upstream ${upstream.status}:`,
         JSON.stringify(data)
       );
+      // On failure, also dump the exact payload we sent so we can diff it
+      // against a known-good request (e.g. a working curl). The upstream 500 is
+      // generic — the difference is almost always here, in `fields`.
+      console.error(
+        `[chainrails ramp order] ${type} request payload:`,
+        JSON.stringify(payload)
+      );
       // Upstream 5xx means Chainrails/the payout provider crashed on their end
       // (not a validation problem we can guide the user through). Don't leak the
       // raw provider message — show a neutral retry prompt instead.

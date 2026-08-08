@@ -1,7 +1,62 @@
 import { NextRequest, NextResponse } from "next/server";
-import { CHAINRAILS_OFFRAMP_ENABLED } from "@/rails/chainrails";
+import {
+  CHAINRAILS_OFFRAMP_ENABLED,
+  DIRECT_OFFRAMP_PROVIDER,
+} from "@/rails/chainrails";
 
 const API_URL = "https://api.chainrails.io/api/v1/ramp/quotes";
+const ORDERS_URL = "https://api.chainrails.io/api/v1/ramp/orders";
+
+/**
+ * When the quotes endpoint returns nothing, it doesn't say why — the amount is
+ * simply outside the fillable range. The ORDER endpoint, however, returns an
+ * exact human-readable limit ("Minimum off-ramp value for NGN is ~5 USDC"), and
+ * that check runs before any order is created. So we probe it with a
+ * deliberately incomplete payload (no `userEmail`/`fields`): a valid amount
+ * would stop at the KYC/fields validation, never creating an order, while an
+ * out-of-range amount hands back the limit message we want to show. Returns a
+ * cleaned message, or null when the probe yields no usable limit reason.
+ */
+async function probeOfframpLimit(
+  apiKey: string,
+  params: URLSearchParams
+): Promise<string | null> {
+  try {
+    const res = await fetch(ORDERS_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "off-ramp",
+        provider: DIRECT_OFFRAMP_PROVIDER,
+        fiatCurrency: params.get("fiatCurrency"),
+        cryptoAmount: Number(params.get("cryptoAmount")),
+        sourceChain: params.get("sourceChain"),
+        countryCode: params.get("countryCode"),
+        senderAddress: "probe", // non-empty; the limit check needs no real one
+      }),
+    });
+    const data: unknown = await res.json().catch(() => null);
+    const raw =
+      data && typeof data === "object" && "message" in data
+        ? String((data as Record<string, unknown>).message)
+        : "";
+    // Only trust genuine min/max limit messages — ignore KYC/provider errors.
+    if (!/minimum|maximum/i.test(raw)) return null;
+    // Clean it up: the floor is a crypto amount (~5 USDC), so drop the fiat
+    // currency and the internal "(requested net: 4.0000)" detail.
+    //   "Minimum off-ramp value for NGN is ~5 USDC (requested net: 4.0000)"
+    //   → "Minimum amount to sell is ~5 USDC"
+    return raw
+      .replace(/\s*\(requested net:[^)]*\)/i, "")
+      .replace(/off-ramp value for [A-Z]{3}/i, "amount to sell")
+      .trim();
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Live Chainrails OFF-ramp quote (crypto → fiat). Unlike the SDK on-ramp quote,
@@ -97,11 +152,14 @@ export async function POST(req: NextRequest) {
         response: data,
       });
       // Empty quotes means the amount is outside the provider's fillable range
-      // — could be under the min or over the max, and we can't tell which from
-      // here, so stay neutral rather than pointing the wrong way.
+      // — could be under the min or over the max. The quotes endpoint won't say
+      // which, so ask the order endpoint for the exact limit (e.g. "Minimum
+      // amount to sell for NGN is ~5 USDC") and surface that when we can.
+      const limit = await probeOfframpLimit(apiKey, params);
       return NextResponse.json(
         {
           error:
+            limit ??
             "No provider can fill that amount right now — try a different amount.",
         },
         { status: 422 }
