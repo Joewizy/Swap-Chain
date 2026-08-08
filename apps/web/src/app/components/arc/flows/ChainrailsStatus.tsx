@@ -367,7 +367,7 @@ export function ChainrailsStatus({
     },
     {
       l: "Confirming payment",
-      d: "Once your payment clears, your USDC is on its way.",
+      d: "We'll confirm your payment and send your USDC.",
     },
     { l: "Received", d: `USDC delivered to your wallet on ${chainName}.` },
   ];
@@ -397,18 +397,18 @@ export function ChainrailsStatus({
   // showing figures the user can no longer act on.
   const isTerminalFailure =
     !!error || phase === "expired" || phase === "failed";
-  const failView = error
-    ? { chip: "Stalled", lead: "This order stalled.", body: error }
+  const failView: { chip: string; body: string; note?: string } = error
+    ? { chip: "Stalled", body: error }
     : phase === "expired"
       ? {
           chip: "Expired",
-          lead: "This order has expired.",
-          body: "Its checkout and exchange rate are no longer valid. If you already paid, you'll be refunded — if you didn't, nothing was charged.",
+          body: "The payment window has closed and this quote is no longer valid.",
+          note: "Already paid? Your payment will be refunded.",
         }
       : {
           chip: "Failed",
-          lead: "This order couldn't be completed.",
-          body: "If you already paid, you'll be refunded — if you didn't, nothing was charged.",
+          body: "The provider couldn't process this order.",
+          note: "Already paid? Your payment will be refunded.",
         };
 
   return (
@@ -508,9 +508,6 @@ export function ChainrailsStatus({
                 gap: 6,
               }}
             >
-              <span style={{ fontSize: 14.5, fontWeight: 600 }}>
-                {failView.lead}
-              </span>
               <span
                 style={{
                   fontSize: 13,
@@ -520,6 +517,11 @@ export function ChainrailsStatus({
               >
                 {failView.body}
               </span>
+              {failView.note && (
+                <span style={{ fontSize: 14, fontWeight: 600 }}>
+                  {failView.note}
+                </span>
+              )}
             </div>
           )}
 
@@ -624,6 +626,16 @@ export function ChainrailsStatus({
                   ? "now"
                   : "next";
             const dim = !isDone && !isActive && !isFailed ? 0.5 : 1;
+            // The failed step must read as failed — not still ask the user to
+            // "complete the payment" after the window has already closed.
+            const label = isFailed
+              ? phase === "expired"
+                ? "Payment window expired"
+                : "Payment couldn't be completed"
+              : s.l;
+            const desc = isFailed
+              ? "This payment can no longer be completed."
+              : s.d;
             return (
               <div
                 key={i}
@@ -705,7 +717,7 @@ export function ChainrailsStatus({
                         fontWeight: 500,
                       }}
                     >
-                      {s.l}
+                      {label}
                     </h4>
                     <span
                       className="font-mono"
@@ -727,7 +739,7 @@ export function ChainrailsStatus({
                       color: "var(--fg-soft)",
                     }}
                   >
-                    {s.d}
+                    {desc}
                   </span>
                 </div>
               </div>
