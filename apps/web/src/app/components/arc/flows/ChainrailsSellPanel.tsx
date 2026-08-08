@@ -22,7 +22,6 @@ import { useAccount } from "wagmi";
 import { formatNumber, formatToken, fiatSymbol, currencyLabel } from "@/utils";
 import {
   classifyRampStatus,
-  isRampPhaseTerminal,
   isValidRampAddress,
   toE164,
   type RampDestination,
@@ -437,7 +436,6 @@ export function ChainrailsSellPanel({
     const networkLabel = source.label;
     const cryptoCurrency =
       order.cryptoCurrency ?? quote?.cryptoCurrency ?? "USDC";
-    const done = isRampPhaseTerminal(phase);
     const paidOut = phase === "completed";
     const failed = phase === "expired" || phase === "failed";
     // Deposit amount: from the live order (field name varies, so scan several),
@@ -537,7 +535,7 @@ export function ChainrailsSellPanel({
               style={failed ? { opacity: 0.5 } : undefined}
             >
               <div className="card cr-status-amount">
-                <span className="eyebrow">You send</span>
+                <span className="eyebrow">You sell</span>
                 <span
                   className="font-mono tabular row center gap-2 cr-status-amount-value"
                   style={{ whiteSpace: "nowrap" }}
@@ -550,11 +548,11 @@ export function ChainrailsSellPanel({
                   style={{ fontSize: 12, minWidth: 0 }}
                 >
                   <AssetLogo name={chainLogo(networkLabel)} size={12} />
-                  On {networkLabel}
+                  {networkLabel}
                 </span>
               </div>
               <div className="card cr-status-amount">
-                <span className="eyebrow">Recipient gets</span>
+                <span className="eyebrow">You receive</span>
                 <span
                   className="font-mono tabular cr-status-amount-value"
                   style={{ color: "var(--accent)", whiteSpace: "nowrap" }}
@@ -562,17 +560,48 @@ export function ChainrailsSellPanel({
                   {fiatLine}
                 </span>
                 <span className="muted" style={{ fontSize: 12 }}>
-                  To their bank account
+                  To the recipient&apos;s bank account
                 </span>
               </div>
             </div>
 
-            {order.intentAddress && !done && (
+            {order.intentAddress && phase === "pending" && (
               <DepositAddress
                 address={order.intentAddress}
                 amountLabel={amountLabel}
                 network={networkLabel}
               />
+            )}
+
+            {/* Active reassurance — always answers "what now / what next". */}
+            {phase === "pending" && (
+              <div
+                className="row center gap-2"
+                style={{
+                  justifyContent: "center",
+                  fontSize: 12.5,
+                  color: "var(--fg-soft)",
+                }}
+              >
+                <Icon.Spinner size={13} />
+                <span>
+                  Waiting for your deposit — we&apos;ll send {fiatLine} to the
+                  recipient once it arrives.
+                </span>
+              </div>
+            )}
+
+            {phase === "processing" && (
+              <div
+                className="card row center gap-2"
+                style={{ padding: 16 }}
+              >
+                <Icon.Spinner size={15} />
+                <span style={{ fontSize: 13.5 }}>
+                  Deposit received — sending {fiatLine} to the recipient&apos;s
+                  account.
+                </span>
+              </div>
             )}
 
             {paidOut && (
@@ -592,17 +621,20 @@ export function ChainrailsSellPanel({
             )}
 
             {failed && (
-              <div className="card" style={{ padding: 16 }}>
+              <div className="card col gap-2" style={{ padding: 16 }}>
+                <span style={{ fontSize: 14.5, fontWeight: 600 }}>
+                  No payout was made.
+                </span>
                 <span
                   style={{
-                    fontSize: 13.5,
+                    fontSize: 13,
                     color: "var(--fg-soft)",
                     lineHeight: 1.5,
                   }}
                 >
                   {phase === "expired"
-                    ? "The deposit window closed before we saw your crypto. Start a new order to get a fresh address."
-                    : "The provider couldn't process this order. If you didn't send anything, nothing was charged."}
+                    ? `We didn't receive your ${amountLabel} before the deposit window closed. If you didn't send anything, nothing left your wallet.`
+                    : "The provider couldn't process this order. If you didn't send anything, nothing left your wallet."}
                 </span>
               </div>
             )}
@@ -617,9 +649,7 @@ export function ChainrailsSellPanel({
             )}
 
             <div className="cr-status-ref row between center">
-              <span className="muted font-mono" style={{ fontSize: 12 }}>
-                Order #{order.id}
-              </span>
+              <CopyableOrderId id={String(order.id)} />
               <span
                 className="row center gap-1 muted"
                 style={{ fontSize: 11 }}
@@ -1006,6 +1036,41 @@ export function ChainrailsSellPanel({
         )}
       </button>
     </div>
+  );
+}
+
+/** Order number that copies to the clipboard on tap — useful for support. */
+function CopyableOrderId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        navigator.clipboard
+          ?.writeText(id)
+          .then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1200);
+          })
+          .catch(() => {})
+      }
+      className="font-mono muted transition-colors hover:text-[var(--fg)]"
+      title="Copy order number"
+      aria-label="Copy order number"
+      style={{
+        background: "transparent",
+        border: 0,
+        padding: 0,
+        cursor: "pointer",
+        fontSize: 12,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+      }}
+    >
+      Order #{id}
+      {copied ? <Icon.Check size={11} /> : <Icon.Copy size={11} />}
+    </button>
   );
 }
 

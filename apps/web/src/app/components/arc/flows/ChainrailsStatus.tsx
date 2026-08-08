@@ -398,15 +398,17 @@ export function ChainrailsStatus({
   const isTerminalFailure =
     !!error || phase === "expired" || phase === "failed";
   const failView = error
-    ? { chip: "Stalled", body: error }
+    ? { chip: "Stalled", lead: "This order stalled.", body: error }
     : phase === "expired"
       ? {
           chip: "Expired",
-          body: "This checkout and rate are no longer valid. If you didn't pay, nothing was charged — start a new order to get a fresh checkout.",
+          lead: "No money was charged.",
+          body: "Your checkout and exchange rate are no longer valid. If you didn't complete the payment, nothing left your account.",
         }
       : {
           chip: "Failed",
-          body: "The provider couldn't process this order. If you didn't pay, nothing was charged — you can start a new one.",
+          lead: "No money was charged.",
+          body: "The provider couldn't process this order. If you didn't complete the payment, nothing left your account.",
         };
 
   return (
@@ -471,8 +473,8 @@ export function ChainrailsStatus({
             <div className="card cr-status-amount">
               <span className="eyebrow">You receive</span>
               <span
-                className="font-mono tabular row center gap-2"
-                style={{ fontSize: 19, fontWeight: 500, lineHeight: 1.2 }}
+                className="font-mono tabular row center gap-2 cr-status-amount-value"
+                style={{ color: "var(--accent)", whiteSpace: "nowrap" }}
               >
                 <AssetLogo name={tokenIcon} size={18} />
                 {cryptoLabel}
@@ -503,9 +505,12 @@ export function ChainrailsStatus({
                 gap: 6,
               }}
             >
+              <span style={{ fontSize: 14.5, fontWeight: 600 }}>
+                {failView.lead}
+              </span>
               <span
                 style={{
-                  fontSize: 14,
+                  fontSize: 13,
                   color: "var(--fg-soft)",
                   lineHeight: 1.55,
                 }}
@@ -590,7 +595,7 @@ export function ChainrailsStatus({
                   Expires in {expiresIn}
                 </span>
               )}
-              <span className="muted font-mono">Order #{orderId}</span>
+              <CopyableOrderId id={orderId} />
             </div>
           )}
         </div>
@@ -733,6 +738,40 @@ export function ChainrailsStatus({
 
 function shortAddr(a: string): string {
   return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
+}
+
+/** Order number that copies to the clipboard on tap — useful for support. */
+function CopyableOrderId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        navigator.clipboard
+          ?.writeText(id)
+          .then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1200);
+          })
+          .catch(() => {})
+      }
+      className="font-mono muted transition-colors hover:text-[var(--fg)]"
+      title="Copy order number"
+      aria-label="Copy order number"
+      style={{
+        background: "transparent",
+        border: 0,
+        padding: 0,
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+      }}
+    >
+      Order #{id}
+      {copied ? <Icon.Check size={11} /> : <Icon.Copy size={11} />}
+    </button>
+  );
 }
 
 function formatRemaining(ms: number): string {
