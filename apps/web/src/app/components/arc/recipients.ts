@@ -22,8 +22,10 @@ export type Recipient = {
   institutionName: string;
   accountIdentifier: string;
   accountName: string;
-  /** Epoch ms of the last send / save. */
+  /** Epoch ms this entry was last saved/updated — drives most-recent-first sort. */
   lastUsed: number;
+  /** Epoch ms of the last *actual* payout to this account. Absent until sent. */
+  lastSentAt?: number;
 };
 
 const RECIPIENTS_KEY = "railglide:recipients";
@@ -57,18 +59,22 @@ function saveRecipients(list: Recipient[]): void {
 }
 
 /**
- * Insert or refresh a recipient from a completed payout. Dedups by
- * institution + account number; on a repeat send it just bumps name/lastUsed.
- * Entries missing the institution or account number are ignored.
+ * Insert or refresh a recipient. Dedups by institution + account number; on a
+ * repeat save it just bumps name/lastUsed. Pass `markSent` only when this call
+ * follows a real payout — that's what stamps `lastSentAt`, so merely adding an
+ * account never claims it was sent to. Entries missing the institution or
+ * account number are ignored.
  */
 export function upsertRecipient(
   payout: PayoutDetails,
-  currency: string | null
+  currency: string | null,
+  markSent = false
 ): void {
   const accountIdentifier = payout.accountIdentifier.trim();
   if (!payout.institution || !accountIdentifier || !currency) return;
 
   const id = recipientId(payout.institution, accountIdentifier);
+  const existing = loadRecipients().find((r) => r.id === id);
   const entry: Recipient = {
     id,
     name: payout.accountName || payout.accountIdentifier,
@@ -78,6 +84,8 @@ export function upsertRecipient(
     accountIdentifier,
     accountName: payout.accountName,
     lastUsed: Date.now(),
+    // Preserve any prior send time; only a real payout advances it.
+    lastSentAt: markSent ? Date.now() : existing?.lastSentAt,
   };
 
   const rest = loadRecipients().filter((r) => r.id !== id);

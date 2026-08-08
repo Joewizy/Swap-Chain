@@ -319,9 +319,9 @@ function ChainrailsOrderCard({
 }) {
   const chip = chainrailsChip(phase, order.direction);
   const isOfframp = order.direction === "offramp";
-  // Only buys re-open a viewable status screen today (sell uses a different,
-  // KYC-gated flow). See todo.md — "Chainrails order history".
-  const openable = !isOfframp && !!onResume;
+  // Both buys and sells re-open now: buys resume the checkout status screen,
+  // sells reopen CashoutFlow's deposit screen (see resumeChainrailsOrder).
+  const openable = !!onResume;
   return (
     <article
       className="card"
@@ -541,6 +541,67 @@ function maskAccount(s: string): string {
   return t.length <= 4 ? t : `••${t.slice(-4)}`;
 }
 
+/**
+ * Account number that reads as `••4020` until tapped. Tapping the digits reveals
+ * the full number; the icon copies it. Masked by default so a glance over the
+ * shoulder can't read the whole account.
+ */
+function AccountNumber({ value }: { value: string }) {
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const full = value.trim();
+
+  const copy = () =>
+    navigator.clipboard
+      ?.writeText(full)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => {});
+
+  return (
+    <span className="row center" style={{ display: "inline-flex", gap: 5 }}>
+      <button
+        type="button"
+        onClick={() => setRevealed((v) => !v)}
+        aria-pressed={revealed}
+        aria-label={revealed ? "Hide account number" : "Show account number"}
+        title={revealed ? "Hide account number" : "Show full number"}
+        className="font-mono transition-colors text-[var(--fg-mute)] hover:text-[var(--fg)]"
+        style={{
+          background: "transparent",
+          border: 0,
+          padding: 0,
+          cursor: "pointer",
+          fontSize: 11.5,
+          letterSpacing: revealed ? 0.4 : 1.2,
+        }}
+      >
+        {revealed ? full : maskAccount(full)}
+      </button>
+      <button
+        type="button"
+        onClick={copy}
+        aria-label="Copy account number"
+        title="Copy account number"
+        className="transition-colors hover:text-[var(--fg)]"
+        style={{
+          background: "transparent",
+          border: 0,
+          padding: 0,
+          cursor: "pointer",
+          color: copied ? "var(--accent)" : "var(--fg-mute)",
+          display: "inline-flex",
+          alignItems: "center",
+        }}
+      >
+        {copied ? <Icon.Check size={11} /> : <Icon.Copy size={11} />}
+      </button>
+    </span>
+  );
+}
+
 export function RecipientsScreen({
   onSend,
 }: {
@@ -696,10 +757,10 @@ function RecipientCard({
             </span>
           </div>
           <span
-            className="font-mono"
-            style={{ fontSize: 11.5, color: "var(--fg-mute)" }}
+            className="font-mono row center"
+            style={{ fontSize: 11.5, color: "var(--fg-mute)", gap: 5 }}
           >
-            {r.institutionName} · {maskAccount(r.accountIdentifier)}
+            {r.institutionName} · <AccountNumber value={r.accountIdentifier} />
           </span>
         </div>
       </div>
@@ -709,7 +770,9 @@ function RecipientCard({
           className="font-mono"
           style={{ fontSize: 11, color: "var(--fg-mute)" }}
         >
-          Last sent {timeAgo(new Date(r.lastUsed).toISOString())}
+          {r.lastSentAt
+            ? `Last sent ${timeAgo(new Date(r.lastSentAt).toISOString())}`
+            : `Added ${timeAgo(new Date(r.lastUsed).toISOString())}`}
         </span>
         <div className="row center gap-1">
           <button
