@@ -13,6 +13,10 @@
  * See ARCHITECTURE.md §"The four rails".
  */
 
+import {
+  parsePhoneNumberFromString,
+  type CountryCode,
+} from "libphonenumber-js";
 import type { ChainId } from "@/config/network";
 
 /**
@@ -74,6 +78,15 @@ export function isChainrailsSupported(chainId: ChainId): boolean {
  */
 export const CHAINRAILS_OFFRAMP_ENABLED =
   process.env.NEXT_PUBLIC_CHAINRAILS_OFFRAMP_ENABLED === "true";
+
+/**
+ * Chainrails' direct-API off-ramp provider. Off-ramp on the chains we serve
+ * (Solana, Tron, …) always routes through FONBNK's direct payout — the country
+ * catalogue lists it under each African corridor's `currency.providers`. Kept
+ * as a named constant so the quote route can probe the order endpoint for a
+ * currency's limit message without threading a provider through.
+ */
+export const DIRECT_OFFRAMP_PROVIDER = "FONBNK";
 
 export type RampAddressKind = "evm" | "solana" | "starknet" | "tron";
 
@@ -177,6 +190,20 @@ export function isValidRampAddress(
     default:
       return /^0x[0-9a-fA-F]{40}$/.test(v);
   }
+}
+
+/**
+ * Normalise a raw phone number to E.164 (`+<dial><subscriber>`) for the given
+ * country (ISO 3166-1 alpha-2). Falls back to the trimmed input when the number
+ * can't be parsed, so we never mangle something we can't reason about.
+ */
+export function toE164(raw: string, countryCode: string): string {
+  const trimmed = raw.trim();
+  const parsed = parsePhoneNumberFromString(
+    trimmed,
+    countryCode.toUpperCase() as CountryCode
+  );
+  return parsed?.number ?? trimmed;
 }
 
 /** Maps an app ChainId onto its Chainrails enum, or throws if unsupported. */

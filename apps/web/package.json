@@ -14,11 +14,11 @@
     "check": "npm run format:check && npm run lint && npm run typecheck"
   },
   "dependencies": {
-    "@railglide/shared": "*",
     "@chainrails/react": "^0.4.17",
     "@chainrails/sdk": "^0.4.0",
     "@iconify/iconify": "^3.1.1",
     "@lifi/sdk": "^3.16.3",
+    "@railglide/shared": "*",
     "@rainbow-me/rainbowkit": "^2.2.8",
     "@relayprotocol/relay-kit-ui": "^8.0.10",
     "@relayprotocol/relay-sdk": "^5.2.7",
@@ -38,6 +38,7 @@
     "autoswap-sdk": "^1.0.6",
     "ethers": "^6.15.0",
     "flag-icons": "^7.5.0",
+    "libphonenumber-js": "^1.13.10",
     "next": "15.5.18",
     "openai": "^5.12.2",
     "react": "^18.3.1",
