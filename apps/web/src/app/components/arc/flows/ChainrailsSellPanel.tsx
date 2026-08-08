@@ -18,15 +18,18 @@
  */
 
 import React, { useEffect, useState } from "react";
+import { useAccount } from "wagmi";
 import { formatNumber, formatToken, fiatSymbol, currencyLabel } from "@/utils";
 import {
   classifyRampStatus,
   isRampPhaseTerminal,
   isValidRampAddress,
+  toE164,
   type RampDestination,
   type RampOrderPhase,
 } from "@/rails/chainrails";
-import { getTokenIcon } from "@/utils/icons";
+import { pollRampOrder } from "@/lib/chainrailsPoll";
+import { getChainIcon, getTokenIcon } from "@/utils/icons";
 import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import { InfoHint } from "../SendScreen";
 import { Icon } from "../icons";
@@ -35,6 +38,36 @@ import { trackRampOrder } from "../chainrailsOrders";
 /** Colored Iconify name for a token, or null when there's no real logo. */
 function tokenLogo(symbol: string): string | null {
   const name = getTokenIcon(symbol);
+  if (name.startsWith("material-symbols:")) return null;
+  return name.startsWith("cryptocurrency:")
+    ? name.replace("cryptocurrency:", "cryptocurrency-color:")
+    : name;
+}
+
+/**
+ * The exact amount to deposit. ChainRails' live order has moved this between
+ * field names across versions, so we scan the likely candidates and take the
+ * first positive number rather than trusting one key.
+ */
+function pickDepositAmount(order: Record<string, unknown>): number | undefined {
+  const keys = [
+    "grossDepositAmount",
+    "intentAmount",
+    "depositAmount",
+    "sourceAmount",
+    "cryptoAmount",
+    "amount",
+  ];
+  for (const k of keys) {
+    const n = Number(order[k]);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return undefined;
+}
+
+/** Colored Iconify name for a chain (e.g. "Solana"), or null when unavailable. */
+function chainLogo(label: string): string | null {
+  const name = getChainIcon(label);
   if (name.startsWith("material-symbols:")) return null;
   return name.startsWith("cryptocurrency:")
     ? name.replace("cryptocurrency:", "cryptocurrency-color:")
@@ -105,20 +138,52 @@ type RampOrder = {
   id: number | string;
   status: string;
   intentAddress?: string;
-  grossDepositAmount?: number;
   cryptoCurrency?: string;
   depositChain?: string;
 };
 
-const POLL_MS = 5000;
+/**
+ * The KYC email is the same every time for a given person, so we remember the
+ * last one this device used (like recipients/orders) and prefill it — no
+ * re-typing on every sell. Device-local; never leaves the browser.
+ */
+const EMAIL_KEY = "railglide:ramp:email";
+function loadSavedEmail(): string {
+  try {
+    return localStorage.getItem(EMAIL_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+function saveEmail(email: string) {
+  try {
+    localStorage.setItem(EMAIL_KEY, email);
+  } catch {
+    /* localStorage unavailable — email just won't persist this session. */
+  }
+}
 
 export function ChainrailsSellPanel({
   source,
   networkSelect,
+  resumeOrderId,
+  resumeFiatLabel,
+  resumeDepositLabel,
+  resumeCryptoLabel,
 }: {
   source: RampDestination;
   /** The shared "From" chain picker, rendered inside this card. */
   networkSelect?: React.ReactNode;
+  /** Re-open an existing order (from History) instead of creating one. */
+  resumeOrderId?: string;
+  /** Pre-formatted payout amount (e.g. "6,722 NGN") shown while resuming, since
+   *  a resumed order arrives without the original quote. */
+  resumeFiatLabel?: string;
+  /** Pre-formatted deposit amount (e.g. "5.0275 USDC") for the same reason. */
+  resumeDepositLabel?: string;
+  /** Last-resort amount (the sell figure) for orders saved before we captured
+   *  the exact deposit amount. */
+  resumeCryptoLabel?: string;
 }) {
   const [countries, setCountries] = useState<Country[]>([]);
   const [countryCode, setCountryCode] = useState("NG");
@@ -134,6 +199,57 @@ export function ChainrailsSellPanel({
   const [quoting, setQuoting] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Prefill the remembered KYC email (runs client-side only, avoids SSR mismatch).
+  useEffect(() => {
+    const saved = loadSavedEmail();
+    if (saved) setEmail(saved);
+  }, []);
+
+  // Resume mode: re-open an order from History. Fetch it once, then the poll
+  // effect below keeps it live — the user lands straight on the deposit screen
+  // exactly where they left off, instead of a dead end.
+  useEffect(() => {
+    if (!resumeOrderId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/chainrails/ramp/orders/${resumeOrderId}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) throw new Error();
+        const data = (await res.json()) as RampOrder | null;
+        if (cancelled) return;
+        if (!data) throw new Error();
+        setOrder(data);
+        setPhase(classifyRampStatus(data.status));
+      } catch {
+        if (!cancelled)
+          setError("We couldn't reopen this order. Try again from History.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [resumeOrderId]);
+
+  // Prefill the "sending from" address with the connected wallet — but only for
+  // EVM sources, since that's the only address the wallet gives us (Solana/Tron
+  // sources are pasted manually). Only fills an empty field, so we never stomp
+  // an address the user typed.
+  const { address: connectedAddress } = useAccount();
+  useEffect(() => {
+    if (source.addressKind === "evm" && connectedAddress && !senderAddress) {
+      setSenderAddress(connectedAddress);
+    }
+  }, [source.addressKind, connectedAddress, senderAddress]);
+  // The field still holds the wallet address (user hasn't overridden it).
+  const usingWalletAddress =
+    !!connectedAddress &&
+    senderAddress.trim().toLowerCase() === connectedAddress.toLowerCase();
 
   useEffect(() => {
     let cancelled = false;
@@ -218,7 +334,17 @@ export function ChainrailsSellPanel({
     if (!quote || !country) return;
     setCreating(true);
     setError(null);
+    saveEmail(email.trim()); // remember it for next time (passed emailValid gate)
     try {
+      // Phone-type fields must go out in E.164 (+234…). A local 0817… format
+      // makes FONBNK's backend throw and Chainrails returns an opaque 500.
+      const phoneKeys = new Set(
+        requiredFields.filter((f) => f.type === "phone").map((f) => f.key)
+      );
+      const fields: Record<string, string> = {};
+      for (const [key, value] of Object.entries(fieldValues)) {
+        fields[key] = phoneKeys.has(key) ? toE164(value, countryCode) : value;
+      }
       const res = await fetch("/api/chainrails/ramp/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -233,7 +359,7 @@ export function ChainrailsSellPanel({
           // userEmail is a TOP-LEVEL KYC field — the provider 403s if it's
           // nested inside `fields`. The orders endpoint also rejects `quoteId`.
           userEmail: email.trim(),
-          fields: { ...fieldValues },
+          fields,
         }),
       });
       const data = (await res.json()) as RampOrder & { error?: string };
@@ -246,6 +372,9 @@ export function ChainrailsSellPanel({
         direction: "offramp",
         chainLabel: source.label,
         cryptoLabel: `${quote.cryptoAmount} ${quote.cryptoCurrency}`,
+        // The exact deposit figure (fee-inclusive) so a resumed order shows the
+        // right amount to send even though the quote is long gone.
+        depositLabel: `${quote.grossDepositAmount} ${quote.cryptoCurrency}`,
         fiatLabel: `${formatNumber(quote.fiatAmount)} ${quote.fiatCurrency}`,
         address: senderAddress.trim(),
         createdAt: Date.now(),
@@ -259,109 +388,339 @@ export function ChainrailsSellPanel({
     }
   };
 
-  // Poll the created order until terminal. Keyed on the order id (not the whole
-  // order object) so refreshing it each tick doesn't re-arm the interval — that
-  // would turn the 5s poll into a tight ~network-latency loop.
+  // Poll the created order via the shared ramp poller (as Buy/Paycrest do): it
+  // backs off toward 30s, pauses while the tab is hidden, and stops itself once
+  // the order settles. Keyed on the order id alone.
   const orderId = order?.id;
   useEffect(() => {
-    if (orderId == null || isRampPhaseTerminal(phase)) return;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/chainrails/ramp/orders/${orderId}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as RampOrder | null;
-        if (cancelled || !data) return;
+    if (orderId == null) return;
+    const handle = pollRampOrder<RampOrder>(orderId, {
+      onUpdate: (data) => {
         setOrder(data);
         setPhase(classifyRampStatus(data.status));
-      } catch {
-        /* transient — retry next tick */
-      }
-    };
-    void poll();
-    const id = setInterval(poll, POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [orderId, phase]);
+      },
+      onSettled: (data, settledPhase) => {
+        if (data) setOrder(data);
+        setPhase(settledPhase);
+      },
+    });
+    return () => handle.stop();
+  }, [orderId]);
 
-  // ----- Order created: deposit instructions + live status -----------------
+  // ----- Order created: two-panel deposit + live progress ------------------
   if (order) {
-    const depositAmount = order.grossDepositAmount ?? quote?.grossDepositAmount;
-    const depositChain =
-      order.depositChain ?? quote?.depositChain ?? source.label;
+    // Friendly network name only — never the raw "SOLANA_MAINNET" enum.
+    const networkLabel = source.label;
     const cryptoCurrency =
       order.cryptoCurrency ?? quote?.cryptoCurrency ?? "USDC";
     const done = isRampPhaseTerminal(phase);
-    return (
-      <div className="card col gap-5" style={{ padding: 20 }}>
-        <div className="col gap-1">
-          <h2 style={{ fontSize: 18, fontWeight: 500 }}>
-            {phase === "completed" ? "Paid out." : "Send your crypto"}
-          </h2>
-          <span className="muted" style={{ fontSize: 13 }}>
-            {phase === "completed"
-              ? `${quote?.fiatAmount ? formatNumber(quote.fiatAmount) : ""} ${quote?.fiatCurrency ?? ""} was sent to your bank.`
-              : "Send the exact amount to the deposit address to complete the payout."}
-          </span>
-        </div>
+    const paidOut = phase === "completed";
+    const failed = phase === "expired" || phase === "failed";
+    // Deposit amount: from the live order (field name varies, so scan several),
+    // the quote, or the figures we stored in History. Falls back to the sell
+    // amount for legacy orders saved before we captured the exact deposit.
+    const depositAmount =
+      pickDepositAmount(order as Record<string, unknown>) ??
+      quote?.grossDepositAmount;
+    const amountLabel =
+      depositAmount != null
+        ? `${depositAmount} ${cryptoCurrency}`
+        : (resumeDepositLabel ?? resumeCryptoLabel ?? "—");
+    const fiatLine =
+      quote?.fiatAmount != null
+        ? `${fiatSymbol(quote.fiatCurrency)}${formatNumber(quote.fiatAmount)}`
+        : (resumeFiatLabel ?? "—");
 
-        {order.intentAddress && !done && (
-          <div className="col gap-2">
-            <Row
-              label="Send"
-              value={`${depositAmount ?? "—"} ${cryptoCurrency}`}
-            />
-            <Row label="On" value={depositChain} />
-            <div className="col gap-1">
-              <span className="muted" style={{ fontSize: 12 }}>
-                To this address
-              </span>
-              <code
-                style={{
-                  fontSize: 12,
-                  wordBreak: "break-all",
-                  background: "var(--bg-soft)",
-                  border: "1px solid var(--line)",
-                  borderRadius: 8,
-                  padding: "8px 10px",
-                }}
-              >
-                {order.intentAddress}
-              </code>
-            </div>
-          </div>
-        )}
+    const steps = [
+      { l: "Order created", d: "Your quote is locked and the payout is set up." },
+      {
+        l: "Send your crypto",
+        d: `Send exactly ${amountLabel} on ${networkLabel}.`,
+      },
+      {
+        l: "Confirming",
+        d: "We confirm the deposit on-chain, then release the payout.",
+      },
+      { l: "Paid out", d: `${fiatLine} lands in the recipient's account.` },
+    ];
+    // Timeline reflects the real phase: the order exists, so step 0 is always
+    // done; pending waits on the deposit, processing is confirming.
+    let activeIndex: number;
+    let failedIndex = -1;
+    if (failed) {
+      failedIndex = 1;
+      activeIndex = 1;
+    } else if (paidOut) {
+      activeIndex = steps.length;
+    } else if (phase === "processing") {
+      activeIndex = 2;
+    } else {
+      activeIndex = 1;
+    }
+    const failedPhase = failedIndex >= 0;
+
+    return (
+      <div className="cr-status col" style={{ maxWidth: 880 }}>
+        {/* Compact status strip — the flow's "Sell" header above is the page
+            title, so this only carries live state, not a second heading. */}
+        <header className="row center gap-2" style={{ flexWrap: "wrap" }}>
+          <span className="eyebrow">Status</span>
+          <span
+            className={`chip ${failed ? "chip-err" : paidOut ? "chip-ok" : "chip-pend"}`}
+          >
+            {paidOut
+              ? "Paid out"
+              : failed
+                ? phase === "expired"
+                  ? "Expired"
+                  : "Failed"
+                : phase === "processing"
+                  ? "Confirming"
+                  : "Awaiting your deposit"}
+          </span>
+          {(paidOut || failed) && (
+            <span className="muted" style={{ fontSize: 13, lineHeight: 1.4 }}>
+              {paidOut
+                ? `${fiatLine} was sent to the recipient's account.`
+                : "If you didn't send anything, nothing was charged."}
+            </span>
+          )}
+        </header>
 
         <div
-          className="row center gap-2"
-          style={{
-            padding: "10px 12px",
-            borderRadius: 10,
-            background:
-              done && phase === "completed"
-                ? "var(--ok-soft)"
-                : "var(--bg-soft)",
-            border: `1px solid ${done && phase === "completed" ? "var(--ok)" : "var(--line)"}`,
-            fontSize: 13,
-          }}
+          className="cr-status-grid"
+          style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(240px, 280px)" }}
         >
-          {done ? (
-            phase === "completed" ? (
-              <Icon.Check size={14} />
-            ) : (
-              <Icon.Dot size={8} />
-            )
-          ) : (
-            <Icon.Spinner size={14} />
-          )}
-          <span>{prettyStatus(order.status)}</span>
-        </div>
+          {/* Left — summary + the deposit action */}
+          <div className="cr-status-main">
+            <div
+              className="cr-status-amounts"
+              style={failed ? { opacity: 0.5 } : undefined}
+            >
+              <div className="card cr-status-amount">
+                <span className="eyebrow">You send</span>
+                <span
+                  className="font-mono tabular row center gap-2 cr-status-amount-value"
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  <AssetLogo name={tokenLogo(cryptoCurrency)} size={18} />
+                  {amountLabel}
+                </span>
+                <span
+                  className="muted font-mono row center gap-1"
+                  style={{ fontSize: 12, minWidth: 0 }}
+                >
+                  <AssetLogo name={chainLogo(networkLabel)} size={12} />
+                  On {networkLabel}
+                </span>
+              </div>
+              <div className="card cr-status-amount">
+                <span className="eyebrow">Recipient gets</span>
+                <span
+                  className="font-mono tabular cr-status-amount-value"
+                  style={{ color: "var(--accent)", whiteSpace: "nowrap" }}
+                >
+                  {fiatLine}
+                </span>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  To their bank account
+                </span>
+              </div>
+            </div>
 
-        <Row label="Order" value={`#${order.id}`} />
+            {order.intentAddress && !done && (
+              <DepositAddress
+                address={order.intentAddress}
+                amountLabel={amountLabel}
+                network={networkLabel}
+              />
+            )}
+
+            {paidOut && (
+              <div
+                className="card row center gap-2"
+                style={{
+                  padding: 16,
+                  background: "var(--ok-soft)",
+                  border: "1px solid var(--ok)",
+                }}
+              >
+                <Icon.Check size={16} />
+                <span style={{ fontSize: 13.5 }}>
+                  {fiatLine} paid out successfully.
+                </span>
+              </div>
+            )}
+
+            {failed && (
+              <div className="card" style={{ padding: 16 }}>
+                <span
+                  style={{
+                    fontSize: 13.5,
+                    color: "var(--fg-soft)",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {phase === "expired"
+                    ? "The deposit window closed before we saw your crypto. Start a new order to get a fresh address."
+                    : "The provider couldn't process this order. If you didn't send anything, nothing was charged."}
+                </span>
+              </div>
+            )}
+
+            <div className="cr-status-ref row between center">
+              <span className="muted font-mono" style={{ fontSize: 12 }}>
+                Order #{order.id}
+              </span>
+              <span
+                className="row center gap-1 muted"
+                style={{ fontSize: 11 }}
+              >
+                <Icon.Shield size={12} /> Released only after your deposit
+                confirms
+              </span>
+            </div>
+          </div>
+
+          {/* Right — progress tracker */}
+          <div className="card cr-status-card cr-status-progress">
+            <span className="eyebrow">Progress</span>
+            {steps.map((s, i) => {
+              const isFailed = failedIndex === i;
+              const isDone = failedPhase
+                ? i < failedIndex
+                : paidOut || i < activeIndex;
+              const isActive = !failedPhase && !paidOut && i === activeIndex;
+              const statusLabel = isFailed
+                ? phase === "expired"
+                  ? "expired"
+                  : "failed"
+                : isDone
+                  ? "done"
+                  : isActive
+                    ? "now"
+                    : "next";
+              const dim = !isDone && !isActive && !isFailed ? 0.5 : 1;
+              return (
+                <div
+                  key={i}
+                  className="row"
+                  style={{
+                    gap: 12,
+                    paddingBottom: i < steps.length - 1 ? 12 : 0,
+                    alignItems: "flex-start",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      flex: "0 0 20px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: "50%",
+                        background: isFailed
+                          ? "var(--err)"
+                          : isDone
+                            ? "var(--ok)"
+                            : isActive
+                              ? "var(--accent)"
+                              : "var(--bg-sunk)",
+                        color:
+                          isDone || isActive || isFailed
+                            ? "#fff"
+                            : "var(--fg-mute)",
+                        border:
+                          !isDone && !isActive && !isFailed
+                            ? "1px solid var(--line-2)"
+                            : "none",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        animation:
+                          isActive && !isFailed
+                            ? "pulse-ring 1.4s var(--ease) infinite"
+                            : "none",
+                      }}
+                    >
+                      {isFailed ? (
+                        <span style={{ fontSize: 12 }}>!</span>
+                      ) : isDone ? (
+                        <Icon.Check size={11} />
+                      ) : (
+                        <span className="font-mono" style={{ fontSize: 10 }}>
+                          {i + 1}
+                        </span>
+                      )}
+                    </div>
+                    {i < steps.length - 1 && (
+                      <div
+                        style={{
+                          width: 1,
+                          flex: 1,
+                          minHeight: 16,
+                          background: isDone ? "var(--ok)" : "var(--line)",
+                          marginTop: 3,
+                        }}
+                      />
+                    )}
+                  </div>
+                  <div className="col grow gap-1" style={{ opacity: dim }}>
+                    <div className="row between" style={{ alignItems: "baseline" }}>
+                      <h4
+                        style={{
+                          fontSize: 13.5,
+                          lineHeight: 1.25,
+                          fontWeight: 500,
+                        }}
+                      >
+                        {s.l}
+                      </h4>
+                      <span
+                        className="font-mono"
+                        style={{
+                          fontSize: 9,
+                          color: "var(--fg-mute)",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.08em",
+                          lineHeight: 1,
+                        }}
+                      >
+                        {statusLabel}
+                      </span>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                        color: "var(--fg-soft)",
+                      }}
+                    >
+                      {s.d}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ----- Resuming from History: fetching the order before we can show it ----
+  if (resumeOrderId && !order) {
+    return (
+      <div className="card col center gap-3" style={{ padding: "40px 24px" }}>
+        {!error && <Icon.Spinner size={18} />}
+        <span className="muted" style={{ fontSize: 13 }}>
+          {error ?? "Reopening your order…"}
+        </span>
       </div>
     );
   }
@@ -551,9 +910,16 @@ export function ChainrailsSellPanel({
       </label>
 
       <label className="col gap-2">
-        <span className="eyebrow">
-          Your {source.label} address (sending from)
-        </span>
+        <div className="row center gap-1">
+          <span className="eyebrow">
+            Your {source.label} address (sending from)
+          </span>
+          {usingWalletAddress && (
+            <InfoHint
+              text={`This is your connected wallet address. You can sell from any ${source.label} address — just paste a different one here.`}
+            />
+          )}
+        </div>
         <input
           value={senderAddress}
           onChange={(e) => setSenderAddress(e.target.value)}
@@ -595,11 +961,68 @@ export function ChainrailsSellPanel({
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+/**
+ * The deposit address the user sends their crypto to — the real action on
+ * chains we can't sign in-app. Shown in full (the user needs every character)
+ * with a one-tap copy that confirms, so nobody hand-types a wallet address.
+ */
+function DepositAddress({
+  address,
+  amountLabel,
+  network,
+}: {
+  address: string;
+  amountLabel: string;
+  network: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = () =>
+    navigator.clipboard
+      ?.writeText(address)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1400);
+      })
+      .catch(() => {});
+
   return (
-    <div className="row between" style={{ fontSize: 13 }}>
-      <span className="muted">{label}</span>
-      <span style={{ fontWeight: 500 }}>{value}</span>
+    <div className="card col gap-3" style={{ padding: 18 }}>
+      <div className="col gap-1">
+        <span className="eyebrow">Send to this address</span>
+        <span className="muted" style={{ fontSize: 12, lineHeight: 1.45 }}>
+          Send exactly {amountLabel} on {network} from your own wallet. The
+          amount must match for the payout to release.
+        </span>
+      </div>
+      <code
+        className="font-mono"
+        style={{
+          fontSize: 12.5,
+          lineHeight: 1.5,
+          wordBreak: "break-all",
+          background: "var(--bg-soft)",
+          border: "1px solid var(--line)",
+          borderRadius: 12,
+          padding: "12px 14px",
+        }}
+      >
+        {address}
+      </code>
+      <button
+        className="btn btn-primary"
+        onClick={copy}
+        style={{ height: 44, borderRadius: 12, fontWeight: 500 }}
+      >
+        {copied ? (
+          <>
+            <Icon.Check size={14} /> Copied
+          </>
+        ) : (
+          <>
+            <Icon.Copy size={14} /> Copy deposit address
+          </>
+        )}
+      </button>
     </div>
   );
 }
@@ -618,12 +1041,6 @@ function ErrorBox({ message }: { message: string }) {
       {message}
     </div>
   );
-}
-
-/** "ORDER_INITIATED" → "Order initiated". */
-function prettyStatus(s: string): string {
-  const t = s.replace(/_/g, " ").toLowerCase();
-  return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
 const INPUT: React.CSSProperties = {
