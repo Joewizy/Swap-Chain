@@ -411,7 +411,7 @@ h1 {
 /* Chainrails order status — compact receipt + narrow progress rail. */
 .cr-status {
   width: 100%;
-  max-width: 812px;
+  max-width: 880px;
   gap: 16px;
 }
 .cr-status-header {
@@ -420,7 +420,7 @@ h1 {
 }
 .cr-status-grid {
   display: grid;
-  grid-template-columns: minmax(0, 480px) minmax(260px, 300px);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 280px);
   gap: 32px;
   align-items: start;
 }

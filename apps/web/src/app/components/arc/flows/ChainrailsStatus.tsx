@@ -412,7 +412,7 @@ export function ChainrailsStatus({
         };
 
   return (
-    <div className="cr-status col" style={{ maxWidth: 880 }}>
+    <div className="cr-status col">
       <button
         className="btn btn-quiet btn-sm"
         onClick={onDone}
@@ -450,10 +450,7 @@ export function ChainrailsStatus({
         )}
       </header>
 
-      <div
-        className="cr-status-grid"
-        style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(240px, 280px)" }}
-      >
+      <div className="cr-status-grid">
         {/* Left — two amount cards, action, order reference */}
         <div className="cr-status-main">
           {/* On a dead order the figures stay for context but fade back — the

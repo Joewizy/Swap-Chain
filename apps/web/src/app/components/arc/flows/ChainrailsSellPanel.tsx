@@ -497,7 +497,7 @@ export function ChainrailsSellPanel({
         : `Send exactly ${amountLabel} to the address below to complete the payout.`;
 
     return (
-      <div className="cr-status col" style={{ maxWidth: 880 }}>
+      <div className="cr-status col">
         <header className="cr-status-header col">
           <span className="row center gap-2">
             <span className="eyebrow">Status</span>
@@ -524,10 +524,7 @@ export function ChainrailsSellPanel({
           )}
         </header>
 
-        <div
-          className="cr-status-grid"
-          style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(240px, 280px)" }}
-        >
+        <div className="cr-status-grid">
           {/* Left — summary + the deposit action */}
           <div className="cr-status-main">
             <div
