@@ -24,6 +24,10 @@ import {
   type RampDestination,
 } from "@/rails/chainrails";
 import { ChainrailsSellPanel } from "./ChainrailsSellPanel";
+import {
+  getTrackedRampOrder,
+  type TrackedRampOrder,
+} from "../chainrailsOrders";
 import { usePaycrestNetwork } from "@/hooks/usePaycrestNetwork";
 import { usePaycrestRate, useTokenBalance } from "@/hooks";
 import { fetchPaycrestRate } from "@/lib/paycrestRate";
@@ -58,6 +62,7 @@ import {
   recipientToPayout,
 } from "../recipients";
 import { useSwapFlowNav } from "../useSwapFlowNav";
+import { useSearchParams } from "next/navigation";
 import { ChainLogo, RampLogo, TokenLogo } from "../Web3Logo";
 
 const TOKENS = ["USDC", "USDT"] as const;
@@ -150,6 +155,7 @@ export function CashoutFlow({
   onBack: () => void;
 }) {
   const { step, setStep, patchUrl } = useSwapFlowNav();
+  const crOrderId = useSearchParams().get("crOrder");
   const [amount, setAmount] = useState("");
   const [token, setToken] = useState<(typeof TOKENS)[number]>("USDC");
   const [currency, setCurrency] = useState<string>("NGN");
@@ -172,6 +178,23 @@ export function CashoutFlow({
   useEffect(() => {
     if (!sourceTouched && !crDest) setSourceChain(defaultSource);
   }, [defaultSource, sourceTouched, crDest]);
+
+  // Reopening a Sell order (crOrder in the URL, so refresh stays here): adopt its
+  // chain and hand the id to the panel so it lands on the deposit screen instead
+  // of a fresh quote form. Details come from tracked History, keyed by that id.
+  const [resume, setResume] = useState<TrackedRampOrder | null>(null);
+  useEffect(() => {
+    if (!CHAINRAILS_OFFRAMP_ENABLED || !crOrderId) return;
+    const tracked = getTrackedRampOrder(crOrderId);
+    if (!tracked || tracked.direction !== "offramp") return;
+    const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
+      (d) => d.label === tracked.chainLabel
+    );
+    if (!dest) return;
+    setCrDest(dest);
+    setSourceTouched(true);
+    setResume(tracked);
+  }, [crOrderId]);
   // Connected wallet's balance of the selected token on the chosen chain, so
   // the user can see what they have before getting a quote. Undefined until a
   // wallet is connected and the read resolves.
@@ -385,6 +408,10 @@ export function CashoutFlow({
         {header}
         <ChainrailsSellPanel
           source={crDest}
+          resumeOrderId={resume?.id}
+          resumeFiatLabel={resume?.fiatLabel}
+          resumeDepositLabel={resume?.depositLabel}
+          resumeCryptoLabel={resume?.cryptoLabel}
           networkSelect={
             <SourceSelect
               sourceChain={sourceChain}

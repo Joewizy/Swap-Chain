@@ -16,6 +16,9 @@ export type TrackedRampOrder = {
   cryptoLabel: string;
   /** e.g. "2,062 NGN". */
   fiatLabel?: string;
+  /** The exact amount to deposit for a sell, e.g. "5.0275 USDC". Captured at
+   *  creation so a resumed order shows the right figure without the quote. */
+  depositLabel?: string;
   /** Recipient (on-ramp) or sender (off-ramp) address. */
   address?: string;
   createdAt: number;
@@ -33,6 +36,11 @@ export function loadTrackedRampOrders(): TrackedRampOrder[] {
   } catch {
     return [];
   }
+}
+
+/** A single tracked order by id — used to reopen a Sell order from the URL. */
+export function getTrackedRampOrder(id: string): TrackedRampOrder | null {
+  return loadTrackedRampOrders().find((o) => o.id === id) ?? null;
 }
 
 /** Record a newly-created order (newest first, deduped by id, capped). */

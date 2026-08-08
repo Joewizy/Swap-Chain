@@ -60,6 +60,8 @@ export function mergeSwapSearchParams(
     flow?: FlowId | "describe" | null;
     status?: boolean | null;
     step?: FlowStep | null;
+    /** ChainRails Sell order being resumed — keeps refresh on the deposit screen. */
+    crOrder?: string | null;
   }
 ): string {
   const params = new URLSearchParams(current.toString());
@@ -79,6 +81,10 @@ export function mergeSwapSearchParams(
   if (patch.step !== undefined) {
     if (patch.step === null || patch.step === "compose") params.delete("step");
     else params.set("step", patch.step);
+  }
+  if (patch.crOrder !== undefined) {
+    if (patch.crOrder === null) params.delete("crOrder");
+    else params.set("crOrder", patch.crOrder);
   }
 
   return params.toString();
