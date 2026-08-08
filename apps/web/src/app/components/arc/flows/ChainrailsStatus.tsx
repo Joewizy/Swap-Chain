@@ -402,17 +402,17 @@ export function ChainrailsStatus({
     : phase === "expired"
       ? {
           chip: "Expired",
-          lead: "No money was charged.",
-          body: "Your checkout and exchange rate are no longer valid. If you didn't complete the payment, nothing left your account.",
+          lead: "This order has expired.",
+          body: "Its checkout and exchange rate are no longer valid. If you already paid, you'll be refunded — if you didn't, nothing was charged.",
         }
       : {
           chip: "Failed",
-          lead: "No money was charged.",
-          body: "The provider couldn't process this order. If you didn't complete the payment, nothing left your account.",
+          lead: "This order couldn't be completed.",
+          body: "If you already paid, you'll be refunded — if you didn't, nothing was charged.",
         };
 
   return (
-    <div className="cr-status col">
+    <div className="cr-status col" style={{ maxWidth: 880 }}>
       <button
         className="btn btn-quiet btn-sm"
         onClick={onDone}
@@ -450,7 +450,10 @@ export function ChainrailsStatus({
         )}
       </header>
 
-      <div className="cr-status-grid">
+      <div
+        className="cr-status-grid"
+        style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(240px, 280px)" }}
+      >
         {/* Left — two amount cards, action, order reference */}
         <div className="cr-status-main">
           {/* On a dead order the figures stay for context but fade back — the

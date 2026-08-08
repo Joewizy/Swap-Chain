@@ -633,8 +633,8 @@ export function ChainrailsSellPanel({
                   }}
                 >
                   {phase === "expired"
-                    ? `We didn't receive your ${amountLabel} before the deposit window closed. If you didn't send anything, nothing left your wallet.`
-                    : "The provider couldn't process this order. If you didn't send anything, nothing left your wallet."}
+                    ? `We didn't receive your ${amountLabel} in time. If you already sent it, it will be refunded to your wallet.`
+                    : "The provider couldn't process this order. If you already sent your crypto, it will be refunded to your wallet."}
                 </span>
               </div>
             )}
