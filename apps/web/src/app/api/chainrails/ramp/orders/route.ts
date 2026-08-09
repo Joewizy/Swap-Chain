@@ -146,3 +146,36 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+/**
+ * DEV-ONLY order list. Chainrails' list endpoint is scoped to our API key
+ * (account-wide, every user), so this is a debugging aid to map an intent
+ * address from the provider dashboard back to a numeric order id and inspect
+ * terminal statuses. It never runs in production. Query string is passed
+ * through, e.g. `?status=completed&limit=100`.
+ */
+export async function GET(req: NextRequest) {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not available." }, { status: 404 });
+  }
+  const apiKey = process.env.CHAINRAILS_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: "CHAINRAILS_API_KEY is not configured on the server." },
+      { status: 500 }
+    );
+  }
+  try {
+    const upstream = await fetch(`${API_URL}${req.nextUrl.search}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    });
+    const data: unknown = await upstream.json().catch(() => null);
+    return NextResponse.json(data, { status: upstream.status });
+  } catch {
+    return NextResponse.json(
+      { error: "Couldn't reach Chainrails to list orders." },
+      { status: 502 }
+    );
+  }
+}
