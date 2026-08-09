@@ -26,6 +26,29 @@ export type TrackedRampOrder = {
 
 const KEY = "chainrails:orders";
 const MAX = 30;
+/** Order ids we've already toasted a terminal outcome for (so we don't repeat). */
+const NOTIFIED_KEY = "chainrails:notified";
+
+export function loadNotifiedRampIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(NOTIFIED_KEY);
+    const arr = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(Array.isArray(arr) ? (arr as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function markRampNotified(id: string): void {
+  try {
+    const next = loadNotifiedRampIds();
+    next.add(id);
+    // Cap so the set doesn't grow unbounded.
+    localStorage.setItem(NOTIFIED_KEY, JSON.stringify([...next].slice(-100)));
+  } catch {
+    // localStorage unavailable — we may re-toast next load; harmless.
+  }
+}
 
 export function loadTrackedRampOrders(): TrackedRampOrder[] {
   try {

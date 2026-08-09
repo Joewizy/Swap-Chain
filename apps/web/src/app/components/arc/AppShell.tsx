@@ -45,6 +45,7 @@ import {
 } from "./swapUrl";
 import { useSwapFlowNav } from "./useSwapFlowNav";
 import { useOrderNotifications } from "./useOrderNotifications";
+import { useRampOrderNotifications } from "./useRampOrderNotifications";
 import {
   matchRecipient,
   storePendingRecipient,
@@ -314,6 +315,7 @@ export default function AppShell() {
 
   // Toast orders that finished while the user was away; "View" reopens them.
   useOrderNotifications(resumeOrder);
+  useRampOrderNotifications(resumeChainrailsOrder);
 
   const pickFlow = (id: FlowId | "describe") => {
     clearFlowDraft();
