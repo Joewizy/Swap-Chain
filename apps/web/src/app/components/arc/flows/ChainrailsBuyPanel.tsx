@@ -22,6 +22,7 @@ import type { TokenSymbol } from "@/config/network";
 import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import { type Quote } from "../SendScreen";
 import { Icon } from "../icons";
+import { EMAIL_RE, loadSavedEmail, saveEmail } from "../rampEmail";
 
 type Country = {
   countryCode: string;
@@ -98,6 +99,15 @@ export function ChainrailsBuyPanel({
   // (and the dynamic bank list) come from the quote's directTransferDetails.
   const [fields, setFields] = useState<FieldSpec[]>([]);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  // Contact/KYC email — entered once, then remembered on-device and reused
+  // (shared with Sell). We only prompt when nothing is saved yet.
+  const [email, setEmail] = useState("");
+  const [askEmail, setAskEmail] = useState(false);
+  useEffect(() => {
+    const saved = loadSavedEmail();
+    if (saved) setEmail(saved);
+    else setAskEmail(true);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,8 +185,14 @@ export function ChainrailsBuyPanel({
   const fieldsComplete = fields.every(
     (f) => !f.required || (fieldValues[f.key]?.trim()?.length ?? 0) > 0
   );
+  const emailValid = EMAIL_RE.test(email.trim());
   const canQuote =
-    !!country && fiatAmount > 0 && !!unitRate && !belowMin && fieldsComplete;
+    !!country &&
+    fiatAmount > 0 &&
+    !!unitRate &&
+    !belowMin &&
+    fieldsComplete &&
+    emailValid;
 
   const buildQuote = (r: RampQuote, c: Country): Quote => ({
     from: { token: r.fiatCurrency, chain: c.name, amount: r.fiatAmount },
@@ -233,6 +249,7 @@ export function ChainrailsBuyPanel({
 
   const getQuote = async () => {
     if (!country || !canQuote || !unitRate) return;
+    saveEmail(email.trim()); // remember it for next time (passed emailValid gate)
     // Convert the fiat the user typed into the crypto amount Chainrails quotes on.
     const cryptoAmount = Number((fiatAmount / unitRate).toFixed(4));
     setQuoting(true);
@@ -363,6 +380,22 @@ export function ChainrailsBuyPanel({
           )}
         </label>
       ))}
+
+      {/* Asked once; afterwards it's remembered on-device and this is hidden. */}
+      {askEmail && (
+        <label className="col gap-2">
+          <span className="font-mono" style={LABEL}>
+            Email (for KYC &amp; receipts)
+          </span>
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            inputMode="email"
+            placeholder="you@example.com"
+            style={INPUT}
+          />
+        </label>
+      )}
 
       {belowMin && country && (
         <span style={{ fontSize: 12, color: "var(--pend)" }}>

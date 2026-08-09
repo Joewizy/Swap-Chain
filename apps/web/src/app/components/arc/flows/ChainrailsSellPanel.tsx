@@ -33,6 +33,7 @@ import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import { InfoHint } from "../SendScreen";
 import { Icon } from "../icons";
 import { trackRampOrder } from "../chainrailsOrders";
+import { EMAIL_RE, loadSavedEmail, saveEmail } from "../rampEmail";
 
 /** Colored Iconify name for a token, or null when there's no real logo. */
 function tokenLogo(symbol: string): string | null {
@@ -140,27 +141,6 @@ type RampOrder = {
   cryptoCurrency?: string;
   depositChain?: string;
 };
-
-/**
- * The KYC email is the same every time for a given person, so we remember the
- * last one this device used (like recipients/orders) and prefill it — no
- * re-typing on every sell. Device-local; never leaves the browser.
- */
-const EMAIL_KEY = "railglide:ramp:email";
-function loadSavedEmail(): string {
-  try {
-    return localStorage.getItem(EMAIL_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-function saveEmail(email: string) {
-  try {
-    localStorage.setItem(EMAIL_KEY, email);
-  } catch {
-    /* localStorage unavailable — email just won't persist this session. */
-  }
-}
 
 export function ChainrailsSellPanel({
   source,
@@ -338,7 +318,7 @@ export function ChainrailsSellPanel({
   const fieldsComplete = requiredFields.every(
     (f) => !f.required || (fieldValues[f.key]?.trim()?.length ?? 0) > 0
   );
-  const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
+  const emailValid = EMAIL_RE.test(email.trim());
 
   const createOrder = async () => {
     if (!quote || !country) return;
