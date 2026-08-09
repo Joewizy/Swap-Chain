@@ -250,11 +250,7 @@ export function classifyRampStatus(
   if (
     s.includes("COMPLETED") ||
     s.includes("SETTLED") ||
-    s.includes("SUCCESS") ||
-    // PAYMENT_RECEIVED — once the provider has the fiat we treat the buy as
-    // delivered. (Checked before REFUNDED below, but "RECEIVED" can't collide
-    // with it; "FUNDED" would, so it stays out of this bucket.)
-    s.includes("RECEIVED")
+    s.includes("SUCCESS")
   ) {
     return "completed";
   }
@@ -270,7 +266,12 @@ export function classifyRampStatus(
     s.includes("PROCESSING") ||
     s.includes("BRIDGING") ||
     s.includes("PAID") ||
-    s.includes("FUNDED")
+    s.includes("FUNDED") ||
+    // PAYMENT_RECEIVED = the deposit landed, but the fiat payout (off-ramp) or
+    // crypto delivery (on-ramp) is still in flight — NOT terminal. The provider
+    // dashboard shows this as "Pending", so we treat it as processing, never
+    // "completed" (which would falsely tell the user they'd been paid).
+    s.includes("RECEIVED")
   ) {
     return "processing";
   }

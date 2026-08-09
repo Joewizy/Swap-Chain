@@ -502,6 +502,78 @@ export function ChainrailsSellPanel({
         ? "Your deposit is confirming on-chain — the payout releases shortly."
         : `Send exactly ${amountLabel} to the address below to complete the payout.`;
 
+    // Completed — the hero moment (mirrors the Paycrest success card).
+    if (paidOut) {
+      return (
+        <div className="cr-status col">
+          <section
+            className="card col center"
+            style={{
+              maxWidth: 440,
+              margin: "8px auto 0",
+              padding: 28,
+              textAlign: "center",
+              gap: 4,
+              background: "var(--ok-soft)",
+              border: "1px solid var(--ok)",
+              borderRadius: 20,
+              animation: "fade-up 0.35s var(--ease) both",
+            }}
+          >
+            <span
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: "50%",
+                background: "var(--ok)",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 6,
+              }}
+            >
+              <Icon.Check size={22} />
+            </span>
+            <span className="eyebrow" style={{ color: "var(--ok)" }}>
+              Payout complete
+            </span>
+            <span
+              className="font-mono tabular"
+              style={{
+                fontSize: "clamp(28px, 6vw, 40px)",
+                fontWeight: 600,
+                letterSpacing: "-0.02em",
+                lineHeight: 1.05,
+              }}
+            >
+              {fiatLine}
+            </span>
+            <span style={{ fontSize: 14, color: "var(--fg-soft)", marginTop: 2 }}>
+              sent to the recipient&apos;s bank account
+            </span>
+            <span
+              className="font-mono row center gap-1"
+              style={{ fontSize: 12, color: "var(--fg-mute)", marginTop: 8 }}
+            >
+              <AssetLogo name={tokenLogo(cryptoCurrency)} size={12} />
+              {amountLabel} on {networkLabel}
+            </span>
+            <div style={{ marginTop: 12 }}>
+              <CopyableOrderId id={String(order.id)} />
+            </div>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={startNewOrder}
+              style={{ marginTop: 14 }}
+            >
+              Start new order <Icon.ArrowRight />
+            </button>
+          </section>
+        </div>
+      );
+    }
+
     return (
       <div className="cr-status col">
         <header className="cr-status-header col">
@@ -603,22 +675,6 @@ export function ChainrailsSellPanel({
                 <span style={{ fontSize: 13.5 }}>
                   Deposit received — sending {fiatLine} to the recipient&apos;s
                   account.
-                </span>
-              </div>
-            )}
-
-            {paidOut && (
-              <div
-                className="card row center gap-2"
-                style={{
-                  padding: 16,
-                  background: "var(--ok-soft)",
-                  border: "1px solid var(--ok)",
-                }}
-              >
-                <Icon.Check size={16} />
-                <span style={{ fontSize: 13.5 }}>
-                  {fiatLine} paid out successfully.
                 </span>
               </div>
             )}
