@@ -61,6 +61,24 @@ export function loadTrackedRampOrders(): TrackedRampOrder[] {
   }
 }
 
+/**
+ * Link an order to the user's email server-side (fire-and-forget) so it shows
+ * in their history across devices. No-op without both; failures are ignored —
+ * the local track is the fallback.
+ */
+export function linkRampOrder(id: string, email: string): void {
+  if (!id || !email) return;
+  try {
+    void fetch("/api/chainrails/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, email }),
+    }).catch(() => {});
+  } catch {
+    // ignore — history still works from the local track
+  }
+}
+
 /** A single tracked order by id — used to reopen a Sell order from the URL. */
 export function getTrackedRampOrder(id: string): TrackedRampOrder | null {
   return loadTrackedRampOrders().find((o) => o.id === id) ?? null;

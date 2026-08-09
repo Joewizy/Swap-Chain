@@ -19,7 +19,8 @@ import {
 } from "@/rails/chainrails";
 import { type Intent } from "../SendScreen";
 import { Icon } from "../icons";
-import { trackRampOrder } from "../chainrailsOrders";
+import { linkRampOrder, trackRampOrder } from "../chainrailsOrders";
+import { loadSavedEmail } from "../rampEmail";
 import { getTokenIcon } from "@/utils/icons";
 import { pollRampOrder } from "@/lib/chainrailsPoll";
 
@@ -238,6 +239,8 @@ export function ChainrailsStatus({
           address: exec.recipient ?? undefined,
           createdAt: Date.now(),
         });
+        // Tie it to the saved email for cross-device history.
+        linkRampOrder(id, loadSavedEmail());
 
         // Update state unconditionally — in StrictMode the second run returns
         // early on `startedRef`, so this (first) run must set state on the live

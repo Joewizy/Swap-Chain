@@ -17,6 +17,7 @@ import {
   loadTrackedRampOrders,
   type TrackedRampOrder,
 } from "./chainrailsOrders";
+import { loadSavedEmail } from "./rampEmail";
 import { classifyRampStatus, type RampOrderPhase } from "@/rails/chainrails";
 
 /* ────────────────── HISTORY ────────────────── */
@@ -256,7 +257,46 @@ function chainrailsChip(
   }
 }
 
-/** Local Chainrails ramp orders, with each one's live status re-fetched. */
+/** A server order summary (GET /api/chainrails/orders) shaped for the card. */
+type ServerRampOrder = {
+  id: string | number;
+  direction: "onramp" | "offramp" | null;
+  fiatCurrency: string | null;
+  fiatAmount: number | null;
+  cryptoCurrency: string | null;
+  cryptoAmount: number | null;
+  createdAt: string | null;
+};
+
+function serverOrderToTracked(o: ServerRampOrder): TrackedRampOrder {
+  return {
+    id: String(o.id),
+    direction: o.direction === "onramp" ? "onramp" : "offramp",
+    chainLabel: "", // the store doesn't keep the display label
+    cryptoLabel:
+      o.cryptoAmount != null
+        ? `${o.cryptoAmount} ${o.cryptoCurrency ?? "USDC"}`
+        : (o.cryptoCurrency ?? "USDC"),
+    fiatLabel:
+      o.fiatAmount != null
+        ? `${o.fiatAmount.toLocaleString()} ${o.fiatCurrency ?? ""}`.trim()
+        : undefined,
+    createdAt: o.createdAt ? Date.parse(o.createdAt) : Date.now(),
+  };
+}
+
+/** Union by id — the local track has fuller labels, so it wins on overlap. */
+function mergeRampOrders(
+  local: TrackedRampOrder[],
+  server: TrackedRampOrder[]
+): TrackedRampOrder[] {
+  const byId = new Map<string, TrackedRampOrder>();
+  for (const o of server) byId.set(o.id, o);
+  for (const o of local) byId.set(o.id, o);
+  return [...byId.values()].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** Chainrails ramp orders (local track + server history), status re-fetched. */
 function ChainrailsHistorySection({
   onResume,
 }: {
@@ -266,12 +306,34 @@ function ChainrailsHistorySection({
   const [phases, setPhases] = useState<Record<string, RampOrderPhase>>({});
 
   useEffect(() => {
-    const tracked = loadTrackedRampOrders();
-    setOrders(tracked);
     let cancelled = false;
     (async () => {
+      const local = loadTrackedRampOrders();
+      // Server-side history for this person (cross-device), keyed by saved email.
+      let server: TrackedRampOrder[] = [];
+      const email = loadSavedEmail();
+      if (email) {
+        try {
+          const res = await fetch(
+            `/api/chainrails/orders?email=${encodeURIComponent(email)}`
+          );
+          if (res.ok) {
+            const data = await res.json();
+            server = (Array.isArray(data?.orders) ? data.orders : []).map(
+              serverOrderToTracked
+            );
+          }
+        } catch {
+          /* fall back to the local track */
+        }
+      }
+      if (cancelled) return;
+
+      const merged = mergeRampOrders(local, server);
+      setOrders(merged);
+
       const entries = await Promise.all(
-        tracked.map(async (o): Promise<[string, RampOrderPhase]> => {
+        merged.map(async (o): Promise<[string, RampOrderPhase]> => {
           try {
             const res = await fetch(`/api/chainrails/ramp/orders/${o.id}`, {
               cache: "no-store",

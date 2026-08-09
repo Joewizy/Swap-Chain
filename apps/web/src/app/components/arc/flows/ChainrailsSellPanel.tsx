@@ -32,7 +32,7 @@ import { getChainIcon, getTokenIcon } from "@/utils/icons";
 import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import { InfoHint } from "../SendScreen";
 import { Icon } from "../icons";
-import { trackRampOrder } from "../chainrailsOrders";
+import { linkRampOrder, trackRampOrder } from "../chainrailsOrders";
 import { EMAIL_RE, loadSavedEmail, saveEmail } from "../rampEmail";
 
 /** Colored Iconify name for a token, or null when there's no real logo. */
@@ -371,6 +371,8 @@ export function ChainrailsSellPanel({
       });
       // Put the id in the URL so a refresh reopens this order, not the form.
       onOrderCreated?.(String(data.id));
+      // Tie it to the user's email for cross-device history.
+      linkRampOrder(String(data.id), email.trim());
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Couldn't create the sell order."

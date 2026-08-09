@@ -9,6 +9,7 @@
  * No-ops when Redis is unconfigured (local dev without Upstash), so callers
  * must degrade to a live provider read rather than assume a store exists.
  */
+import { createHash } from "node:crypto";
 import { redis } from "@/lib/redis";
 import {
   classifyRampStatus,
@@ -28,6 +29,8 @@ export interface StoredRampOrder {
   fiatAmount: number | null;
   cryptoCurrency: string | null;
   cryptoAmount: number | null;
+  /** When the order was created (ISO), when known — drives history sort. */
+  createdAt: string | null;
   /** Last webhook event type that touched this record, e.g. "ramp.order.completed". */
   event: string | null;
   updatedAt: string;
@@ -39,6 +42,17 @@ const EVENT_TTL_SECONDS = 60 * 60 * 24 * 7; // covers the retry window
 
 const orderKey = (id: string) => `chainrails:store:order:${id}`;
 const eventKey = (eventId: string) => `chainrails:store:event:${eventId}`;
+/** Owner index: a person's order ids, keyed by a hash of their email (raw
+ *  email never becomes a key). Soft identity until email verification lands. */
+const emailIndexKey = (email: string) =>
+  `chainrails:store:email:${hashEmail(email)}`;
+
+function hashEmail(email: string): string {
+  return createHash("sha256")
+    .update(email.trim().toLowerCase())
+    .digest("hex")
+    .slice(0, 32);
+}
 
 /** pending < processing < terminal; unknown never wins. */
 function phaseRank(phase: RampOrderPhase): number {
@@ -96,8 +110,12 @@ export interface RampUpsertResult {
 
 /** Idempotent, monotonic upsert of a ramp-order snapshot from the webhook. */
 export async function upsertStoredRampOrder(
-  input: Omit<StoredRampOrder, "phase" | "updatedAt" | "terminalAt"> & {
+  input: Omit<
+    StoredRampOrder,
+    "phase" | "updatedAt" | "terminalAt" | "createdAt"
+  > & {
     updatedAt?: string;
+    createdAt?: string | null;
   }
 ): Promise<RampUpsertResult> {
   if (!redis) return { stored: null, changed: false };
@@ -107,6 +125,7 @@ export async function upsertStoredRampOrder(
   const next: StoredRampOrder = {
     ...input,
     phase,
+    createdAt: input.createdAt ?? null,
     updatedAt: input.updatedAt ?? nowIso,
   };
 
@@ -126,6 +145,7 @@ export async function upsertStoredRampOrder(
       fiatAmount: next.fiatAmount ?? existing?.fiatAmount ?? null,
       cryptoCurrency: next.cryptoCurrency ?? existing?.cryptoCurrency ?? null,
       cryptoAmount: next.cryptoAmount ?? existing?.cryptoAmount ?? null,
+      createdAt: next.createdAt ?? existing?.createdAt ?? null,
       terminalAt: becameTerminal
         ? (existing?.terminalAt ?? nowIso)
         : existing?.terminalAt,
@@ -140,6 +160,22 @@ export async function upsertStoredRampOrder(
   }
 }
 
+/** Attach an order to a person's email index (soft owner key). */
+export async function indexRampOrderForEmail(
+  email: string,
+  orderId: string,
+  createdAt: number
+): Promise<void> {
+  if (!redis || !email) return;
+  try {
+    const key = emailIndexKey(email);
+    await redis.zadd(key, { score: createdAt || Date.now(), member: orderId });
+    await redis.expire(key, ORDER_TTL_SECONDS);
+  } catch (err) {
+    console.error("[chainrailsStore] email index failed", err);
+  }
+}
+
 /** A stored ramp order, or null when absent / unconfigured (caller reads live). */
 export async function getStoredRampOrder(
   id: string
@@ -150,5 +186,23 @@ export async function getStoredRampOrder(
   } catch (err) {
     console.error("[chainrailsStore] get failed", err);
     return null;
+  }
+}
+
+/** A person's stored orders, newest first; skips entries whose record expired. */
+export async function listStoredRampOrdersByEmail(
+  email: string
+): Promise<StoredRampOrder[]> {
+  if (!redis || !email) return [];
+  try {
+    const ids = await redis.zrange<string[]>(emailIndexKey(email), 0, -1, {
+      rev: true,
+    });
+    if (!ids.length) return [];
+    const records = await Promise.all(ids.map((id) => getStoredRampOrder(id)));
+    return records.filter((r): r is StoredRampOrder => r !== null);
+  } catch (err) {
+    console.error("[chainrailsStore] listByEmail failed", err);
+    return [];
   }
 }
