@@ -176,12 +176,15 @@ export function ChainrailsStatus({
     }
     const destinationChain = ramp.destinationChain;
 
-    // Resume a still-valid cached order rather than creating a duplicate.
+    // Resume a still-valid cached order rather than creating a duplicate. This
+    // is the refresh path, so start polling straight away — otherwise the page
+    // comes back but the status sits frozen until the user prods it.
     const cached = readCache();
     if (cached && isCacheFresh(cached, purchaseKey)) {
       setOrderId(cached.id);
       setWidgetUrl(cached.widgetUrl ?? null);
       setCreating(false);
+      setPolling(true);
       return;
     }
 

@@ -171,6 +171,7 @@ export function ChainrailsSellPanel({
   resumeCryptoLabel,
   onOrderActive,
   onStartNew,
+  onOrderCreated,
 }: {
   source: RampDestination;
   /** The shared "From" chain picker, rendered inside this card. */
@@ -190,6 +191,9 @@ export function ChainrailsSellPanel({
   onOrderActive?: (active: boolean) => void;
   /** Clears the resumed order in the parent (URL + state) when starting over. */
   onStartNew?: () => void;
+  /** Fires when a new order is created, so the parent can put its id in the URL
+   *  (survives a refresh — otherwise a fresh order is lost on reload). */
+  onOrderCreated?: (id: string) => void;
 }) {
   const [countries, setCountries] = useState<Country[]>([]);
   const [countryCode, setCountryCode] = useState("NG");
@@ -385,6 +389,8 @@ export function ChainrailsSellPanel({
         address: senderAddress.trim(),
         createdAt: Date.now(),
       });
+      // Put the id in the URL so a refresh reopens this order, not the form.
+      onOrderCreated?.(String(data.id));
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Couldn't create the sell order."

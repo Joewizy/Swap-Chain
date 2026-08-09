@@ -424,6 +424,7 @@ export function CashoutFlow({
           resumeDepositLabel={resume?.depositLabel}
           resumeCryptoLabel={resume?.cryptoLabel}
           onOrderActive={setOrderActive}
+          onOrderCreated={(id) => patchUrl({ crOrder: id })}
           onStartNew={() => {
             setResume(null);
             setOrderActive(false);
