@@ -148,15 +148,21 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * DEV-ONLY order list. Chainrails' list endpoint is scoped to our API key
- * (account-wide, every user), so this is a debugging aid to map an intent
- * address from the provider dashboard back to a numeric order id and inspect
- * terminal statuses. It never runs in production. Query string is passed
- * through, e.g. `?status=completed&limit=100`.
+ * Debug-only order list, token-gated. Chainrails' list endpoint is scoped to
+ * our API key (account-wide — EVERY user's orders), so this must never be open.
+ * It exists to map an intent address from the ChainRails dashboard back to a
+ * numeric order id and inspect terminal statuses during deep debugging.
+ *
+ * Enable it by setting CHAINRAILS_DEBUG_TOKEN, then pass `?token=<that>`. When
+ * the env var is unset the route is off. A bad/absent token returns 404 so the
+ * route's existence isn't advertised. Query string (minus `token`) passes
+ * through, e.g. `?status=completed`.
  */
 export async function GET(req: NextRequest) {
-  if (process.env.NODE_ENV === "production") {
-    return NextResponse.json({ error: "Not available." }, { status: 404 });
+  const expected = process.env.CHAINRAILS_DEBUG_TOKEN;
+  const provided = req.nextUrl.searchParams.get("token");
+  if (!expected || provided !== expected) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
   const apiKey = process.env.CHAINRAILS_API_KEY;
   if (!apiKey) {
@@ -165,8 +171,12 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+  // Don't forward our own gate token upstream.
+  const params = new URLSearchParams(req.nextUrl.search);
+  params.delete("token");
+  const qs = params.toString();
   try {
-    const upstream = await fetch(`${API_URL}${req.nextUrl.search}`, {
+    const upstream = await fetch(`${API_URL}${qs ? `?${qs}` : ""}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       cache: "no-store",
     });
