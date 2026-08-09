@@ -5,12 +5,7 @@ import {
   upsertStoredRampOrder,
 } from "@/lib/chainrailsStore";
 
-export const runtime = "nodejs"; // node:crypto + raw body; must not run on edge
-
-// ChainRails signs `HMAC-SHA256(secret, `${timestamp}.${rawBody}`)` (hex) and
-// sends it in `X-Chainrails-Signature`, with `X-Chainrails-Timestamp`. Reject
-// anything older than 5 minutes to blunt replay attacks.
-// Docs: https://docs.chainrails.io/guides/webhooks
+export const runtime = "nodejs"; 
 const MAX_SKEW_MS = 5 * 60 * 1000;
 
 function expectedSignature(
