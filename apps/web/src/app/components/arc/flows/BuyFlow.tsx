@@ -40,11 +40,14 @@ import {
 } from "../SendScreen";
 import { Icon } from "../icons";
 import {
+  clearComposeDraft,
   clearFlowDraft,
   clearPendingLaunch,
   isDraftStale,
+  loadComposeDraft,
   loadFlowDraft,
   loadPendingLaunch,
+  storeComposeDraft,
   storeFlowDraft,
   type FlowDraft,
 } from "../swapUrl";
@@ -216,6 +219,30 @@ export function BuyFlow({
     setReady(true);
   }, [step, setStep]);
 
+  // Restore a half-filled compose form after a refresh or a trip back to Home,
+  // so nothing has to be retyped. Runs before the chat-launch effect below, so a
+  // launch from chat (which clears itself) still wins; the review step restores
+  // from its own richer draft above.
+  useEffect(() => {
+    if (step === "review") return;
+    if (loadPendingLaunch()?.flow === "buy") return;
+    const d = loadComposeDraft("buy");
+    if (!d) return;
+    if (d.amount) setAmount(d.amount);
+    if (d.currency) setCurrency(d.currency);
+    if (d.token === "USDC" || d.token === "USDT") setToken(d.token);
+    if (d.crChain) {
+      const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
+        (c) => c.chainrailsChain === d.crChain
+      );
+      if (dest) setCrDest(dest);
+    } else if (d.chain) {
+      setNetwork(d.chain as ChainId);
+      setNetworkTouched(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const launch = loadPendingLaunch();
     if (!launch || launch.flow !== "buy") return;
@@ -226,6 +253,19 @@ export function BuyFlow({
     }
     clearPendingLaunch();
   }, []);
+
+  // Save compose inputs as they change so a refresh / back doesn't lose them.
+  // The review step owns its own draft, so we don't overwrite it here.
+  useEffect(() => {
+    if (step === "review") return;
+    storeComposeDraft("buy", {
+      amount,
+      currency,
+      token,
+      chain: network,
+      crChain: crDest?.chainrailsChain,
+    });
+  }, [amount, currency, token, network, crDest, step]);
 
   const refreshRate = async (draft: FlowDraft) => {
     const draftToken = draft.token ?? "USDC";
@@ -331,6 +371,7 @@ export function BuyFlow({
         onBack={leaveReview}
         onConfirm={(payout, destination) => {
           clearFlowDraft();
+          clearComposeDraft("buy");
           patchUrl({ step: null });
           const exec = {
             ...quote.exec,

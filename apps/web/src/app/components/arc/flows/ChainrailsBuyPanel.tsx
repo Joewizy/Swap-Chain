@@ -23,6 +23,11 @@ import { PrefixedAmountInput } from "./PrefixedAmountInput";
 import { type Quote } from "../SendScreen";
 import { Icon } from "../icons";
 import { EMAIL_RE, loadSavedEmail, saveEmail } from "../rampEmail";
+import {
+  clearChainrailsRampDraft,
+  loadChainrailsRampDraft,
+  storeChainrailsRampDraft,
+} from "../swapUrl";
 
 type Country = {
   countryCode: string;
@@ -108,6 +113,27 @@ export function ChainrailsBuyPanel({
     if (saved) setEmail(saved);
     else setAskEmail(true);
   }, []);
+
+  // Restore a half-filled panel (amount, country, provider fields) after a
+  // refresh so nothing has to be retyped. Kept per corridor chain. The dynamic
+  // field list is re-fetched by the rate probe below; it merges onto these.
+  useEffect(() => {
+    const d = loadChainrailsRampDraft(destination.chainrailsChain);
+    if (!d) return;
+    if (d.amount) setAmount(d.amount);
+    if (d.countryCode) setCountryCode(d.countryCode);
+    if (d.fields) setFieldValues(d.fields);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [destination.chainrailsChain]);
+
+  // Save inputs as they change so a refresh / back doesn't lose them.
+  useEffect(() => {
+    storeChainrailsRampDraft(destination.chainrailsChain, {
+      amount,
+      countryCode,
+      fields: fieldValues,
+    });
+  }, [destination.chainrailsChain, amount, countryCode, fieldValues]);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,6 +297,7 @@ export function ChainrailsBuyPanel({
         RampQuote | undefined;
       if (!selected)
         throw new Error("No provider can quote this purchase right now.");
+      clearChainrailsRampDraft(destination.chainrailsChain);
       onQuote(buildQuote(selected, country));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't get a quote.");

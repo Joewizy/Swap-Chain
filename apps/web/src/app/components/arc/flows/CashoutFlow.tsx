@@ -48,11 +48,14 @@ import {
 } from "../SendScreen";
 import { Icon } from "../icons";
 import {
+  clearComposeDraft,
   clearFlowDraft,
   clearPendingLaunch,
   isDraftStale,
+  loadComposeDraft,
   loadFlowDraft,
   loadPendingLaunch,
+  storeComposeDraft,
   storeFlowDraft,
   type FlowDraft,
 } from "../swapUrl";
@@ -247,6 +250,49 @@ export function CashoutFlow({
     setStep("compose");
     setReady(true);
   }, [step, setStep]);
+
+  // Restore a half-filled Sell form after a refresh or a trip back to Home, so
+  // nothing has to be retyped. Runs before the recipient / chat-launch effects
+  // below (both of which clear themselves), so a deliberate "Send to X" or a
+  // launch from chat still wins. Skipped while resuming a ChainRails order (that
+  // path seeds its own chain) and on the review step (its draft owns that).
+  useEffect(() => {
+    if (step === "review" || crOrderId) return;
+    if (loadPendingLaunch()?.flow === "cashout" || loadPendingRecipient())
+      return;
+    const d = loadComposeDraft("cashout");
+    if (!d) return;
+    if (d.amount) setAmount(d.amount);
+    if (d.currency) setCurrency(d.currency);
+    if (d.token === "USDC" || d.token === "USDT") setToken(d.token);
+    if (d.crChain && CHAINRAILS_OFFRAMP_ENABLED) {
+      const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
+        (c) => c.chainrailsChain === d.crChain
+      );
+      if (dest) {
+        setCrDest(dest);
+        setSourceTouched(true);
+      }
+    } else if (d.chain) {
+      setSourceChain(d.chain as ChainId);
+      setSourceTouched(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save compose inputs as they change so a refresh / back doesn't lose them.
+  // The review step owns its own draft, and a resumed order manages its own
+  // chain, so we skip persisting in both cases.
+  useEffect(() => {
+    if (step === "review" || crOrderId) return;
+    storeComposeDraft("cashout", {
+      amount,
+      currency,
+      token,
+      chain: sourceChain,
+      crChain: crDest?.chainrailsChain,
+    });
+  }, [amount, currency, token, sourceChain, crDest, step, crOrderId]);
 
   // Prefill from a recipient picked on the Recipients screen ("Send").
   useEffect(() => {
@@ -456,6 +502,7 @@ export function CashoutFlow({
         onBack={leaveReview}
         onConfirm={(payout, refundAddress) => {
           clearFlowDraft();
+          clearComposeDraft("cashout");
           patchUrl({ step: null });
           const exec = {
             ...quote.exec,

@@ -145,6 +145,99 @@ export function clearFlowDraft(): void {
   }
 }
 
+// --- compose-step inputs (survive refresh / back) -----------------------
+
+/**
+ * Raw compose-form inputs, persisted as the user types so a refresh — or a trip
+ * back to Home and into the flow again — doesn't wipe a half-filled form. Kept
+ * per flow, and cleared once the order is submitted. The richer {@link FlowDraft}
+ * takes over on the review step (it carries the built quote); this is only the
+ * lightweight "what they'd typed so far" before a quote exists.
+ */
+export type ComposeDraft = {
+  amount?: string;
+  currency?: string;
+  token?: string;
+  /** Buy: the receive network. Sell: the source chain. A ChainId. */
+  chain?: string;
+  /** ChainRails corridor chain, set when a non-Paycrest destination is picked. */
+  crChain?: string;
+};
+
+type ComposeFlow = "buy" | "cashout";
+const composeKey = (flow: ComposeFlow) => `railglide:compose:${flow}`;
+
+export function loadComposeDraft(flow: ComposeFlow): ComposeDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(composeKey(flow));
+    return raw ? (JSON.parse(raw) as ComposeDraft) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeComposeDraft(flow: ComposeFlow, draft: ComposeDraft): void {
+  try {
+    sessionStorage.setItem(composeKey(flow), JSON.stringify(draft));
+  } catch {
+    // sessionStorage unavailable — the form just won't survive refresh.
+  }
+}
+
+export function clearComposeDraft(flow: ComposeFlow): void {
+  try {
+    sessionStorage.removeItem(composeKey(flow));
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * ChainRails ramp-panel inputs (the fiat amount, country, and dynamic provider
+ * fields the panel collects for chains Paycrest can't reach). Kept per corridor
+ * chain so switching destinations doesn't cross-contaminate, and cleared once a
+ * quote is built. Survives refresh / back like {@link ComposeDraft}.
+ */
+export type ChainrailsRampDraft = {
+  amount?: string;
+  countryCode?: string;
+  fields?: Record<string, string>;
+};
+
+const crRampKey = (chain: string) => `railglide:cr-ramp:${chain}`;
+
+export function loadChainrailsRampDraft(
+  chain: string
+): ChainrailsRampDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(crRampKey(chain));
+    return raw ? (JSON.parse(raw) as ChainrailsRampDraft) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeChainrailsRampDraft(
+  chain: string,
+  draft: ChainrailsRampDraft
+): void {
+  try {
+    sessionStorage.setItem(crRampKey(chain), JSON.stringify(draft));
+  } catch {
+    // sessionStorage unavailable — the panel just won't survive refresh.
+  }
+}
+
+export function clearChainrailsRampDraft(chain: string): void {
+  try {
+    sessionStorage.removeItem(crRampKey(chain));
+  } catch {
+    // ignore
+  }
+}
+
 /** One-shot buffer while navigating chat → guided flow. */
 export function savePendingLaunch(launch: FlowLaunch): void {
   try {
