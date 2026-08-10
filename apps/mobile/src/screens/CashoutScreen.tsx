@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -42,6 +42,14 @@ import {
   institutionOptions,
   tokenOptions,
 } from "@/components/options";
+import { TokenLogo, ChainLogo } from "@/components/Logo";
+import { Confetti } from "@/components/Confetti";
+import { SuccessCheck } from "@/components/SuccessCheck";
+import {
+  clearComposeDraft,
+  loadComposeDraft,
+  saveComposeDraft,
+} from "@/lib/composeDraft";
 import { theme } from "@/theme";
 
 const TOKENS: PaycrestToken[] = ["USDC", "USDT"];
@@ -97,6 +105,38 @@ export function CashoutScreen() {
   useEffect(() => {
     return () => setPendingLaunch(null);
   }, [setPendingLaunch]);
+
+  // Restore a half-filled Sell form (from a prior visit / app restart) so
+  // nothing has to be retyped. A chat launch wins, so we only restore without
+  // one. `hydrated` gates the save effect so it can't clobber the draft with the
+  // blank initial state before the restore lands.
+  const hydrated = useRef(false);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (!launch) {
+        const d = await loadComposeDraft("cashout");
+        if (active && d) {
+          if (d.amount) setAmount(d.amount);
+          if (d.currency && PAYCREST_FIAT.includes(d.currency as PaycrestFiat))
+            setCurrency(d.currency as PaycrestFiat);
+          if (d.token === "USDC" || d.token === "USDT") setToken(d.token);
+          if (d.chain && chains.includes(d.chain as ChainId))
+            setChain(d.chain as ChainId);
+        }
+      }
+      hydrated.current = true;
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    void saveComposeDraft("cashout", { amount, currency, token, chain });
+  }, [amount, currency, token, chain]);
 
   // Resume a sell order tapped in History.
   useEffect(() => {
@@ -191,6 +231,8 @@ export function CashoutScreen() {
         refundAddress: address as `0x${string}`,
         reference: buildPaycrestReference("offramp", address),
       });
+      // Order placed — drop the saved draft so a fresh sale starts clean.
+      void clearComposeDraft("cashout");
     } catch {
       // error surfaced via offramp.error
     }
@@ -198,7 +240,14 @@ export function CashoutScreen() {
 
   // ---- Order in flight: funding / settling / done ----------------------
   if (offramp.status !== "idle") {
-    return <OrderStatus offramp={offramp} token={token} currency={currency} />;
+    return (
+      <OrderStatus
+        offramp={offramp}
+        token={token}
+        currency={currency}
+        chain={chain}
+      />
+    );
   }
 
   return (
@@ -392,10 +441,12 @@ function OrderStatus({
   offramp,
   token,
   currency,
+  chain,
 }: {
   offramp: ReturnType<typeof usePaycrestOfframp>;
   token: PaycrestToken;
   currency: PaycrestFiat;
+  chain: ChainId;
 }) {
   const {
     status,
@@ -409,6 +460,7 @@ function OrderStatus({
     fundable,
   } = offramp;
   const [copied, setCopied] = useState(false);
+  const [orderCopied, setOrderCopied] = useState(false);
   const copyAddr = async () => {
     if (
       order?.receiveAddress &&
@@ -418,6 +470,60 @@ function OrderStatus({
       setTimeout(() => setCopied(false), 1400);
     }
   };
+  const copyOrderId = async () => {
+    if (order && (await copyToClipboard(String(order.id)))) {
+      setOrderCopied(true);
+      setTimeout(() => setOrderCopied(false), 1400);
+    }
+  };
+
+  // --- Success: the hero moment (mirrors the website's payout card) --------
+  if (status === "complete") {
+    const payout =
+      order && Number(order.amount) > 0 && Number(order.rate) > 0
+        ? formatFiat(currency, Number(order.amount) * Number(order.rate))
+        : null;
+    const networkName = getChain(chain)?.name ?? chain;
+    return (
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+      >
+        <View style={styles.hero}>
+          <Confetti />
+          <SuccessCheck />
+          <Text style={styles.heroEyebrow}>Payout complete</Text>
+          {payout && <Text style={styles.heroAmount}>{payout}</Text>}
+          <Text style={styles.heroSub}>
+            sent to the recipient&apos;s bank account
+          </Text>
+          <View style={styles.heroPill}>
+            <TokenLogo symbol={token} size={17} />
+            <Text style={styles.heroPillText}>
+              {order?.amount} {token}
+            </Text>
+            <Text style={styles.heroPillMuted}>on</Text>
+            <ChainLogo id={chain} size={16} />
+            <Text style={styles.heroPillText}>{networkName}</Text>
+          </View>
+          <View style={styles.heroDivider} />
+          <Pressable
+            onPress={() => void copyOrderId()}
+            style={styles.heroOrderRow}
+            hitSlop={8}
+          >
+            <Text style={styles.heroOrderText}>Order #{order?.id}</Text>
+            <Feather
+              name={orderCopied ? "check" : "copy"}
+              size={12}
+              color={orderCopied ? theme.colors.ok : theme.colors.muted}
+            />
+          </Pressable>
+        </View>
+        <Primary label="Sell again" onPress={reset} />
+      </ScrollView>
+    );
+  }
 
   if (status === "creating") {
     return (
@@ -481,11 +587,9 @@ function OrderStatus({
   const phase =
     status === "awaiting_funding"
       ? "Fund your order"
-      : status === "complete"
-        ? "Done 🎉"
-        : status === "error"
-          ? "Something went wrong"
-          : "Working…";
+      : status === "error"
+        ? "Something went wrong"
+        : "Working…";
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -549,17 +653,9 @@ function OrderStatus({
         </Text>
       )}
 
-      {status === "complete" && (
-        <Text style={styles.estimate}>
-          The recipient has been paid in {currency}. You can start another sale.
-        </Text>
-      )}
-
       {error && <Text style={styles.error}>{error}</Text>}
 
-      {(status === "complete" || status === "error") && (
-        <Primary label="Sell again" onPress={reset} />
-      )}
+      {status === "error" && <Primary label="Sell again" onPress={reset} />}
     </ScrollView>
   );
 }
@@ -744,6 +840,72 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing(1),
   },
   pad: { paddingVertical: theme.spacing(2) },
+
+  // Completed-payout hero — elevated card, celebratory checkmark + confetti.
+  hero: {
+    position: "relative",
+    overflow: "hidden",
+    alignItems: "center",
+    borderRadius: theme.radius.cardLg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: theme.spacing(3),
+    paddingTop: theme.spacing(4),
+    paddingBottom: theme.spacing(3),
+    marginTop: theme.spacing(1),
+    ...theme.shadow,
+  },
+  heroEyebrow: {
+    color: theme.colors.ok,
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginTop: theme.spacing(2),
+  },
+  heroAmount: {
+    color: theme.colors.text,
+    fontFamily: theme.serif,
+    fontSize: 46,
+    lineHeight: 52,
+    marginTop: theme.spacing(0.75),
+  },
+  heroSub: {
+    color: theme.colors.textSoft,
+    fontSize: 15,
+    lineHeight: 21,
+    textAlign: "center",
+    marginTop: theme.spacing(1),
+    maxWidth: 280,
+  },
+  heroPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    marginTop: theme.spacing(2),
+    paddingHorizontal: theme.spacing(1.75),
+    paddingVertical: theme.spacing(1),
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.bgSoft,
+  },
+  heroPillText: { color: theme.colors.textSoft, fontSize: 13, fontWeight: "600" },
+  heroPillMuted: { color: theme.colors.muted, fontSize: 12 },
+  heroDivider: {
+    alignSelf: "stretch",
+    height: 1,
+    backgroundColor: theme.colors.border,
+    marginTop: theme.spacing(2.25),
+  },
+  heroOrderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: theme.spacing(1.75),
+  },
+  heroOrderText: { color: theme.colors.muted, fontSize: 12 },
 
   centeredPhase: {
     flex: 1,

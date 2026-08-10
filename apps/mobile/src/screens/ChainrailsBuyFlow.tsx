@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -40,6 +40,13 @@ import {
 } from "@/components/form";
 import { Picker } from "@/components/Picker";
 import { PrefixedAmountInput } from "@/components/PrefixedAmountInput";
+import { Confetti } from "@/components/Confetti";
+import { SuccessCheck } from "@/components/SuccessCheck";
+import {
+  clearChainrailsRampDraft,
+  loadChainrailsRampDraft,
+  saveChainrailsRampDraft,
+} from "@/lib/composeDraft";
 import { theme } from "@/theme";
 
 // A small crypto amount to probe the corridor's rate with. The rate is amount-
@@ -111,6 +118,41 @@ export function ChainrailsBuyFlow({
       cancelled = true;
     };
   }, []);
+
+  // Restore a half-filled panel (amount, country, provider fields, address) so
+  // nothing has to be retyped. Kept per corridor chain. The dynamic field list
+  // is re-fetched by the rate probe below; it merges onto these. `hydrated`
+  // gates the save effect so it can't clobber the draft with blank state first.
+  const hydrated = useRef(false);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (!resumeOrderId) {
+        const d = await loadChainrailsRampDraft(destination.chainrailsChain);
+        if (active && d) {
+          if (d.amount) setAmount(d.amount);
+          if (d.countryCode) setCountryCode(d.countryCode);
+          if (d.fields) setFieldValues(d.fields);
+          if (d.address) setAddress(d.address);
+        }
+      }
+      hydrated.current = true;
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [destination.chainrailsChain]);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    void saveChainrailsRampDraft(destination.chainrailsChain, {
+      amount,
+      countryCode,
+      fields: fieldValues,
+      address,
+    });
+  }, [destination.chainrailsChain, amount, countryCode, fieldValues, address]);
 
   const country = useMemo(
     () => countries.find((c) => c.countryCode === countryCode),
@@ -196,6 +238,8 @@ export function ChainrailsBuyFlow({
       });
       setOrder(created);
       setPhase(classifyRampStatus(created.status));
+      // Order placed — drop the saved draft so a fresh buy starts clean.
+      void clearChainrailsRampDraft(destination.chainrailsChain);
       // Remember it on-device so it shows in History and can be reopened instead
       // of creating a duplicate.
       void useRampOrders.getState().track({
@@ -575,9 +619,8 @@ function SuccessCard({
   const txUrl = rampTxUrl(destination.chainrailsChain, order.providerTxHash);
   return (
     <View style={styles.successCard}>
-      <View style={styles.successBadge}>
-        <Feather name="check" size={22} color={theme.colors.surface} />
-      </View>
+      <Confetti />
+      <SuccessCheck />
       <Text style={styles.successEyebrow}>Sent</Text>
       <Text style={styles.successAmount}>
         {order.cryptoAmount ?? ""} {order.cryptoCurrency ?? "USDC"}
@@ -707,23 +750,18 @@ const styles = StyleSheet.create({
     maxWidth: 300,
   },
   successCard: {
+    position: "relative",
+    overflow: "hidden",
     alignItems: "center",
     borderRadius: theme.radius.cardLg,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
-    padding: theme.spacing(3),
+    paddingHorizontal: theme.spacing(3),
+    paddingTop: theme.spacing(3.5),
+    paddingBottom: theme.spacing(3),
     gap: theme.spacing(0.5),
     ...theme.shadow,
-  },
-  successBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: theme.colors.ok,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: theme.spacing(0.5),
   },
   successEyebrow: {
     color: theme.colors.ok,
@@ -731,6 +769,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.5,
+    marginTop: theme.spacing(1.5),
   },
   successAmount: {
     color: theme.colors.text,

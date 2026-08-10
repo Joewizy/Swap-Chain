@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -46,6 +46,13 @@ import {
 } from "@/components/form";
 import { Picker } from "@/components/Picker";
 import { ChainLogo, RampLogo } from "@/components/Logo";
+import { Confetti } from "@/components/Confetti";
+import { SuccessCheck } from "@/components/SuccessCheck";
+import {
+  clearComposeDraft,
+  loadComposeDraft,
+  saveComposeDraft,
+} from "@/lib/composeDraft";
 import { copyToClipboard } from "@/lib/clipboard";
 import { fiatSymbol, formatFiat } from "@/lib/format";
 import { PrefixedAmountInput } from "@/components/PrefixedAmountInput";
@@ -132,6 +139,50 @@ export function BuyScreen() {
   const [recipientError, setRecipientError] = useState<string | null>(null);
 
   useEffect(() => () => setPendingLaunch(null), [setPendingLaunch]);
+
+  // Restore a half-filled Buy form (from a prior visit / app restart) so nothing
+  // has to be retyped. A chat launch wins, so we only restore without one.
+  // `hydrated` gates the save effect so it can't overwrite the draft with the
+  // blank initial state before the restore lands.
+  const hydrated = useRef(false);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (!launch) {
+        const d = await loadComposeDraft("buy");
+        if (active && d) {
+          if (d.amount) setAmount(d.amount);
+          if (d.currency && PAYCREST_FIAT.includes(d.currency as PaycrestFiat))
+            setCurrency(d.currency as PaycrestFiat);
+          if (d.token === "USDC" || d.token === "USDT") setToken(d.token);
+          if (d.crChain) {
+            const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
+              (x) => x.chainrailsChain === d.crChain
+            );
+            if (dest) setCrDest(dest);
+          } else if (d.chain && chains.includes(d.chain as ChainId)) {
+            setChain(d.chain as ChainId);
+          }
+        }
+      }
+      hydrated.current = true;
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    void saveComposeDraft("buy", {
+      amount,
+      currency,
+      token,
+      chain,
+      crChain: crDest?.chainrailsChain,
+    });
+  }, [amount, currency, token, chain, crDest]);
 
   // Resume a Buy order tapped in History.
   useEffect(() => {
@@ -232,6 +283,8 @@ export function BuyScreen() {
         recipientAddress: recipient as `0x${string}`,
         reference: buildPaycrestReference("onramp", recipient),
       });
+      // Order placed — drop the saved draft so a fresh buy starts clean.
+      void clearComposeDraft("buy");
     } catch {
       // surfaced via onramp.error
     }
@@ -611,9 +664,8 @@ function OnrampStatus({
         contentContainerStyle={styles.content}
       >
         <View style={styles.successCard}>
-          <View style={styles.successBadge}>
-            <Feather name="check" size={24} color={theme.colors.surface} />
-          </View>
+          <Confetti />
+          <SuccessCheck />
           <Text style={styles.successEyebrow}>Transfer complete</Text>
           <Text style={styles.successAmount}>
             {order?.amount ?? ""} {token}
@@ -917,23 +969,18 @@ const styles = StyleSheet.create({
 
   // Success card
   successCard: {
+    position: "relative",
+    overflow: "hidden",
     alignItems: "center",
     borderRadius: theme.radius.cardLg,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
-    padding: theme.spacing(3),
+    paddingHorizontal: theme.spacing(3),
+    paddingTop: theme.spacing(3.5),
+    paddingBottom: theme.spacing(3),
     gap: theme.spacing(0.75),
     ...theme.shadow,
-  },
-  successBadge: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: theme.colors.ok,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: theme.spacing(0.5),
   },
   successEyebrow: {
     color: theme.colors.ok,
@@ -941,6 +988,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.5,
+    marginTop: theme.spacing(1.5),
   },
   successAmount: {
     color: theme.colors.text,
