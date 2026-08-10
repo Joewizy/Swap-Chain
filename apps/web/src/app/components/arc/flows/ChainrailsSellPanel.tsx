@@ -93,6 +93,52 @@ function AssetLogo({ name, size }: { name: string | null; size: number }) {
   );
 }
 
+/** Warm, desaturated confetti in the brand palette — never candy-bright. */
+const CONFETTI_COLORS = [
+  "var(--accent)",
+  "var(--ok)",
+  "var(--pend)",
+  "#c9a23f",
+];
+
+/**
+ * A subtle one-shot confetti burst behind the payout hero. Pieces are randomized
+ * once (so polling re-renders don't re-scatter them) and the CSS respects
+ * `prefers-reduced-motion`.
+ */
+function Confetti({ count = 16 }: { count?: number }) {
+  const [pieces] = useState(() =>
+    Array.from({ length: count }, (_, i) => ({
+      left: Math.round(6 + Math.random() * 88),
+      dx: Math.round(-70 + Math.random() * 140),
+      rot: Math.round(200 + Math.random() * 340),
+      delay: Math.round(Math.random() * 260),
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      w: 5 + Math.round(Math.random() * 4),
+      h: 9 + Math.round(Math.random() * 5),
+    }))
+  );
+  return (
+    <div className="confetti-layer" aria-hidden>
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          className="confetti-piece"
+          style={{
+            left: `${p.left}%`,
+            width: p.w,
+            height: p.h,
+            background: p.color,
+            animationDelay: `${p.delay}ms`,
+            ["--dx" as string]: `${p.dx}px`,
+            ["--rot" as string]: `${p.rot}deg`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 type Country = {
   countryCode: string;
   name: string;
@@ -489,65 +535,129 @@ export function ChainrailsSellPanel({
       return (
         <div className="cr-status col">
           <section
-            className="card col center"
+            className="col center"
             style={{
-              maxWidth: 440,
+              position: "relative",
+              overflow: "hidden",
+              maxWidth: 460,
               margin: "8px auto 0",
-              padding: 28,
+              padding: "44px 32px 32px",
               textAlign: "center",
-              gap: 4,
-              background: "var(--ok-soft)",
-              border: "1px solid var(--ok)",
-              borderRadius: 20,
-              animation: "fade-up 0.35s var(--ease) both",
+              background: "var(--bg-elev)",
+              border: "1px solid var(--line)",
+              borderRadius: 24,
+              boxShadow: "var(--shadow-2)",
+              animation: "fade-up 0.4s var(--ease) both",
             }}
           >
+            <Confetti />
+
+            {/* Checkmark with a soft halo — the celebratory focal point. */}
             <span
+              className="cr-payout-check"
               style={{
-                width: 48,
-                height: 48,
+                position: "relative",
+                width: 76,
+                height: 76,
                 borderRadius: "50%",
-                background: "var(--ok)",
-                color: "#fff",
+                background: "var(--ok-soft)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                marginBottom: 6,
+                marginBottom: 20,
+                animation: "check-pop 0.5s var(--ease) both",
               }}
             >
-              <Icon.Check size={22} />
+              <span
+                style={{
+                  width: 54,
+                  height: 54,
+                  borderRadius: "50%",
+                  background: "var(--ok)",
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: "0 6px 18px rgba(47, 122, 79, 0.32)",
+                }}
+              >
+                <Icon.Check size={27} />
+              </span>
             </span>
-            <span className="eyebrow" style={{ color: "var(--ok)" }}>
+
+            <span
+              className="eyebrow"
+              style={{ color: "var(--ok)", marginBottom: 12 }}
+            >
               Payout complete
             </span>
             <span
               className="font-mono tabular"
               style={{
-                fontSize: "clamp(28px, 6vw, 40px)",
+                fontSize: "clamp(34px, 8vw, 48px)",
                 fontWeight: 600,
-                letterSpacing: "-0.02em",
-                lineHeight: 1.05,
+                letterSpacing: "-0.03em",
+                lineHeight: 1,
               }}
             >
               {fiatLine}
             </span>
-            <span style={{ fontSize: 14, color: "var(--fg-soft)", marginTop: 2 }}>
+            <span
+              style={{
+                fontSize: 15,
+                color: "var(--fg-soft)",
+                marginTop: 10,
+                maxWidth: 300,
+                lineHeight: 1.45,
+              }}
+            >
               sent to the recipient&apos;s bank account
             </span>
+
+            {/* Crypto detail — token and network logos, in a soft pill. */}
             <span
-              className="font-mono row center gap-1"
-              style={{ fontSize: 12, color: "var(--fg-mute)", marginTop: 8 }}
+              className="row center gap-2"
+              style={{
+                marginTop: 22,
+                padding: "8px 14px",
+                background: "var(--bg-soft)",
+                border: "1px solid var(--line)",
+                borderRadius: 999,
+                fontSize: 13,
+              }}
             >
-              <AssetLogo name={tokenLogo(cryptoCurrency)} size={12} />
-              {amountLabel} on {networkLabel}
+              <AssetLogo name={tokenLogo(cryptoCurrency)} size={17} />
+              <span
+                className="font-mono tabular"
+                style={{ color: "var(--fg-soft)" }}
+              >
+                {amountLabel}
+              </span>
+              <span className="muted" style={{ fontSize: 12 }}>
+                on
+              </span>
+              <AssetLogo name={chainLogo(networkLabel)} size={16} />
+              <span style={{ color: "var(--fg-soft)" }}>{networkLabel}</span>
             </span>
-            <div style={{ marginTop: 12 }}>
+
+            {/* Order reference, set off by a hairline divider. */}
+            <div
+              style={{
+                marginTop: 18,
+                paddingTop: 18,
+                width: "100%",
+                borderTop: "1px solid var(--line)",
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
               <CopyableOrderId id={String(order.id)} />
             </div>
+
             <button
-              className="btn btn-primary btn-sm"
+              className="btn btn-primary btn-big"
               onClick={startNewOrder}
-              style={{ marginTop: 14 }}
+              style={{ marginTop: 20, width: "100%", maxWidth: 280 }}
             >
               Start new order <Icon.ArrowRight />
             </button>

@@ -747,6 +747,59 @@ html {
     transform: translateY(0);
   }
 }
+
+/* Success pop for the payout hero — a subtle spring on the checkmark. */
+@keyframes check-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Gentle, one-shot confetti — plays once on the completed payout card. */
+@keyframes confetti-fall {
+  0% {
+    opacity: 0;
+    transform: translate(0, -12px) rotate(0deg);
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx, 0), 260px) rotate(var(--rot, 360deg));
+  }
+}
+.confetti-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: inherit;
+}
+.confetti-piece {
+  position: absolute;
+  top: 16%;
+  border-radius: 2px;
+  opacity: 0;
+  animation: confetti-fall 1.6s var(--ease) forwards;
+  will-change: transform, opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .confetti-piece {
+    display: none;
+  }
+  .cr-payout-check {
+    animation: none;
+  }
+}
 @keyframes pulse-ring {
   0% {
     box-shadow: 0 0 0 0 var(--accent-soft);
