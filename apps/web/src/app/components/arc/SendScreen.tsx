@@ -972,7 +972,7 @@ export function PayoutForm({
           onChange={(e) =>
             onChange({ ...value, accountIdentifier: e.target.value })
           }
-          placeholder="e.g. 08012345678"
+          placeholder="Enter account number"
           inputMode="numeric"
           style={inputStyle}
         />
