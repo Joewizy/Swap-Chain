@@ -88,9 +88,10 @@ export function pruneTrackedOrders(): void {
 
 /**
  * Rebuilds a History-shaped order from a tracked entry + the by-id snapshot, so
- * the existing resume path can reopen the exact order. Bank fields are null —
- * the by-id payload omits them by design; a completed order's view doesn't need
- * them.
+ * the existing resume path can reopen the exact order. The off-ramp payout
+ * recipient (name / institution / account) rides along from the by-id payload
+ * when present, so the reopened success card matches the live one; it's read
+ * fresh here, never persisted to the device tracker.
  */
 export function buildHistoryOrder(
   tracked: TrackedOrder,
@@ -116,9 +117,9 @@ export function buildHistoryOrder(
         ? (order.depositCurrency ?? null)
         : order.currency || null,
     fiatAmount: Number.isFinite(fiatAmount as number) ? fiatAmount : null,
-    recipientName: null,
-    institution: null,
-    accountIdentifier: null,
+    recipientName: order.recipientName ?? null,
+    institution: order.recipientInstitution ?? null,
+    accountIdentifier: order.recipientAccountIdentifier ?? null,
     recipientAddress: order.recipientAddress ?? null,
     receiveAddress: order.receiveAddress ?? null,
     depositAccountIdentifier: order.depositAccountIdentifier ?? null,

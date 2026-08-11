@@ -258,6 +258,10 @@ export interface PaycrestOrder {
   depositInstitution?: string;
   depositAccountIdentifier?: string;
   depositAccountName?: string;
+  /** Off-ramp: bank/mobile-money recipient the fiat payout lands with. */
+  recipientName?: string;
+  recipientInstitution?: string;
+  recipientAccountIdentifier?: string;
   /** On-ramp: exact fiat amount the user must transfer. */
   amountToTransfer?: string;
   depositCurrency?: string;
@@ -295,12 +299,19 @@ export function normalizePaycrestOrder(
 ): PaycrestOrder {
   const source = payload.source as { type?: string } | undefined;
   const destination = payload.destination as
-    { type?: string; currency?: string } | undefined;
+    { type?: string; currency?: string; recipient?: unknown } | undefined;
   const direction: PaycrestDirection =
     source?.type === "fiat" ? "onramp" : "offramp";
 
   const providerAccount = payload.providerAccount as
     Record<string, unknown> | undefined;
+
+  // Off-ramp fiat recipient (bank / mobile-money the payout lands with). Pulled
+  // fresh from the payload for display; not persisted to the device tracker.
+  const fiatRecipient =
+    direction === "offramp" && destination?.type === "fiat"
+      ? (destination.recipient as Record<string, unknown> | undefined)
+      : undefined;
 
   const fiatCurrency =
     direction === "onramp"
@@ -351,6 +362,20 @@ export function normalizePaycrestOrder(
     depositAccountName:
       direction === "onramp" && typeof providerAccount?.accountName === "string"
         ? providerAccount.accountName
+        : undefined,
+    recipientName:
+      typeof fiatRecipient?.accountName === "string"
+        ? fiatRecipient.accountName
+        : undefined,
+    recipientInstitution:
+      typeof fiatRecipient?.institutionName === "string"
+        ? fiatRecipient.institutionName
+        : typeof fiatRecipient?.institution === "string"
+          ? fiatRecipient.institution
+          : undefined,
+    recipientAccountIdentifier:
+      typeof fiatRecipient?.accountIdentifier === "string"
+        ? fiatRecipient.accountIdentifier
         : undefined,
     amountToTransfer:
       direction === "onramp" &&
