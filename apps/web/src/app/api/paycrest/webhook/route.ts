@@ -5,7 +5,11 @@ import {
   walletFromPaycrestPayload,
   type PaycrestOrder,
 } from "@/rails/paycrest";
-import { markWebhookEventSeen, upsertStoredOrder } from "@/lib/orderStore";
+import {
+  markWebhookEventSeen,
+  releaseWebhookEvent,
+  upsertStoredOrder,
+} from "@/lib/orderStore";
 
 export const runtime = "nodejs"; // node:crypto + raw body; must not run on edge
 
@@ -73,10 +77,20 @@ export async function POST(req: NextRequest) {
 
   const order: PaycrestOrder = normalizePaycrestOrder(payload, payload);
   const walletAddress = walletFromPaycrestPayload(payload);
-  const { changed } = await upsertStoredOrder(order, {
+  const { changed, failed } = await upsertStoredOrder(order, {
     walletAddress,
     event: eventName,
   });
+
+  if (failed) {
+    // We claimed the event id but couldn't persist it. Release the claim and
+    // 503 so Paycrest retries rather than us silently dropping the update.
+    await releaseWebhookEvent(eventId);
+    return NextResponse.json(
+      { error: "Storage unavailable, retry" },
+      { status: 503 }
+    );
+  }
 
   return NextResponse.json({ received: true, changed });
 }

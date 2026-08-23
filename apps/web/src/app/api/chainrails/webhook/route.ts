@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   markRampEventSeen,
+  releaseRampEvent,
   upsertStoredRampOrder,
 } from "@/lib/chainrailsStore";
 
@@ -107,7 +108,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true, duplicate: true });
   }
 
-  const { changed, stored } = await upsertStoredRampOrder({
+  const { changed, stored, failed } = await upsertStoredRampOrder({
     id,
     status,
     direction: null, // ramp payload doesn't carry direction; left for the app
@@ -118,6 +119,16 @@ export async function POST(req: NextRequest) {
     cryptoAmount: asNumber(data.crypto_amount),
     event: type,
   });
+
+  if (failed) {
+    // We claimed the event id but couldn't persist it. Release the claim and
+    // 503 so ChainRails retries rather than us silently dropping the update.
+    await releaseRampEvent(dedupeKey);
+    return NextResponse.json(
+      { error: "Storage unavailable, retry" },
+      { status: 503 }
+    );
+  }
 
   if (changed) {
     console.log(

@@ -54,6 +54,19 @@ export async function markWebhookEventSeen(eventId: string): Promise<boolean> {
 }
 
 /**
+ * Releases an event-id claim so a later retry isn't dropped as a duplicate.
+ * Called when persisting the order failed after the claim was taken.
+ */
+export async function releaseWebhookEvent(eventId: string): Promise<void> {
+  if (!redis) return;
+  try {
+    await redis.del(eventKey(eventId));
+  } catch (err) {
+    console.error("[orderStore] event-release failed", err);
+  }
+}
+
+/**
  * Monotonic guard: never move an order backwards, never leave a terminal state.
  * Same-rank snapshots prefer the more recent one.
  */
@@ -81,6 +94,8 @@ export interface UpsertResult {
   stored: StoredPaycrestOrder | null;
   /** True when this call advanced the record (new order or newer status). */
   changed: boolean;
+  /** True when a configured store errored — the caller must not ack the event. */
+  failed: boolean;
 }
 
 /**
@@ -91,12 +106,13 @@ export async function upsertStoredOrder(
   order: PaycrestOrder,
   meta: { walletAddress?: string | null; event?: string | null } = {}
 ): Promise<UpsertResult> {
-  if (!redis) return { stored: null, changed: false };
+  // Unconfigured store is a deliberate no-op (callers read live); not a failure.
+  if (!redis) return { stored: null, changed: false, failed: false };
 
   try {
     const existing = await redis.get<StoredPaycrestOrder>(orderKey(order.id));
     if (existing && !shouldReplace(existing, order)) {
-      return { stored: existing, changed: false };
+      return { stored: existing, changed: false, failed: false };
     }
 
     const nowIso = new Date().toISOString();
@@ -129,11 +145,12 @@ export async function upsertStoredOrder(
       await redis.expire(key, ORDER_TTL_SECONDS);
     }
 
-    return { stored: record, changed: true };
+    return { stored: record, changed: true, failed: false };
   } catch (err) {
-    // Best-effort: a store outage must not break create/webhook/reconcile.
+    // Store outage: signal the caller so the webhook can 5xx and be retried
+    // instead of acking an event we never persisted.
     console.error("[orderStore] upsert failed", err);
-    return { stored: null, changed: false };
+    return { stored: null, changed: false, failed: true };
   }
 }
 

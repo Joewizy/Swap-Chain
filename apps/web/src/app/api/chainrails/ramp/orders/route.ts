@@ -3,6 +3,32 @@ import { CHAINRAILS_OFFRAMP_ENABLED } from "@/rails/chainrails";
 
 const API_URL = "https://api.chainrails.io/api/v1/ramp/orders";
 
+/** Payload keys whose values are PII and must never reach the logs. */
+const REDACT_KEYS = new Set([
+  "userEmail",
+  "senderAddress",
+  "recipientAddress",
+]);
+
+/**
+ * A log-safe copy of an outbound order payload: PII values are masked and the
+ * open-ended `fields` object is reduced to its keys, so a structural mismatch
+ * is still visible without exposing email / wallet / KYC values.
+ */
+function redactPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (REDACT_KEYS.has(key)) {
+      safe[key] = "[redacted]";
+    } else if (key === "fields" && value && typeof value === "object") {
+      safe[key] = { keys: Object.keys(value as Record<string, unknown>) };
+    } else {
+      safe[key] = value;
+    }
+  }
+  return safe;
+}
+
 /**
  * Creates a Chainrails ramp order. We proxy the REST call rather than exposing
  * the provider API key to the browser.
@@ -116,12 +142,14 @@ export async function POST(req: NextRequest) {
         `[chainrails ramp order] ${type} upstream ${upstream.status}:`,
         JSON.stringify(data)
       );
-      // On failure, also dump the exact payload we sent so we can diff it
+      // On failure, dump the shape of the payload we sent so we can diff it
       // against a known-good request (e.g. a working curl). The upstream 500 is
-      // generic — the difference is almost always here, in `fields`.
+      // generic — the difference is almost always in `fields`. Values that
+      // carry PII (email, wallet addresses, KYC `fields`) are masked; only the
+      // keys survive, which is enough to spot a structural mismatch.
       console.error(
         `[chainrails ramp order] ${type} request payload:`,
-        JSON.stringify(payload)
+        JSON.stringify(redactPayload(payload))
       );
       // Upstream 5xx means Chainrails/the payout provider crashed on their end
       // (not a validation problem we can guide the user through). Don't leak the
