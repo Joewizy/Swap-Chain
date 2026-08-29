@@ -44,6 +44,7 @@ yarn-error.log*
 next-env.d.ts
 apps/web/src/app/api/api.rest
 todo
+scripts
 
 # Expo / React Native (apps/mobile)
 .expo/
