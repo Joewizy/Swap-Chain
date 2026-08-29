@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  CHAINRAILS_OFFRAMP_ENABLED,
-  DIRECT_OFFRAMP_PROVIDER,
-} from "@/rails/chainrails";
+import { CHAINRAILS_OFFRAMP_ENABLED } from "@/rails/chainrails";
 
 const API_URL = "https://api.chainrails.io/api/v1/ramp/quotes";
 const ORDERS_URL = "https://api.chainrails.io/api/v1/ramp/orders";
@@ -30,7 +27,6 @@ async function probeOfframpLimit(
       },
       body: JSON.stringify({
         type: "off-ramp",
-        provider: DIRECT_OFFRAMP_PROVIDER,
         fiatCurrency: params.get("fiatCurrency"),
         cryptoAmount: Number(params.get("cryptoAmount")),
         sourceChain: params.get("sourceChain"),

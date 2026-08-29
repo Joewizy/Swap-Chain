@@ -1148,7 +1148,7 @@ export function InfoHint({ text }: { text: string }) {
   );
 }
 
-function AccountNameStatus({
+export function AccountNameStatus({
   verifying,
   error,
   name,

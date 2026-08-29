@@ -79,15 +79,6 @@ export function isChainrailsSupported(chainId: ChainId): boolean {
 export const CHAINRAILS_OFFRAMP_ENABLED =
   process.env.NEXT_PUBLIC_CHAINRAILS_OFFRAMP_ENABLED === "true";
 
-/**
- * Chainrails' direct-API off-ramp provider. Off-ramp on the chains we serve
- * (Solana, Tron, …) always routes through FONBNK's direct payout — the country
- * catalogue lists it under each African corridor's `currency.providers`. Kept
- * as a named constant so the quote route can probe the order endpoint for a
- * currency's limit message without threading a provider through.
- */
-export const DIRECT_OFFRAMP_PROVIDER = "FONBNK";
-
 export type RampAddressKind = "evm" | "solana" | "starknet" | "tron";
 
 export interface RampDestination {

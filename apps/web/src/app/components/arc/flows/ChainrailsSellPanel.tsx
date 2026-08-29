@@ -30,7 +30,8 @@ import {
 import { pollRampOrder } from "@/lib/chainrailsPoll";
 import { getChainIcon, getTokenIcon } from "@/utils/icons";
 import { PrefixedAmountInput } from "./PrefixedAmountInput";
-import { InfoHint } from "../SendScreen";
+import { InfoHint, AccountNameStatus } from "../SendScreen";
+import { type PaycrestInstitution } from "@/rails/paycrest";
 import { Icon } from "../icons";
 import { linkRampOrder, trackRampOrder } from "../chainrailsOrders";
 import { EMAIL_RE, loadSavedEmail, saveEmail } from "../rampEmail";
@@ -61,6 +62,25 @@ function pickDepositAmount(order: Record<string, unknown>): number | undefined {
   for (const k of keys) {
     const n = Number(order[k]);
     if (Number.isFinite(n) && n > 0) return n;
+  }
+  return undefined;
+}
+
+/** Strips the trailing bank code from a label ("OPay (100004)" -> "OPay"). */
+function cleanOptionLabel(label: string): string {
+  return label.replace(/\s*\(\s*\d[\d\s-]*\)\s*$/, "").trim() || label;
+}
+
+/** Fiat payout for a quote; ChainRails omits it, so we derive amount × rate. */
+function pickFiatAmount(quote: OffQuote): number | undefined {
+  if (Number.isFinite(quote.fiatAmount) && quote.fiatAmount > 0)
+    return quote.fiatAmount;
+  const rate = Number(quote.exchangeRatePerUSD);
+  const crypto = Number(quote.cryptoAmount);
+  if (rate > 0 && crypto > 0) {
+    const fees = Number(quote.totalFeesFiat);
+    const gross = crypto * rate;
+    return fees > 0 ? Math.max(gross - fees, 0) : gross;
   }
   return undefined;
 }
@@ -228,6 +248,11 @@ export function ChainrailsSellPanel({
   const [email, setEmail] = useState("");
   const [quote, setQuote] = useState<OffQuote | null>(null);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  // Banks for the payout currency, so a Paycrest-routed sell picks the recipient
+  // bank by NAME (we send the institution code) and confirms the account name.
+  const [payoutBanks, setPayoutBanks] = useState<PaycrestInstitution[]>([]);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
   const [order, setOrder] = useState<RampOrder | null>(null);
   const [phase, setPhase] = useState<RampOrderPhase>("pending");
 
@@ -317,6 +342,76 @@ export function ChainrailsSellPanel({
   const senderValid = isValidRampAddress(source.addressKind, senderAddress);
   const canQuote = !!country && cryptoAmount > 0 && senderValid;
 
+  // Load the bank list for the payout currency so a Paycrest-routed sell shows a
+  // bank name dropdown (value = institution code) instead of a raw code box.
+  const payoutCurrency = country?.currency.code;
+  useEffect(() => {
+    if (!payoutCurrency) return;
+    let cancelled = false;
+    fetch(`/api/paycrest/institutions?currency=${encodeURIComponent(payoutCurrency)}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok || cancelled) return;
+        setPayoutBanks(data.institutions ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [payoutCurrency]);
+
+  // Resolve the recipient's name from the bank + number (Paycrest verify) so the
+  // user confirms it instead of typing. Only the Paycrest route has these keys.
+  const recipInst = fieldValues.recipientInstitution;
+  const recipAcct = (fieldValues.recipientAccountIdentifier ?? "").trim();
+  useEffect(() => {
+    if (!recipInst || recipAcct.length < 6) {
+      setVerifying(false);
+      setVerifyError(null);
+      setFieldValues((p) =>
+        p.recipientAccountName ? { ...p, recipientAccountName: "" } : p
+      );
+      return;
+    }
+    let cancelled = false;
+    setVerifying(true);
+    setVerifyError(null);
+    const id = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/paycrest/verify-account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            institution: recipInst,
+            accountIdentifier: recipAcct,
+          }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !data?.accountName) {
+          setVerifyError(data?.error || "Couldn't verify this account.");
+          setFieldValues((p) => ({ ...p, recipientAccountName: "" }));
+        } else {
+          setFieldValues((p) => ({
+            ...p,
+            recipientAccountName: data.accountName,
+          }));
+        }
+      } catch {
+        if (!cancelled) {
+          setVerifyError("Couldn't reach the verification service.");
+          setFieldValues((p) => ({ ...p, recipientAccountName: "" }));
+        }
+      } finally {
+        if (!cancelled) setVerifying(false);
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+  }, [recipInst, recipAcct]);
+
   const requiredFields: FieldSpec[] =
     quote?.paymentChannels[0]?.directTransferDetails?.fieldsRequired ?? [];
 
@@ -337,8 +432,15 @@ export function ChainrailsSellPanel({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Couldn't get a quote.");
-      const selected = (data.recommended ?? data.quotes?.[0]) as
-        OffQuote | undefined;
+      // Prefer Paycrest when the corridor offers it — it's our main rail, cheaper
+      // here, and needs lighter KYC than Yellow Card. Otherwise take ChainRails'
+      // own pick. Never a hard pin: it always falls back so the quote still works.
+      const offered: OffQuote[] =
+        data.quotes ?? (data.recommended ? [data.recommended] : []);
+      const selected =
+        offered.find((q) => q.provider === "PAYCREST") ??
+        (data.recommended as OffQuote | undefined) ??
+        offered[0];
       if (!selected)
         throw new Error(
           "No provider can fill that amount right now — try a different amount."
@@ -411,7 +513,7 @@ export function ChainrailsSellPanel({
         // The exact deposit figure (fee-inclusive) so a resumed order shows the
         // right amount to send even though the quote is long gone.
         depositLabel: `${quote.grossDepositAmount} ${quote.cryptoCurrency}`,
-        fiatLabel: `${formatNumber(quote.fiatAmount)} ${quote.fiatCurrency}`,
+        fiatLabel: `${formatNumber(pickFiatAmount(quote) ?? NaN)} ${quote.fiatCurrency}`,
         address: senderAddress.trim(),
         createdAt: Date.now(),
       });
@@ -482,9 +584,10 @@ export function ChainrailsSellPanel({
       depositAmount != null
         ? `${depositAmount} ${cryptoCurrency}`
         : (resumeDepositLabel ?? resumeCryptoLabel ?? "—");
+    const quoteFiat = quote ? pickFiatAmount(quote) : undefined;
     const fiatLine =
-      quote?.fiatAmount != null
-        ? `${fiatSymbol(quote.fiatCurrency)}${formatNumber(quote.fiatAmount)}`
+      quote && quoteFiat != null
+        ? `${fiatSymbol(quote.fiatCurrency)}${formatNumber(quoteFiat)}`
         : (resumeFiatLabel ?? "—");
 
     const steps = [
@@ -995,7 +1098,10 @@ export function ChainrailsSellPanel({
                 }}
               >
                 ≈ {fiatSymbol(quote.fiatCurrency)}
-                {formatNumber(quote.fiatAmount)}
+                {(() => {
+                  const amt = pickFiatAmount(quote);
+                  return amt != null ? formatNumber(amt) : "—";
+                })()}
               </span>
               <span
                 className="muted font-mono"
@@ -1021,39 +1127,109 @@ export function ChainrailsSellPanel({
                 } payout.`}
               />
             </div>
-            {requiredFields.map((f) => (
-              <label key={f.key} className="col gap-1">
-                <span className="muted" style={{ fontSize: 12 }}>
-                  {f.label}
-                  {f.required ? "" : " (optional)"}
-                </span>
-                {f.type === "enum" ? (
-                  <select
-                    value={fieldValues[f.key] ?? ""}
-                    onChange={(e) =>
-                      setFieldValues((p) => ({ ...p, [f.key]: e.target.value }))
-                    }
-                    style={INPUT}
-                  >
-                    {(f.options ?? []).map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
+            {requiredFields.map((f) => {
+              // Paycrest-routed sell: the recipient bank is a code — show a name
+              // dropdown and send the code, and resolve the account name instead
+              // of asking the user to type either.
+              const isRecipBank = f.key === "recipientInstitution";
+
+              if (f.key === "recipientAccountName") {
+                const ready =
+                  !!fieldValues.recipientInstitution &&
+                  (fieldValues.recipientAccountIdentifier?.trim().length ?? 0) >=
+                    6;
+                // Auto-lookup couldn't confirm the account — let the user type the
+                // name so a lookup miss never blocks the payout.
+                const needsManual = ready && !verifying && !!verifyError;
+                return (
+                  <div key={f.key} className="col gap-1">
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      Recipient account name
+                    </span>
+                    {!ready ? (
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        Pick the bank and enter the account number above.
+                      </span>
+                    ) : needsManual ? (
+                      <>
+                        <input
+                          value={fieldValues.recipientAccountName ?? ""}
+                          onChange={(e) =>
+                            setFieldValues((p) => ({
+                              ...p,
+                              recipientAccountName: e.target.value,
+                            }))
+                          }
+                          placeholder="Enter the account name"
+                          style={INPUT}
+                        />
+                        <span className="muted" style={{ fontSize: 11.5 }}>
+                          We couldn&apos;t confirm this account automatically —
+                          type the name exactly as it appears at the bank.
+                        </span>
+                      </>
+                    ) : (
+                      <AccountNameStatus
+                        verifying={verifying}
+                        error={verifyError}
+                        name={fieldValues.recipientAccountName ?? ""}
+                      />
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <label key={f.key} className="col gap-1">
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {isRecipBank ? "Recipient bank" : f.label}
+                    {f.required ? "" : " (optional)"}
+                  </span>
+                  {isRecipBank && payoutBanks.length > 0 ? (
+                    <select
+                      value={fieldValues[f.key] ?? ""}
+                      onChange={(e) =>
+                        setFieldValues((p) => ({ ...p, [f.key]: e.target.value }))
+                      }
+                      style={INPUT}
+                    >
+                      <option value="" disabled>
+                        Select the bank
                       </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    value={fieldValues[f.key] ?? ""}
-                    onChange={(e) =>
-                      setFieldValues((p) => ({ ...p, [f.key]: e.target.value }))
-                    }
-                    inputMode={f.type === "phone" ? "tel" : undefined}
-                    placeholder={f.label}
-                    style={INPUT}
-                  />
-                )}
-              </label>
-            ))}
+                      {payoutBanks.map((b) => (
+                        <option key={b.code} value={b.code}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : f.type === "enum" ? (
+                    <select
+                      value={fieldValues[f.key] ?? ""}
+                      onChange={(e) =>
+                        setFieldValues((p) => ({ ...p, [f.key]: e.target.value }))
+                      }
+                      style={INPUT}
+                    >
+                      {(f.options ?? []).map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {cleanOptionLabel(o.label)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={fieldValues[f.key] ?? ""}
+                      onChange={(e) =>
+                        setFieldValues((p) => ({ ...p, [f.key]: e.target.value }))
+                      }
+                      inputMode={f.type === "phone" ? "tel" : undefined}
+                      placeholder={f.label}
+                      style={INPUT}
+                    />
+                  )}
+                </label>
+              );
+            })}
             <label className="col gap-1">
               <span className="muted" style={{ fontSize: 12 }}>
                 Email (for KYC verification)

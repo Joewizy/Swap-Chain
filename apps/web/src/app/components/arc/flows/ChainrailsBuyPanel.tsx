@@ -18,9 +18,10 @@
 import React, { useEffect, useState } from "react";
 import { formatNumber, formatToken } from "@/utils";
 import { type RampDestination } from "@/rails/chainrails";
+import { type PaycrestInstitution } from "@/rails/paycrest";
 import type { TokenSymbol } from "@/config/network";
 import { PrefixedAmountInput } from "./PrefixedAmountInput";
-import { type Quote } from "../SendScreen";
+import { type Quote, AccountNameStatus } from "../SendScreen";
 import { Icon } from "../icons";
 import { EMAIL_RE, loadSavedEmail, saveEmail } from "../rampEmail";
 import {
@@ -104,6 +105,12 @@ export function ChainrailsBuyPanel({
   // (and the dynamic bank list) come from the quote's directTransferDetails.
   const [fields, setFields] = useState<FieldSpec[]>([]);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  // Banks for the pay currency, so the refund account is picked by NAME and we
+  // send the institution code for the user instead of asking them to type it.
+  const [refundBanks, setRefundBanks] = useState<PaycrestInstitution[]>([]);
+  // Refund account-name lookup — resolved from bank + number, never typed.
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
   // Contact/KYC email — entered once, then remembered on-device and reused
   // (shared with Sell). We only prompt when nothing is saved yet.
   const [email, setEmail] = useState("");
@@ -161,6 +168,74 @@ export function ChainrailsBuyPanel({
   }, []);
 
   const country = countries.find((c) => c.countryCode === countryCode);
+
+  // Load the bank list for the pay currency so the refund field is a name
+  // dropdown (value = Paycrest institution code) rather than a raw code box.
+  const refundCurrency = country?.currency.code;
+  useEffect(() => {
+    if (!refundCurrency) return;
+    let cancelled = false;
+    fetch(`/api/paycrest/institutions?currency=${encodeURIComponent(refundCurrency)}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok || cancelled) return;
+        setRefundBanks(data.institutions ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [refundCurrency]);
+
+  // Resolve the refund account holder's name from the bank + number (Paycrest
+  // verify), so the user confirms it instead of typing it. Debounced; only runs
+  // when both are set. Clears the name if either changes or fails.
+  const refundInst = fieldValues.refundInstitution;
+  const refundAcct = (fieldValues.refundAccountIdentifier ?? "").trim();
+  useEffect(() => {
+    if (!refundInst || refundAcct.length < 6) {
+      setVerifying(false);
+      setVerifyError(null);
+      setFieldValues((p) =>
+        p.refundAccountName ? { ...p, refundAccountName: "" } : p
+      );
+      return;
+    }
+    let cancelled = false;
+    setVerifying(true);
+    setVerifyError(null);
+    const id = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/paycrest/verify-account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            institution: refundInst,
+            accountIdentifier: refundAcct,
+          }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !data?.accountName) {
+          setVerifyError(data?.error || "Couldn't verify this account.");
+          setFieldValues((p) => ({ ...p, refundAccountName: "" }));
+        } else {
+          setFieldValues((p) => ({ ...p, refundAccountName: data.accountName }));
+        }
+      } catch {
+        if (!cancelled) {
+          setVerifyError("Couldn't reach the verification service.");
+          setFieldValues((p) => ({ ...p, refundAccountName: "" }));
+        }
+      } finally {
+        if (!cancelled) setVerifying(false);
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+  }, [refundInst, refundAcct]);
 
   // Probe one quote per country/chain to learn the exchange rate.
   useEffect(() => {
@@ -375,38 +450,107 @@ export function ChainrailsBuyPanel({
       </label>
 
       {/* Provider fields the order requires (bank dropdown, phone, account). */}
-      {fields.map((f) => (
-        <label key={f.key} className="col gap-2">
-          <span className="font-mono" style={LABEL}>
-            {f.label}
-          </span>
-          {f.type === "enum" ? (
-            <select
-              value={fieldValues[f.key] ?? ""}
-              onChange={(e) =>
-                setFieldValues((p) => ({ ...p, [f.key]: e.target.value }))
-              }
-              style={INPUT}
-            >
-              {(f.options ?? []).map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
+      {fields.map((f) => {
+        // The refund institution is a bank code — show a name dropdown and send
+        // the code for the user, so they never have to know or type it.
+        const isRefundBank = f.key === "refundInstitution";
+
+        // The refund account name is resolved from the bank + number. If the
+        // lookup can't confirm it, we fall back to a plain text box so a miss
+        // never blocks the order.
+        if (f.key === "refundAccountName") {
+          const ready =
+            !!fieldValues.refundInstitution &&
+            (fieldValues.refundAccountIdentifier?.trim().length ?? 0) >= 6;
+          const needsManual = ready && !verifying && !!verifyError;
+          return (
+            <div key={f.key} className="col gap-2">
+              <span className="font-mono" style={LABEL}>
+                Refund account name
+              </span>
+              {!ready ? (
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Pick your bank and enter the account number above.
+                </span>
+              ) : needsManual ? (
+                <>
+                  <input
+                    value={fieldValues.refundAccountName ?? ""}
+                    onChange={(e) =>
+                      setFieldValues((p) => ({
+                        ...p,
+                        refundAccountName: e.target.value,
+                      }))
+                    }
+                    placeholder="Enter the account name"
+                    style={INPUT}
+                  />
+                  <span className="muted" style={{ fontSize: 11.5 }}>
+                    We couldn&apos;t confirm this account automatically — type the
+                    name exactly as it appears at the bank.
+                  </span>
+                </>
+              ) : (
+                <AccountNameStatus
+                  verifying={verifying}
+                  error={verifyError}
+                  name={fieldValues.refundAccountName ?? ""}
+                />
+              )}
+            </div>
+          );
+        }
+
+        return (
+          <label key={f.key} className="col gap-2">
+            <span className="font-mono" style={LABEL}>
+              {isRefundBank ? "Refund bank" : f.label}
+            </span>
+            {isRefundBank && refundBanks.length > 0 ? (
+              <select
+                value={fieldValues[f.key] ?? ""}
+                onChange={(e) =>
+                  setFieldValues((p) => ({ ...p, [f.key]: e.target.value }))
+                }
+                style={INPUT}
+              >
+                <option value="" disabled>
+                  Select your bank
                 </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              value={fieldValues[f.key] ?? ""}
-              onChange={(e) =>
-                setFieldValues((p) => ({ ...p, [f.key]: e.target.value }))
-              }
-              inputMode={f.type === "phone" ? "tel" : undefined}
-              placeholder={f.label}
-              style={INPUT}
-            />
-          )}
-        </label>
-      ))}
+                {refundBanks.map((b) => (
+                  <option key={b.code} value={b.code}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            ) : f.type === "enum" ? (
+              <select
+                value={fieldValues[f.key] ?? ""}
+                onChange={(e) =>
+                  setFieldValues((p) => ({ ...p, [f.key]: e.target.value }))
+                }
+                style={INPUT}
+              >
+                {(f.options ?? []).map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={fieldValues[f.key] ?? ""}
+                onChange={(e) =>
+                  setFieldValues((p) => ({ ...p, [f.key]: e.target.value }))
+                }
+                inputMode={f.type === "phone" ? "tel" : undefined}
+                placeholder={f.label}
+                style={INPUT}
+              />
+            )}
+          </label>
+        );
+      })}
 
       {/* Asked once; afterwards it's remembered on-device and this is hidden. */}
       {askEmail && (
