@@ -416,6 +416,8 @@ export function BuyFlow({
         {header}
         <ChainrailsBuyPanel
           destination={crDest}
+          amount={amount}
+          onAmountChange={setAmount}
           onQuote={setQuote}
           networkSelect={
             <NetworkSelect

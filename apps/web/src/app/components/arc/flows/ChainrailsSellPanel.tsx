@@ -35,6 +35,8 @@ import { type PaycrestInstitution } from "@/rails/paycrest";
 import { Icon } from "../icons";
 import { linkRampOrder, trackRampOrder } from "../chainrailsOrders";
 import { EMAIL_RE, loadSavedEmail, saveEmail } from "../rampEmail";
+import { fetchKycState, type KycCorridor, type KycState } from "../rampKyc";
+import { KycVerification } from "./KycVerification";
 
 /** Colored Iconify name for a token, or null when there's no real logo. */
 function tokenLogo(symbol: string): string | null {
@@ -165,6 +167,10 @@ type Country = {
   currency: { code: string; name: string; symbol: string; minAmount: number };
 };
 
+// Cache the country list for the session so switching chains (which remounts
+// this panel) doesn't re-flash a blank payout-country dropdown while it refetches.
+let COUNTRIES_CACHE: Country[] = [];
+
 type FieldOption = {
   label: string;
   value: string;
@@ -218,6 +224,9 @@ export function ChainrailsSellPanel({
   onOrderActive,
   onStartNew,
   onOrderCreated,
+  backRef,
+  amount,
+  onAmountChange,
 }: {
   source: RampDestination;
   /** The shared "From" chain picker, rendered inside this card. */
@@ -240,10 +249,17 @@ export function ChainrailsSellPanel({
   /** Fires when a new order is created, so the parent can put its id in the URL
    *  (survives a refresh — otherwise a fresh order is lost on reload). */
   onOrderCreated?: (id: string) => void;
+  /** Lets the parent's header "Back" step back through this panel (KYC → payout
+   *  → amount) instead of exiting the whole flow. We populate `.current` with a
+   *  step-back fn for the current stage, or null when there's nothing to undo. */
+  backRef?: React.MutableRefObject<(() => boolean) | null>;
+  /** The "You sell" USDC amount, owned by the parent so it survives switching
+   *  between the Paycrest form and this panel. */
+  amount: string;
+  onAmountChange: (v: string) => void;
 }) {
-  const [countries, setCountries] = useState<Country[]>([]);
+  const [countries, setCountries] = useState<Country[]>(COUNTRIES_CACHE);
   const [countryCode, setCountryCode] = useState("NG");
-  const [amount, setAmount] = useState("");
   const [senderAddress, setSenderAddress] = useState("");
   const [email, setEmail] = useState("");
   const [quote, setQuote] = useState<OffQuote | null>(null);
@@ -253,10 +269,17 @@ export function ChainrailsSellPanel({
   const [payoutBanks, setPayoutBanks] = useState<PaycrestInstitution[]>([]);
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
+  // Headless-KYC gate: set when the profile can't yet proceed, which swaps the
+  // payout form for the verification step until it clears.
+  const [kycCorridor, setKycCorridor] = useState<KycCorridor | null>(null);
+  const [kycInitial, setKycInitial] = useState<KycState | undefined>(undefined);
+  // True from the moment KYC clears until the order is created, so we show a
+  // clean "setting up" loader instead of flashing the payout form back.
+  const [finalizing, setFinalizing] = useState(false);
   const [order, setOrder] = useState<RampOrder | null>(null);
   const [phase, setPhase] = useState<RampOrderPhase>("pending");
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(COUNTRIES_CACHE.length === 0);
   const [quoting, setQuoting] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -320,6 +343,7 @@ export function ChainrailsSellPanel({
         if (!res.ok) throw new Error(data?.error || "Couldn't load countries.");
         if (cancelled) return;
         const next = (data.countries ?? []) as Country[];
+        COUNTRIES_CACHE = next;
         setCountries(next);
         if (!next.some((c) => c.countryCode === "NG") && next[0])
           setCountryCode(next[0].countryCode);
@@ -415,6 +439,38 @@ export function ChainrailsSellPanel({
   const requiredFields: FieldSpec[] =
     quote?.paymentChannels[0]?.directTransferDetails?.fieldsRequired ?? [];
 
+  // Field roles by key/label, so both the Paycrest route (recipient* keys) and
+  // generic providers (Bank / account number / holder name) get the same clean
+  // layout: bank first, then the account number, then the name — which we hold
+  // back until there's a number to resolve or type against.
+  const isBankField = (f: FieldSpec) =>
+    f.key === "recipientInstitution" || f.type === "enum";
+  const isNumberField = (f: FieldSpec) =>
+    f.key === "recipientAccountIdentifier" ||
+    /number/i.test(f.label) ||
+    /number|identifier/i.test(f.key);
+  const isNameField = (f: FieldSpec) =>
+    f.key === "recipientAccountName" ||
+    /holder/i.test(f.label) ||
+    (/name/i.test(f.label) && !/number/i.test(f.label)) ||
+    (/name/i.test(f.key) && !/number/i.test(f.key));
+  const bankField = requiredFields.find(isBankField);
+  const numberField = requiredFields.find(
+    (f) => isNumberField(f) && !isBankField(f)
+  );
+  const nameField = requiredFields.find(
+    (f) => isNameField(f) && !isBankField(f) && !isNumberField(f)
+  );
+  // Bank → account number → name → anything else.
+  const orderedFields: FieldSpec[] = [
+    ...(bankField ? [bankField] : []),
+    ...(numberField ? [numberField] : []),
+    ...(nameField ? [nameField] : []),
+    ...requiredFields.filter(
+      (f) => f !== bankField && f !== numberField && f !== nameField
+    ),
+  ];
+
   const getQuote = async () => {
     if (!country || !canQuote) return;
     setQuoting(true);
@@ -468,11 +524,12 @@ export function ChainrailsSellPanel({
   );
   const emailValid = EMAIL_RE.test(email.trim());
 
-  const createOrder = async () => {
+  // The real order POST. Assumes KYC has already cleared — split out from the
+  // gate below so we can call it again the instant the user finishes verifying.
+  const postOrder = async () => {
     if (!quote || !country) return;
     setCreating(true);
     setError(null);
-    saveEmail(email.trim()); // remember it for next time (passed emailValid gate)
     try {
       // Phone-type fields must go out in E.164 (+234…). A local 0817… format
       // makes FONBNK's backend throw and Chainrails returns an opaque 500.
@@ -527,7 +584,39 @@ export function ChainrailsSellPanel({
       );
     } finally {
       setCreating(false);
+      setFinalizing(false);
     }
+  };
+
+  // Gate the order behind Chainrails' headless KYC. We check the profile can
+  // proceed FIRST (docs: read state → collect missing → submit → create), so we
+  // never fire an order that would 400 with KYC_REQUIRED. If the check itself
+  // can't be reached we fall through and let the order attempt surface any gate.
+  const createOrder = async () => {
+    if (!quote || !country) return;
+    saveEmail(email.trim()); // remember it for next time (passed emailValid gate)
+    setCreating(true);
+    setError(null);
+    const corridor: KycCorridor = {
+      provider: quote.provider,
+      userEmail: email.trim(),
+      countryCode,
+      fiatCurrency: quote.fiatCurrency,
+      cryptoAmount: quote.cryptoAmount,
+    };
+    try {
+      const kyc = await fetchKycState(corridor);
+      if (!kyc.canProceed) {
+        setKycCorridor(corridor);
+        setKycInitial(kyc);
+        setCreating(false);
+        return;
+      }
+    } catch {
+      // Couldn't reach the KYC check — proceed and let the order attempt itself
+      // report any verification gate rather than blocking on our pre-check.
+    }
+    await postOrder();
   };
 
   // Poll the created order via the shared ramp poller (as Buy/Paycrest do): it
@@ -554,6 +643,29 @@ export function ChainrailsSellPanel({
     onOrderActive?.(!!order || !!resumeOrderId);
   }, [order, resumeOrderId, onOrderActive]);
 
+  // Wire the header "Back" to undo ONE stage at a time (KYC → payout details →
+  // amount) so a mid-flow back doesn't blow away a filled form. Returns true when
+  // it handled the back; the parent exits the flow only when this is null.
+  useEffect(() => {
+    if (!backRef) return;
+    backRef.current = order
+      ? null
+      : kycCorridor
+        ? () => {
+            setKycCorridor(null);
+            return true;
+          }
+        : quote
+          ? () => {
+              setQuote(null);
+              return true;
+            }
+          : null;
+    return () => {
+      if (backRef) backRef.current = null;
+    };
+  }, [backRef, order, kycCorridor, quote]);
+
   // Abandon a dead order and return to a blank sell form. Clears the parent's
   // resumed order too (via onStartNew) so the URL doesn't reopen it.
   const startNewOrder = () => {
@@ -561,8 +673,10 @@ export function ChainrailsSellPanel({
     setQuote(null);
     setPhase("pending");
     setError(null);
-    setAmount("");
+    onAmountChange("");
     setFieldValues({});
+    setKycCorridor(null);
+    setKycInitial(undefined);
     onStartNew?.();
   };
 
@@ -1114,8 +1228,29 @@ export function ChainrailsSellPanel({
           </div>
         </div>
 
-        {/* Payout details */}
-        <div className="card col gap-5" style={{ padding: 20 }}>
+        {/* Verify once (per-profile KYC, reused across Buy + Sell), then the
+            payout details once the profile can proceed. */}
+        {kycCorridor ? (
+          <KycVerification
+            corridor={kycCorridor}
+            initialState={kycInitial}
+            onCleared={() => {
+              setKycCorridor(null);
+              setFinalizing(true);
+              void postOrder();
+            }}
+            onCancel={() => setKycCorridor(null)}
+          />
+        ) : finalizing ? (
+          <div className="card col center gap-3" style={{ padding: "36px 24px" }}>
+            <Icon.Spinner size={18} />
+            <span className="muted" style={{ fontSize: 13 }}>
+              Setting up your payout…
+            </span>
+          </div>
+        ) : (
+          /* Payout details */
+          <div className="card col gap-5" style={{ padding: 20 }}>
           <div className="col gap-3">
             <div className="row center gap-1">
               <span className="eyebrow">Payout account</span>
@@ -1127,62 +1262,80 @@ export function ChainrailsSellPanel({
                 } payout.`}
               />
             </div>
-            {requiredFields.map((f) => {
+            {orderedFields.map((f) => {
               // Paycrest-routed sell: the recipient bank is a code — show a name
               // dropdown and send the code, and resolve the account name instead
               // of asking the user to type either.
               const isRecipBank = f.key === "recipientInstitution";
+              const isAcctNumber = f.key === "recipientAccountIdentifier";
 
-              if (f.key === "recipientAccountName") {
+              // The account name: held back until there's a bank + number to work
+              // with, then resolved (Paycrest routes) or typed (everyone else).
+              if (nameField && f.key === nameField.key) {
+                const bankVal = bankField
+                  ? fieldValues[bankField.key]
+                  : undefined;
+                const numVal = numberField
+                  ? (fieldValues[numberField.key] ?? "").trim()
+                  : "";
+                // Reveal once the number's in (and a bank is chosen, when there
+                // is a bank field to choose) — never leave it stuck hidden.
                 const ready =
-                  !!fieldValues.recipientInstitution &&
-                  (fieldValues.recipientAccountIdentifier?.trim().length ?? 0) >=
-                    6;
-                // Auto-lookup couldn't confirm the account — let the user type the
-                // name so a lookup miss never blocks the payout.
-                const needsManual = ready && !verifying && !!verifyError;
+                  numVal.length >= 6 && (bankField ? !!bankVal : true);
+                // Until there's an account to work with, show nothing: the name is
+                // a result the system fills in, not another empty box up front.
+                if (!ready) return null;
+                // Only the Paycrest route can auto-confirm the name; other
+                // providers' codes can't be looked up, so we ask for it.
+                const isPaycrestName = f.key === "recipientAccountName";
+                const needsManual =
+                  !isPaycrestName || (!verifying && !!verifyError);
                 return (
                   <div key={f.key} className="col gap-1">
                     <span className="muted" style={{ fontSize: 12 }}>
-                      Recipient account name
+                      Account name
                     </span>
-                    {!ready ? (
-                      <span className="muted" style={{ fontSize: 12 }}>
-                        Pick the bank and enter the account number above.
-                      </span>
-                    ) : needsManual ? (
+                    {needsManual ? (
                       <>
                         <input
-                          value={fieldValues.recipientAccountName ?? ""}
+                          value={fieldValues[f.key] ?? ""}
                           onChange={(e) =>
                             setFieldValues((p) => ({
                               ...p,
-                              recipientAccountName: e.target.value,
+                              [f.key]: e.target.value,
                             }))
                           }
                           placeholder="Enter the account name"
                           style={INPUT}
                         />
-                        <span className="muted" style={{ fontSize: 11.5 }}>
-                          We couldn&apos;t confirm this account automatically —
-                          type the name exactly as it appears at the bank.
-                        </span>
+                        {isPaycrestName && (
+                          <span className="muted" style={{ fontSize: 11.5 }}>
+                            We couldn&apos;t confirm this account automatically —
+                            type the name exactly as it appears at the bank.
+                          </span>
+                        )}
                       </>
                     ) : (
                       <AccountNameStatus
                         verifying={verifying}
                         error={verifyError}
-                        name={fieldValues.recipientAccountName ?? ""}
+                        name={fieldValues[f.key] ?? ""}
                       />
                     )}
                   </div>
                 );
               }
 
+              const label = isRecipBank
+                ? "Recipient's bank"
+                : isAcctNumber
+                  ? "Account number"
+                  : f.label;
+
               return (
                 <label key={f.key} className="col gap-1">
                   <span className="muted" style={{ fontSize: 12 }}>
-                    {isRecipBank ? "Recipient bank" : f.label}
+                    {label}
                     {f.required ? "" : " (optional)"}
                   </span>
                   {isRecipBank && payoutBanks.length > 0 ? (
@@ -1222,27 +1375,45 @@ export function ChainrailsSellPanel({
                       onChange={(e) =>
                         setFieldValues((p) => ({ ...p, [f.key]: e.target.value }))
                       }
-                      inputMode={f.type === "phone" ? "tel" : undefined}
-                      placeholder={f.label}
+                      inputMode={
+                        f.type === "phone"
+                          ? "tel"
+                          : isAcctNumber
+                            ? "numeric"
+                            : undefined
+                      }
+                      placeholder={
+                        isAcctNumber ? "10-digit account number" : f.label
+                      }
                       style={INPUT}
                     />
                   )}
                 </label>
               );
             })}
-            <label className="col gap-1">
-              <span className="muted" style={{ fontSize: 12 }}>
-                Email (for KYC verification)
-              </span>
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                inputMode="email"
-                placeholder="you@example.com"
-                style={INPUT}
-              />
-            </label>
           </div>
+
+          <div style={{ height: 1, background: "var(--line)" }} />
+
+          <label className="col gap-1">
+            <span className="muted" style={{ fontSize: 12 }}>
+              Your email
+            </span>
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              inputMode="email"
+              placeholder="you@example.com"
+              style={INPUT}
+            />
+            <span
+              className="row center gap-1 muted"
+              style={{ fontSize: 11.5, justifyContent: "flex-start" }}
+            >
+              <Icon.Shield size={12} /> Your email is encrypted and used only for
+              secure payout verification.
+            </span>
+          </label>
 
           {error && <ErrorBox message={error} />}
 
@@ -1263,15 +1434,22 @@ export function ChainrailsSellPanel({
                 </>
               ) : (
                 <>
-                  Get deposit address <Icon.ArrowRight />
+                  Continue to deposit details <Icon.ArrowRight />
                 </>
               )}
             </button>
+            <span
+              className="muted"
+              style={{ fontSize: 11.5, textAlign: "center" }}
+            >
+              We&apos;ll confirm your recipient details before any funds move.
+            </span>
             <button className="btn btn-quiet" onClick={() => setQuote(null)}>
               Edit
             </button>
           </div>
         </div>
+        )}
       </div>
     );
   }
@@ -1283,7 +1461,7 @@ export function ChainrailsSellPanel({
         <span className="eyebrow">You sell</span>
         <PrefixedAmountInput
           amount={amount}
-          onAmountChange={setAmount}
+          onAmountChange={onAmountChange}
           prefix="$"
         />
         <span className="muted" style={{ fontSize: 12 }}>

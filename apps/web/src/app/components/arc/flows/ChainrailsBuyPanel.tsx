@@ -36,6 +36,10 @@ type Country = {
   currency: { code: string; name: string; symbol: string; minAmount: number };
 };
 
+// Cache the country list for the session so switching chains (which remounts
+// this panel) doesn't re-flash a blank country / currency while it refetches.
+let COUNTRIES_CACHE: Country[] = [];
+
 type FieldOption = { label: string; value: string };
 type FieldSpec = {
   key: string;
@@ -85,20 +89,24 @@ export function ChainrailsBuyPanel({
   destination,
   onQuote,
   networkSelect,
+  amount,
+  onAmountChange,
 }: {
   destination: RampDestination;
   /** Hand the built quote up so the shared ReviewScreen renders the confirm. */
   onQuote: (quote: Quote) => void;
   /** The shared "Receive on" network picker, rendered inside this card. */
   networkSelect: React.ReactNode;
+  /** The FIAT amount the user pays, owned by the parent so it survives switching
+   *  between the Paycrest form and this panel. */
+  amount: string;
+  onAmountChange: (v: string) => void;
 }) {
-  const [countries, setCountries] = useState<Country[]>([]);
+  const [countries, setCountries] = useState<Country[]>(COUNTRIES_CACHE);
   const [countryCode, setCountryCode] = useState("NG");
-  // `amount` is the FIAT the user pays.
-  const [amount, setAmount] = useState("");
   const [unitRate, setUnitRate] = useState<number | null>(null); // fiat per 1 USDC
   const [rateLoading, setRateLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(COUNTRIES_CACHE.length === 0);
   const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // FONBNK on-ramp requires phone/bank/account to create the order; the fields
@@ -127,7 +135,8 @@ export function ChainrailsBuyPanel({
   useEffect(() => {
     const d = loadChainrailsRampDraft(destination.chainrailsChain);
     if (!d) return;
-    if (d.amount) setAmount(d.amount);
+    // Amount is owned by the parent (shared with the Paycrest form) so it carries
+    // across a chain switch — the per-chain draft only restores country + fields.
     if (d.countryCode) setCountryCode(d.countryCode);
     if (d.fields) setFieldValues(d.fields);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,6 +159,7 @@ export function ChainrailsBuyPanel({
         if (!res.ok) throw new Error(data?.error || "Couldn't load countries.");
         if (cancelled) return;
         const next = (data.countries ?? []) as Country[];
+        COUNTRIES_CACHE = next;
         setCountries(next);
         if (!next.some((c) => c.countryCode === "NG") && next[0])
           setCountryCode(next[0].countryCode);
@@ -343,6 +353,7 @@ export function ChainrailsBuyPanel({
         destinationChain: destination.chainrailsChain,
         destinationLabel: destination.label,
         addressKind: destination.addressKind,
+        userEmail: email.trim(),
         fields: { ...fieldValues },
       },
     },
@@ -389,8 +400,8 @@ export function ChainrailsBuyPanel({
         </span>
         <PrefixedAmountInput
           amount={amount}
-          onAmountChange={setAmount}
-          prefix={country?.currency.symbol ?? "$"}
+          onAmountChange={onAmountChange}
+          prefix={country?.currency.symbol ?? "₦"}
         />
         {unitRate && estimateUsdc !== null && (
           <div
@@ -462,17 +473,16 @@ export function ChainrailsBuyPanel({
           const ready =
             !!fieldValues.refundInstitution &&
             (fieldValues.refundAccountIdentifier?.trim().length ?? 0) >= 6;
+          // Until there's an account to look up, show nothing — the name is a
+          // result we resolve, not another box to fill.
+          if (!ready) return null;
           const needsManual = ready && !verifying && !!verifyError;
           return (
             <div key={f.key} className="col gap-2">
               <span className="font-mono" style={LABEL}>
                 Refund account name
               </span>
-              {!ready ? (
-                <span className="muted" style={{ fontSize: 12 }}>
-                  Pick your bank and enter the account number above.
-                </span>
-              ) : needsManual ? (
+              {needsManual ? (
                 <>
                   <input
                     value={fieldValues.refundAccountName ?? ""}

@@ -10,7 +10,7 @@
  * money details and runs the connect → confirm → execute flow).
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { getChain, resolveChain, type ChainId } from "@/config/network";
 import {
@@ -265,15 +265,10 @@ export function CashoutFlow({
     if (d.amount) setAmount(d.amount);
     if (d.currency) setCurrency(d.currency);
     if (d.token === "USDC" || d.token === "USDT") setToken(d.token);
-    if (d.crChain && CHAINRAILS_OFFRAMP_ENABLED) {
-      const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
-        (c) => c.chainrailsChain === d.crChain
-      );
-      if (dest) {
-        setCrDest(dest);
-        setSourceTouched(true);
-      }
-    } else if (d.chain) {
+    // Only ever restore a Paycrest chain — Sell always opens on the default
+    // settlement chain (Base) unless the user explicitly picked another Paycrest
+    // one. A ChainRails chain is entered by choosing it in-session, never on open.
+    if (d.chain) {
       setSourceChain(d.chain as ChainId);
       setSourceTouched(true);
     }
@@ -410,6 +405,15 @@ export function CashoutFlow({
     onBack();
   };
 
+  // The ChainRails panel can step back through its own stages (KYC → payout →
+  // amount). Give it first refusal on "Back" so a filled form isn't lost; only
+  // leave the whole Sell flow when the panel has nothing left to undo.
+  const panelBack = useRef<(() => boolean) | null>(null);
+  const onHeaderBack = () => {
+    if (panelBack.current?.()) return;
+    handleBack();
+  };
+
   const handleSourceSelect = (v: string) => {
     if (v.startsWith("cr:")) {
       const dest = CHAINRAILS_RAMP_DESTINATIONS.find(
@@ -426,7 +430,7 @@ export function CashoutFlow({
   const backButton = (
     <button
       className="btn btn-quiet btn-sm"
-      onClick={handleBack}
+      onClick={onHeaderBack}
       style={{ padding: "0 8px", alignSelf: "flex-start", marginBottom: 4 }}
     >
       <Icon.Arrow rotate={180} size={12} /> Back
@@ -465,6 +469,9 @@ export function CashoutFlow({
         )}
         <ChainrailsSellPanel
           source={crDest}
+          amount={amount}
+          onAmountChange={setAmount}
+          backRef={panelBack}
           resumeOrderId={resume?.id}
           resumeFiatLabel={resume?.fiatLabel}
           resumeDepositLabel={resume?.depositLabel}

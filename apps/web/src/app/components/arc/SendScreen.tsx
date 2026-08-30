@@ -112,6 +112,9 @@ export type QuoteExec = {
     destinationLabel: string;
     /** Address format of the delivery chain, so Review can validate it. */
     addressKind: RampAddressKind;
+    /** Buyer's email — a TOP-LEVEL KYC field the order needs (PAYCREST 400s
+     *  without it). Collected on the Buy panel, sent when creating the order. */
+    userEmail?: string;
   } | null;
 };
 
@@ -1554,11 +1557,15 @@ export function StatusScreen({
   intent,
   onDone,
   onStartNew,
+  onBack,
 }: {
   intent: Intent | null;
   onDone: () => void;
   /** Start a fresh order (→ Buy page), used by the Chainrails status screen. */
   onStartNew?: () => void;
+  /** Step back to where this screen was opened from (e.g. History) rather than
+   *  finishing/clearing the order. Used by the Chainrails status back button. */
+  onBack?: () => void;
 }) {
   const exec = intent?.quote?.exec;
   const { address, isConnected } = useAccount();
@@ -2032,6 +2039,7 @@ export function StatusScreen({
         intent={intent}
         onDone={onDone}
         onStartNew={onStartNew}
+        onBack={onBack}
       />
     );
   }

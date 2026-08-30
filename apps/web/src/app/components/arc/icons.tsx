@@ -165,6 +165,25 @@ export const Icon = {
       />
     </svg>
   ),
+  Lock: ({ size = 14 }: IconProps) => (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect
+        x="3.25"
+        y="7"
+        width="9.5"
+        height="6.5"
+        rx="1.4"
+        stroke="currentColor"
+        strokeWidth="1.3"
+      />
+      <path
+        d="M5.25 7V5.25a2.75 2.75 0 015.5 0V7"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  ),
   Search: ({ size = 14 }: IconProps) => (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
       <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
