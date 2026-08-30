@@ -88,6 +88,18 @@ export interface RampOrder {
   intentAddress?: string;
   grossDepositAmount?: number;
   depositChain?: string;
+  /** Bank-transfer providers (e.g. PAYCREST) return the account to pay into here
+   *  instead of a hosted checkout URL. */
+  transferInstructions?: TransferInstructions;
+}
+
+/** The bank account the buyer transfers fiat to, straight from the provider. */
+export interface TransferInstructions {
+  currency?: string;
+  accountName?: string;
+  institution?: string;
+  amountToTransfer?: string;
+  accountIdentifier?: string;
 }
 
 interface QuoteResponse<T> {

@@ -18,6 +18,7 @@ import {
   type RampCountry,
   type RampFieldSpec,
   type RampOrder,
+  type TransferInstructions,
 } from "@/api/chainrails";
 import {
   classifyRampStatus,
@@ -45,9 +46,15 @@ import { SuccessCheck } from "@/components/SuccessCheck";
 import {
   clearChainrailsRampDraft,
   loadChainrailsRampDraft,
+  loadSavedEmail,
   saveChainrailsRampDraft,
+  saveSavedEmail,
 } from "@/lib/composeDraft";
+import { copyToClipboard } from "@/lib/clipboard";
 import { theme } from "@/theme";
+
+/** Loose email check — enough to catch typos before we hit the provider. */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // A small crypto amount to probe the corridor's rate with. The rate is amount-
 // independent, so this only needs to clear the provider minimum.
@@ -84,6 +91,9 @@ export function ChainrailsBuyFlow({
   const [fields, setFields] = useState<RampFieldSpec[]>([]);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [address, setAddress] = useState("");
+  // Contact/KYC email — required for the order (PAYCREST 400s without it).
+  // Remembered on-device and reused across buys.
+  const [email, setEmail] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [rateLoading, setRateLoading] = useState(false);
@@ -96,6 +106,18 @@ export function ChainrailsBuyFlow({
   // pauses while the app is backgrounded (i.e. while they're paying in Safari)
   // and fires immediately when they return.
   const [polling, setPolling] = useState(false);
+
+  // Prefill the remembered email so a returning buyer doesn't retype it.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const saved = await loadSavedEmail();
+      if (!cancelled && saved) setEmail(saved);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Load the currency catalogue once.
   useEffect(() => {
@@ -202,6 +224,7 @@ export function ChainrailsBuyFlow({
   const fieldsComplete = fields.every(
     (fld) => !fld.required || (fieldValues[fld.key]?.trim()?.length ?? 0) > 0
   );
+  const emailValid = EMAIL_RE.test(email.trim());
   const canSubmit =
     !!country &&
     fiatAmount > 0 &&
@@ -209,10 +232,12 @@ export function ChainrailsBuyFlow({
     !belowMin &&
     addressValid &&
     fieldsComplete &&
+    emailValid &&
     !quoting;
 
   const submit = async () => {
     if (!country || !unitRate) return;
+    void saveSavedEmail(email.trim()); // remember it (passed emailValid gate)
     // Convert the fiat typed into the crypto amount ChainRails quotes on.
     const cryptoAmount = Number((fiatAmount / unitRate).toFixed(4));
     setQuoting(true);
@@ -234,6 +259,8 @@ export function ChainrailsBuyFlow({
         destinationChain: destination.chainrailsChain,
         recipientAddress: address.trim(),
         countryCode,
+        // userEmail is a TOP-LEVEL KYC field — PAYCREST 400s without it.
+        userEmail: email.trim(),
         fields: { ...fieldValues },
       });
       setOrder(created);
@@ -316,6 +343,14 @@ export function ChainrailsBuyFlow({
     return () => handle.stop();
   }, [orderId, polling]);
 
+  // Bank-transfer orders have no checkout to open, so nothing else would start
+  // the poll — kick it off once an order exists without a checkout URL, so its
+  // transfer details load and the status flips when the payment is seen.
+  useEffect(() => {
+    if (orderId != null && !order?.widgetUrl && !isRampPhaseTerminal(phase))
+      setPolling(true);
+  }, [orderId, order?.widgetUrl, phase]);
+
   // Resume an existing order from History — load it and show its status instead
   // of the compose form. Poll on mount since it may already be paid.
   useEffect(() => {
@@ -396,7 +431,13 @@ export function ChainrailsBuyFlow({
               address={order.recipientAddress ?? rec?.address ?? address}
             />
 
-            {order.widgetUrl && (
+            {order.transferInstructions?.accountIdentifier ? (
+              // Bank-transfer provider: the account to pay into is the action.
+              <TransferInstructionsCard
+                info={order.transferInstructions}
+                cryptoCurrency={order.cryptoCurrency ?? "USDC"}
+              />
+            ) : order.widgetUrl ? (
               <>
                 <Primary
                   label="Open checkout to pay"
@@ -410,25 +451,32 @@ export function ChainrailsBuyFlow({
                   <Text style={styles.secureText}>Secure checkout</Text>
                 </View>
               </>
+            ) : (
+              // Order exists but the provider hasn't returned how to pay yet —
+              // we're polling for it (never a dead end).
+              <View style={styles.statusRow}>
+                <ActivityIndicator color={theme.colors.accent} />
+                <Text style={f.estimate}>Getting your payment details…</Text>
+              </View>
             )}
 
-            {polling && (
-              <>
-                <View style={styles.statusRow}>
-                  <ActivityIndicator color={theme.colors.accent} />
-                  <Text style={f.estimate}>
-                    Waiting for payment
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={() => void checkNow()}
-                  hitSlop={8}
-                  style={styles.linkBtn}
-                >
-                  <Text style={styles.linkText}>Check status now</Text>
-                </Pressable>
-              </>
-            )}
+            {polling &&
+              (order.transferInstructions?.accountIdentifier ||
+                order.widgetUrl) && (
+                <>
+                  <View style={styles.statusRow}>
+                    <ActivityIndicator color={theme.colors.accent} />
+                    <Text style={f.estimate}>Waiting for payment</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => void checkNow()}
+                    hitSlop={8}
+                    style={styles.linkBtn}
+                  >
+                    <Text style={styles.linkText}>I&apos;ve sent the funds</Text>
+                  </Pressable>
+                </>
+              )}
           </>
         )}
         <Text style={styles.orderRef}>Order #{order.id}</Text>
@@ -546,6 +594,22 @@ export function ChainrailsBuyFlow({
         </Field>
       ))}
 
+      <Field label="Your email">
+        <TextInput
+          style={f.input}
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
+          placeholder="you@example.com"
+          placeholderTextColor={theme.colors.muted}
+        />
+        <Text style={styles.emailHint}>
+          Encrypted and used only to verify this order — never shared.
+        </Text>
+      </Field>
+
       {error && <Text style={f.error}>{error}</Text>}
 
       <View style={f.rowButtons}>
@@ -605,6 +669,91 @@ function SummaryRow({
       >
         {value}
       </Text>
+    </View>
+  );
+}
+
+/** The bank account the buyer transfers fiat into — the real action for
+ *  bank-transfer providers (no checkout). Each value copies on tap. */
+function TransferInstructionsCard({
+  info,
+  cryptoCurrency,
+}: {
+  info: TransferInstructions;
+  cryptoCurrency: string;
+}) {
+  const currency = info.currency ?? "";
+  const amount = info.amountToTransfer
+    ? `${Number(info.amountToTransfer).toLocaleString("en-US")} ${currency}`.trim()
+    : "";
+  return (
+    <View style={styles.transferCard}>
+      <Text style={styles.transferTitle}>Send this transfer</Text>
+      <Text style={styles.transferIntro}>
+        Transfer exactly {amount || "the amount"} from your own bank account to
+        the account below. Your {cryptoCurrency} is released once it lands.
+      </Text>
+      <TransferRow
+        label="Amount"
+        value={amount || "—"}
+        copy={info.amountToTransfer}
+        strong
+      />
+      <TransferRow label="Bank" value={info.institution ?? "—"} />
+      <TransferRow
+        label="Account number"
+        value={info.accountIdentifier ?? "—"}
+        copy={info.accountIdentifier}
+        strong
+      />
+      <TransferRow label="Account name" value={info.accountName ?? "—"} />
+    </View>
+  );
+}
+
+function TransferRow({
+  label,
+  value,
+  copy,
+  strong,
+}: {
+  label: string;
+  value: string;
+  copy?: string;
+  strong?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    if (!copy) return;
+    const ok = await copyToClipboard(copy);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    }
+  };
+  return (
+    <View style={styles.transferRow}>
+      <Text style={styles.transferRowLabel}>{label}</Text>
+      <View style={styles.transferRowRight}>
+        <Text
+          style={[
+            styles.transferRowValue,
+            strong && styles.transferRowValueStrong,
+          ]}
+          numberOfLines={1}
+        >
+          {value}
+        </Text>
+        {copy ? (
+          <Pressable onPress={() => void onCopy()} hitSlop={8}>
+            <Feather
+              name={copied ? "check" : "copy"}
+              size={15}
+              color={theme.colors.muted}
+            />
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -684,6 +833,60 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   summaryValueAccent: { color: theme.colors.accent },
+
+  emailHint: {
+    color: theme.colors.muted,
+    fontSize: 12,
+    marginTop: theme.spacing(0.5),
+  },
+
+  // Bank-transfer instructions card
+  transferCard: {
+    padding: theme.spacing(2.25),
+    borderRadius: theme.radius.cardLg,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    gap: theme.spacing(1.25),
+    ...theme.shadow,
+  },
+  transferTitle: {
+    color: theme.colors.text,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  transferIntro: {
+    color: theme.colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: theme.spacing(0.5),
+  },
+  transferRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: theme.spacing(1.5),
+    paddingVertical: theme.spacing(1),
+    paddingHorizontal: theme.spacing(1.25),
+    borderRadius: theme.radius.card,
+    backgroundColor: theme.colors.bg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  transferRowLabel: { color: theme.colors.muted, fontSize: 13 },
+  transferRowRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing(1),
+    flexShrink: 1,
+  },
+  transferRowValue: {
+    color: theme.colors.text,
+    fontSize: 14,
+    flexShrink: 1,
+    textAlign: "right",
+  },
+  transferRowValueStrong: { fontWeight: "700", fontSize: 15 },
 
   // "Secure checkout" reassurance under the primary button
   secureRow: {
