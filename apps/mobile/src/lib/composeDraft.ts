@@ -60,6 +60,13 @@ export const saveComposeDraft = (flow: ComposeFlow, draft: ComposeDraft) =>
   saveJson(composeKey(flow), draft);
 export const clearComposeDraft = (flow: ComposeFlow) => remove(composeKey(flow));
 
+// The KYC/contact email is reused across every ramp order, so it lives on its
+// own key (not the per-chain draft, which is cleared once an order is created).
+const EMAIL_KEY = "railglide:ramp:email";
+export const loadSavedEmail = () => loadJson<string>(EMAIL_KEY);
+export const saveSavedEmail = (email: string) =>
+  saveJson(EMAIL_KEY, email.trim());
+
 export const loadChainrailsRampDraft = (chain: string) =>
   loadJson<ChainrailsRampDraft>(crRampKey(chain));
 export const saveChainrailsRampDraft = (
