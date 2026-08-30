@@ -156,15 +156,27 @@ export async function POST(req: NextRequest) {
       // raw provider message — show a neutral retry prompt instead.
       const message =
         upstream.status >= 500
-          ? isOfframp
-            ? "Selling isn't available right now — please try again shortly."
-            : "This isn't available right now — please try again shortly."
+          ? "The provider is temporarily unavailable to complete this request. Please try again in a few minutes."
           : data && typeof data === "object" && "message" in data
             ? String((data as Record<string, unknown>).message)
             : data && typeof data === "object" && "error" in data
               ? String((data as Record<string, unknown>).error)
               : `Chainrails order failed (${upstream.status}).`;
       return NextResponse.json({ error: message }, { status: upstream.status });
+    }
+    // Success: log the response SHAPE (top-level keys + any URL-looking values)
+    // so we can confirm what the provider actually names the checkout link. The
+    // URLs are hosted-checkout links, not PII, so they're safe to log.
+    if (data && typeof data === "object") {
+      const obj = data as Record<string, unknown>;
+      const urls: Record<string, string> = {};
+      for (const [k, v] of Object.entries(obj))
+        if (typeof v === "string" && /^https?:\/\//i.test(v)) urls[k] = v;
+      console.log(
+        `[chainrails ramp order] ${type} created — keys: ${JSON.stringify(
+          Object.keys(obj)
+        )}${Object.keys(urls).length ? ` urls: ${JSON.stringify(urls)}` : ""}`
+      );
     }
     return NextResponse.json(data, { status: 201 });
   } catch {

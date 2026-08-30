@@ -65,7 +65,58 @@ type RampOrder = {
   widgetUrl?: string;
   expiresAt?: string;
   providerTxHash?: string | null;
+  /** Bank-transfer providers (e.g. PAYCREST) return the account to pay into here
+   *  instead of a hosted checkout URL. */
+  transferInstructions?: TransferInstructions;
 };
+
+/** The bank account the buyer transfers fiat to, straight from the provider. */
+type TransferInstructions = {
+  currency?: string;
+  accountName?: string;
+  institution?: string;
+  amountToTransfer?: string;
+  accountIdentifier?: string;
+};
+
+/**
+ * The hosted-checkout link the user opens to pay. ChainRails/its providers name
+ * it differently across versions (widgetUrl, checkoutUrl, paymentUrl…) and
+ * sometimes nest it, so we scan the likely spots and take the first real http(s)
+ * URL rather than trusting one key — same defensive approach as the sell flow's
+ * deposit-amount pick. The server logs the real key on success if this misses.
+ */
+function pickCheckoutUrl(order: unknown): string | undefined {
+  if (!order || typeof order !== "object") return undefined;
+  const obj = order as Record<string, unknown>;
+  const keys = [
+    "widgetUrl",
+    "checkoutUrl",
+    "paymentUrl",
+    "redirectUrl",
+    "hostedUrl",
+    "paymentLink",
+    "checkoutLink",
+    "url",
+    "link",
+  ];
+  const asUrl = (v: unknown) =>
+    typeof v === "string" && /^https?:\/\//i.test(v) ? v : undefined;
+  for (const k of keys) {
+    const u = asUrl(obj[k]);
+    if (u) return u;
+  }
+  // One level of nesting (e.g. checkout.url, payment.link).
+  for (const v of Object.values(obj)) {
+    if (v && typeof v === "object") {
+      for (const k of keys) {
+        const u = asUrl((v as Record<string, unknown>)[k]);
+        if (u) return u;
+      }
+    }
+  }
+  return undefined;
+}
 
 /** Cached so a refresh resumes the same order instead of creating another. */
 type CachedOrder = {
@@ -115,15 +166,20 @@ export function ChainrailsStatus({
   intent,
   onDone,
   onStartNew,
+  onBack,
 }: {
   intent: Intent;
   onDone: () => void;
   /** Start a fresh purchase (→ the Buy page). Falls back to onDone. */
   onStartNew?: () => void;
+  /** Step back to where this was opened from (e.g. History) instead of clearing
+   *  the order. Falls back to onDone when the parent gives no back handler. */
+  onBack?: () => void;
 }) {
   const exec = intent.quote.exec;
   const ramp = exec.chainrailsRamp;
   const startNew = onStartNew ?? onDone;
+  const goBack = onBack ?? onDone;
 
   const [orderId, setOrderId] = useState<string | null>(null);
   const [widgetUrl, setWidgetUrl] = useState<string | null>(null);
@@ -202,6 +258,9 @@ export function ChainrailsStatus({
             destinationChain,
             recipientAddress: exec.recipient,
             countryCode: ramp.countryCode,
+            // userEmail is a TOP-LEVEL KYC field — PAYCREST 400s without it.
+            // From the quote's ramp intent, falling back to the saved email.
+            userEmail: ramp.userEmail?.trim() || loadSavedEmail(),
             ...(ramp.paymentChannelId
               ? { paymentChannelId: ramp.paymentChannelId }
               : {}),
@@ -220,10 +279,11 @@ export function ChainrailsStatus({
         // Persist FIRST, regardless of mount state: the order now exists
         // upstream, so it must reach the cache + History even if this effect was
         // torn down (React StrictMode remounts in dev, setting `cancelled`).
+        const checkoutUrl = pickCheckoutUrl(data);
         writeCache({
           key: purchaseKey,
           id,
-          widgetUrl: data.widgetUrl,
+          widgetUrl: checkoutUrl,
           createdAt: Date.now(),
           expiresAt: data.expiresAt,
         });
@@ -246,7 +306,7 @@ export function ChainrailsStatus({
         // early on `startedRef`, so this (first) run must set state on the live
         // instance. A setState after a real unmount is a harmless no-op in R18.
         setOrderId(id);
-        setWidgetUrl(data.widgetUrl ?? null);
+        setWidgetUrl(checkoutUrl ?? null);
         setOrder(data);
         setPhase(classifyRampStatus(data.status));
       } catch (err) {
@@ -283,8 +343,8 @@ export function ChainrailsStatus({
         setOrder(data);
         setPhase(classifyRampStatus(data.status));
         // Resumed orders start without a checkout URL — adopt it from the order.
-        if (data.widgetUrl)
-          setWidgetUrl((cur) => cur ?? data.widgetUrl ?? null);
+        const polledUrl = pickCheckoutUrl(data);
+        if (polledUrl) setWidgetUrl((cur) => cur ?? polledUrl);
       },
       onSettled: (data, settledPhase) => {
         if (data) setOrder(data);
@@ -293,6 +353,16 @@ export function ChainrailsStatus({
     });
     return () => handle.stop();
   }, [polling, orderId]);
+
+  const hasTransfer = !!order?.transferInstructions?.accountIdentifier;
+  // Once an order exists but we can't act yet, poll to fetch what we need.
+  // Bank-transfer providers return the account a beat after creation (via the
+  // order, not the create response), so without this the screen would sit on a
+  // dead fallback. Checkout providers already carry their URL in the response,
+  // so this leaves them to wait for the user to open it, as before.
+  useEffect(() => {
+    if (orderId && !widgetUrl && !isRampPhaseTerminal(phase)) setPolling(true);
+  }, [orderId, widgetUrl, phase]);
 
   // Terminal orders shouldn't be resumed from cache on the next visit.
   useEffect(() => {
@@ -367,15 +437,20 @@ export function ChainrailsStatus({
   // Plain-language steps (mirrors the Paycrest progress panel).
   const steps: { l: string; d: string }[] = [
     { l: "Order created", d: "Your quote is locked and the order is set up." },
-    {
-      l: "Pay in the checkout",
-      d: "Complete the payment in the provider's secure checkout tab.",
-    },
+    hasTransfer
+      ? {
+          l: "Send the bank transfer",
+          d: "Transfer the exact amount to the account shown.",
+        }
+      : {
+          l: "Pay in the checkout",
+          d: "Complete the payment in the provider's secure checkout tab.",
+        },
     {
       l: "Confirming payment",
       d: "We'll confirm your payment and send your USDC.",
     },
-    { l: "Received", d: `USDC delivered to your wallet on ${chainName}.` },
+    { l: "Received", d: `Funds delivered to your ${chainName} wallet.` },
   ];
   // Base the timeline on the REAL state, not an optimistic default: nothing is
   // "done" until the order actually exists (has an id).
@@ -403,6 +478,24 @@ export function ChainrailsStatus({
   // showing figures the user can no longer act on.
   const isTerminalFailure =
     !!error || phase === "expired" || phase === "failed";
+  // Bank-transfer providers pay via an account, not a checkout — show the
+  // instructions while we wait for the payment, in place of a checkout button.
+  const instructions = order?.transferInstructions;
+  const showTransfer =
+    !!instructions?.accountIdentifier &&
+    orderCreated &&
+    !isTerminalFailure &&
+    !done &&
+    phase !== "processing";
+  // Order created, but the provider hasn't returned how to pay yet (no checkout
+  // URL, no bank account) — we're polling for it.
+  const awaitingDetails =
+    orderCreated &&
+    !widgetUrl &&
+    !hasTransfer &&
+    !isTerminalFailure &&
+    !done &&
+    phase !== "processing";
   const failView: { chip: string; body: string; note?: string } = error
     ? { chip: "Stalled", body: error }
     : phase === "expired"
@@ -421,18 +514,39 @@ export function ChainrailsStatus({
     <div className="cr-status col">
       <button
         className="btn btn-quiet btn-sm"
-        onClick={onDone}
+        onClick={goBack}
         style={{ padding: "0 8px", alignSelf: "flex-start", marginBottom: 4 }}
       >
         <Icon.Arrow rotate={180} size={12} /> Back
       </button>
-      <header className="cr-status-header col">
-        <span className="row center gap-2">
-          <span className="eyebrow">Status</span>
-          {isTerminalFailure && (
-            <span className="chip chip-err">{failView.chip}</span>
+      <div className="col" style={{ gap: 6 }}>
+        {/* Full-width status row so the expiry pill reaches the box's right edge
+            (the header below is capped narrower for readable title/subtitle). */}
+        <div className="row between center" style={{ gap: 12 }}>
+          <span className="row center gap-2">
+            <span className="eyebrow">Status</span>
+            {isTerminalFailure && (
+              <span className="chip chip-err">{failView.chip}</span>
+            )}
+          </span>
+          {!terminal && expiresIn && (
+            <span
+              className="font-mono tabular"
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: "var(--pend)",
+                background: "var(--pend-soft)",
+                borderRadius: 999,
+                padding: "4px 11px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Expires in {expiresIn}
+            </span>
           )}
-        </span>
+        </div>
+        <header className="cr-status-header col">
         <h1
           style={{
             fontSize: "clamp(32px, 4vw, 44px)",
@@ -451,10 +565,15 @@ export function ChainrailsStatus({
           <span className="muted" style={{ fontSize: 14, lineHeight: 1.4 }}>
             {!orderCreated
               ? "Locking your quote and creating the order."
-              : view.subtitle(cryptoLabel, chainName)}
+              : awaitingDetails
+                ? "Getting your payment details — just a moment."
+                : showTransfer
+                  ? `Send the bank transfer below to receive your ${cryptoCurrency} on ${chainName}.`
+                  : view.subtitle(cryptoCurrency, chainName)}
           </span>
         )}
-      </header>
+        </header>
+      </div>
 
       <div className="cr-status-grid">
         {/* Left — two amount cards, action, order reference */}
@@ -500,6 +619,10 @@ export function ChainrailsStatus({
               </span>
             </div>
           </div>
+
+          {showTransfer && instructions && (
+            <TransferInstructions info={instructions} />
+          )}
 
           {isTerminalFailure && (
             <div
@@ -556,13 +679,42 @@ export function ChainrailsStatus({
             >
               Continue your order <Icon.ArrowRight />
             </a>
-          ) : (
-            <button
-              className="btn btn-primary cr-status-action"
-              onClick={startNew}
+          ) : showTransfer ? (
+            // Bank transfer: the instructions above ARE the action. Just reassure
+            // that we're watching for the payment.
+            <div
+              className="row center gap-2"
+              style={{
+                justifyContent: "center",
+                fontSize: 12.5,
+                color: "var(--fg-soft)",
+              }}
             >
-              Start new order <Icon.ArrowRight />
-            </button>
+              <Icon.Spinner size={13} />
+              <span>
+                Waiting for your transfer — your {cryptoCurrency} will be released
+                once received.
+              </span>
+            </div>
+          ) : (
+            // Order exists but the provider hasn't returned the payment details
+            // yet (checkout URL or bank account) — we're polling for them. Show a
+            // loading beat, never a dead "Start new order".
+            <div
+              className="row center gap-2"
+              style={{
+                justifyContent: "center",
+                fontSize: 12.5,
+                color: "var(--fg-soft)",
+              }}
+            >
+              <Icon.Spinner size={13} />
+              <span>
+                {orderCreated
+                  ? "Getting your payment details…"
+                  : "Setting up your order…"}
+              </span>
+            </div>
           )}
 
           {txUrl && (
@@ -579,30 +731,16 @@ export function ChainrailsStatus({
 
           {polling && !terminal && (
             <button
-              className="btn btn-quiet btn-sm"
+              className="btn btn-primary"
               onClick={() => void checkNow()}
               style={{ alignSelf: "center" }}
             >
-              Check status
+              <Icon.Check size={14} /> I&apos;ve sent the funds
             </button>
           )}
 
           {orderId && (
-            <div
-              className="cr-status-ref"
-              style={{
-                justifyContent:
-                  !terminal && expiresIn ? "space-between" : "center",
-              }}
-            >
-              {!terminal && expiresIn && (
-                <span
-                  className="font-mono tabular"
-                  style={{ color: "var(--pend)" }}
-                >
-                  Expires in {expiresIn}
-                </span>
-              )}
+            <div className="cr-status-ref" style={{ justifyContent: "center" }}>
               <CopyableOrderId id={orderId} />
             </div>
           )}
@@ -759,6 +897,113 @@ function shortAddr(a: string): string {
 }
 
 /** Order number that copies to the clipboard on tap — useful for support. */
+/** The bank account the buyer transfers fiat into — the real action for
+ *  bank-transfer providers (no checkout tab). Each value copies on tap so
+ *  nobody hand-types an account number. */
+function TransferInstructions({ info }: { info: TransferInstructions }) {
+  const currency = info.currency ?? "";
+  const amount = info.amountToTransfer
+    ? `${Number(info.amountToTransfer).toLocaleString()} ${currency}`.trim()
+    : "";
+  return (
+    <div className="card col gap-3" style={{ padding: 18 }}>
+      <div className="col gap-1">
+        <span className="eyebrow">Send this transfer</span>
+        <span className="muted" style={{ fontSize: 12, lineHeight: 1.45 }}>
+          Transfer exactly {amount || "the amount"} from your own bank account to
+          the account below. The amount must match for your USDC to be released.
+        </span>
+      </div>
+      <div className="col gap-2">
+        <InstructionRow
+          label="Amount"
+          value={amount || "—"}
+          copyText={info.amountToTransfer}
+          strong
+        />
+        <InstructionRow label="Bank" value={info.institution ?? "—"} />
+        <InstructionRow
+          label="Account number"
+          value={info.accountIdentifier ?? "—"}
+          copyText={info.accountIdentifier}
+          strong
+        />
+        <InstructionRow label="Account name" value={info.accountName ?? "—"} />
+      </div>
+    </div>
+  );
+}
+
+function InstructionRow({
+  label,
+  value,
+  copyText,
+  strong,
+}: {
+  label: string;
+  value: string;
+  copyText?: string;
+  strong?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div
+      className="row between center"
+      style={{
+        gap: 12,
+        padding: "10px 12px",
+        background: "var(--bg-soft)",
+        border: "1px solid var(--line)",
+        borderRadius: 10,
+      }}
+    >
+      <span className="muted" style={{ fontSize: 12, flex: "0 0 auto" }}>
+        {label}
+      </span>
+      <span className="row center gap-2" style={{ minWidth: 0 }}>
+        <span
+          className="font-mono"
+          style={{
+            fontSize: strong ? 14 : 13,
+            fontWeight: strong ? 600 : 400,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {value}
+        </span>
+        {copyText && (
+          <button
+            type="button"
+            onClick={() =>
+              navigator.clipboard
+                ?.writeText(copyText)
+                .then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1200);
+                })
+                .catch(() => {})
+            }
+            aria-label={`Copy ${label.toLowerCase()}`}
+            style={{
+              background: "transparent",
+              border: 0,
+              padding: 0,
+              cursor: "pointer",
+              color: "var(--fg-mute)",
+              display: "inline-flex",
+              flex: "0 0 auto",
+            }}
+          >
+            {copied ? <Icon.Check size={13} /> : <Icon.Copy size={13} />}
+          </button>
+        )}
+      </span>
+    </div>
+  );
+}
+
 function CopyableOrderId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -817,7 +1062,7 @@ const PHASE_VIEW: Record<
   },
   completed: {
     title: "Received.",
-    subtitle: (c, ch) => `${c} was delivered to your wallet on ${ch}.`,
+    subtitle: (_c, ch) => `Funds delivered to your ${ch} wallet.`,
   },
   expired: {
     title: "Payment window expired",
