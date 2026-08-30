@@ -224,7 +224,6 @@ export default function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { patchUrl } = useSwapFlowNav();
-  const onBack = () => router.push("/");
   const isMobile = useIsMobile();
 
   // Navigation is mirrored in the URL so refresh keeps the current screen.
@@ -369,6 +368,26 @@ export default function AppShell() {
     patchUrl({ status: null, step: null });
   };
 
+  // Global "Back" chrome — step up ONE level instead of jumping to the landing
+  // page. A status screen (often opened from History via a pushed URL) goes back
+  // to wherever opened it; History/Recipients go to the app home; a sub-flow goes
+  // to the chooser; only the bare home leaves the app to the landing page.
+  const onBack = () => {
+    if (showStatus) {
+      router.back();
+      return;
+    }
+    if (flow) {
+      backToChooser();
+      return;
+    }
+    if (view !== "send") {
+      goToView("send");
+      return;
+    }
+    router.push("/");
+  };
+
   // Bridge/Swap uses the swap card; "describe" is the NL path; cash out /
   // buy are guided fiat flows. All converge on Review → StatusScreen.
   const flowBody = () => {
@@ -399,6 +418,7 @@ export default function AppShell() {
       intent={recentIntent}
       onDone={finishStatus}
       onStartNew={() => pickFlow("buy")}
+      onBack={onBack}
     />
   ) : (
     flowBody()
@@ -671,15 +691,18 @@ function NavContent({
 
       <div style={{ flex: 1 }} />
 
-      {/* Network mode chip — reads from NEXT_PUBLIC_NETWORK */}
-      <div className="card row center between" style={{ padding: "10px 12px" }}>
-        <span
-          className="row center gap-2"
-          style={{ fontSize: 12, color: "var(--fg-soft)" }}
-        >
-          <Icon.Globe size={12} /> {IS_TESTNET ? "Testnet" : "Mainnet"}
-        </span>
-      </div>
+      {/* Testnet-only warning chip. On mainnet it's just wasted space, so we
+          drop it and keep the badge purely as a "you're on testnet" safety cue. */}
+      {IS_TESTNET && (
+        <div className="card row center between" style={{ padding: "10px 12px" }}>
+          <span
+            className="row center gap-2"
+            style={{ fontSize: 12, color: "var(--fg-soft)" }}
+          >
+            <Icon.Globe size={12} /> Testnet
+          </span>
+        </div>
+      )}
     </>
   );
 }
