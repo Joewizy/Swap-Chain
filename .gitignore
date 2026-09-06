@@ -45,6 +45,9 @@ next-env.d.ts
 apps/web/src/app/api/api.rest
 todo
 
+# local-only check/test scripts (kept on disk, never committed)
+apps/web/scripts/
+
 # Expo / React Native (apps/mobile)
 .expo/
 *.orig.*
