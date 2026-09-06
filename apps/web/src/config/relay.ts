@@ -1,8 +1,6 @@
 import {
   ASSETS_RELAY_API,
   convertViemChainToRelayChain,
-  MAINNET_RELAY_API,
-  TESTNET_RELAY_API,
   type RelayChain,
 } from "@relayprotocol/relay-sdk";
 import type { RelayKitTheme } from "@relayprotocol/relay-kit-ui";
@@ -14,8 +12,22 @@ import {
 } from "./network";
 import { SOLANA_RPC } from "./solana";
 
-/** Relay API base URL for the active network mode. */
-export const RELAY_API = IS_MAINNET ? MAINNET_RELAY_API : TESTNET_RELAY_API;
+/**
+ * Browser-facing Relay base URL. Points at our same-origin proxy
+ * (`/api/relay/*`), which forwards to the real Relay API with the secret
+ * API key attached server-side — the key must never reach the browser.
+ * The Relay client builds every request (quotes, chains, execution status)
+ * from this base, so proxying here covers the whole widget.
+ *
+ * It must be an ABSOLUTE URL: the widget's hooks build request URLs with
+ * `new URL(`${baseApiUrl}/chains`)`, which throws on a relative path. We
+ * anchor it to the live origin in the browser; the server-side placeholder
+ * is never used to fetch (the widget only runs client-side).
+ */
+export const RELAY_API =
+  typeof window !== "undefined"
+    ? `${window.location.origin}/api/relay`
+    : "/api/relay";
 
 /** EVM chains from our registry, in Relay's chain shape for RelayKitProvider. */
 const RELAY_EVM_CHAINS = ACTIVE_CHAINS.filter(

@@ -16,6 +16,10 @@ const RELAY_API = IS_MAINNET
   ? "https://api.relay.link"
   : "https://api.testnets.relay.link";
 
+// Relay requires an API key on its API calls. This route is server-side, so
+// we call Relay directly and attach the secret key here.
+const RELAY_API_KEY = process.env.RELAY_API_KEY;
+
 export async function POST(request: NextRequest) {
   try {
     const {
@@ -103,7 +107,10 @@ export async function POST(request: NextRequest) {
 
     const quoteResponse = await fetch(`${RELAY_API}/quote`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(RELAY_API_KEY ? { "x-api-key": RELAY_API_KEY } : {}),
+      },
       body: JSON.stringify({
         user: userAddress,
         recipient: destination.kind === "solana" ? recipient : undefined,
