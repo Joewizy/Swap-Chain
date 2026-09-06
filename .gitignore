@@ -46,6 +46,9 @@ apps/web/src/app/api/api.rest
 todo
 scripts
 
+# local-only check/test scripts (kept on disk, never committed)
+apps/web/scripts/
+
 # Expo / React Native (apps/mobile)
 .expo/
 *.orig.*

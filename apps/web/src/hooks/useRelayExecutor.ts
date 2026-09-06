@@ -6,11 +6,11 @@ import {
   useSignMessage,
   useSwitchChain,
 } from "wagmi";
-import { IS_MAINNET } from "@/config/network";
-
-const RELAY_API = IS_MAINNET
-  ? "https://api.relay.link"
-  : "https://api.testnets.relay.link";
+// Runs in the browser, so it can't hold the Relay API key. It talks to Relay
+// through our same-origin proxy, which attaches the key server-side. Relay's
+// step endpoints (status checks, signature submits) are relative paths, so
+// `/api/relay` + endpoint resolves to the proxy.
+const RELAY_API = "/api/relay";
 
 export interface RelayStep {
   id: string;
